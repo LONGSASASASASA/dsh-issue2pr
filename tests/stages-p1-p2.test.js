@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import p1 from "../lib/stages/p1-issue-analyzer.js";
 import p2 from "../lib/stages/p2-search.js";
-import { readTriggerText, listRepoFiles } from "../lib/stages/helpers.js";
+import { readTriggerText, listRepoFiles, readRepoFile } from "../lib/stages/helpers.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-stg-"));
 const repoDir = join(root, "repo");
@@ -34,6 +34,15 @@ test("helpers：readTriggerText 读本地文件；listRepoFiles 排除 .git", as
   const files = listRepoFiles(repoDir);
   assert.ok(files.includes("src/auth/session.ts"));
   assert.ok(!files.some((f) => f.includes(".git")));
+});
+
+test("helpers：readRepoFile 拒绝 .. 逃逸与绝对路径，正常相对路径照读", () => {
+  assert.equal(readRepoFile(repoDir, "../outside.txt"), "(非法路径)");
+  assert.equal(readRepoFile(repoDir, "..\\..\\etc\\passwd"), "(非法路径)");
+  assert.equal(readRepoFile(repoDir, "src/../secret.ts"), "(非法路径)");
+  assert.equal(readRepoFile(repoDir, "C:\\Windows\\win.ini"), "(非法路径)");
+  assert.equal(readRepoFile(repoDir, "/etc/hosts"), "(非法路径)");
+  assert.match(readRepoFile(repoDir, "src/auth/session.ts"), /restoreSession/);
 });
 
 test("P1：产出 01-issue-analysis.json 且契约键齐全", async () => {

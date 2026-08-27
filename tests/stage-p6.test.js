@@ -18,9 +18,11 @@ const TASK_GRAPH = JSON.stringify({ nodes: [
 
 function llmSequence(seq) {
   let i = 0;
+  const calls = [];
   return {
-    completeJson: async () => JSON.parse(seq[Math.min(i++, seq.length - 1)]),
-    complete: async () => "--- a/src/guard.ts\n+++ b/src/guard.ts\n@@ -1 +1 @@\n-restoreSession();\n+await restoreSession();",
+    completeJson: async (req) => { calls.push({ kind: "json", ...req }); return JSON.parse(seq[Math.min(i++, seq.length - 1)]); },
+    complete: async (req) => { calls.push({ kind: "text", ...req }); return "--- a/src/guard.ts\n+++ b/src/guard.ts\n@@ -1 +1 @@\n-restoreSession();\n+await restoreSession();"; },
+    calls,
   };
 }
 
@@ -39,6 +41,10 @@ test("builtin：每节点一份 diff + coder-report，planner/coder/reviewer 都
   const report = JSON.parse(readFileSync(join(runDir, "06-implementation", "coder-report.json"), "utf8"));
   assert.equal(report.mode, "builtin");
   assert.equal(report.reviewer.verdict, "pass");
+  // reviewer 必须收到 diff 文本内容（而非仅 patch 路径清单）——P6 门控可信
+  const reviewerCall = llm.calls.find((c) => c.kind === "json" && String(c.user).includes("【diff 清单】"));
+  assert.ok(reviewerCall, "应发生 reviewer 调用");
+  assert.match(reviewerCall.user, /restoreSession/, "reviewer prompt 应包含 coder 产出的 diff 内容特征串");
 });
 
 test("builtin：reviewer fail → 抛错（交给 P10）", async () => {
