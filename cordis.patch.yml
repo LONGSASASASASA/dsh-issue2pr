@@ -1,0 +1,4 @@
+# dsh-issue2pr bundle patch：向宿主 cordis 注册 node 半
+- insert:
+    - id: issue2pr
+      name: dsh-issue2pr
