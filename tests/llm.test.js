@@ -29,6 +29,11 @@ test("completeJson：两次都失败 → 抛契约解析失败", async () => {
   await assert.rejects(() => llm.completeJson({ system: "s", user: "u", required: ["x"] }), /契约解析失败/);
 });
 
+test("completeJson：输出为标量（非对象）→ 抛契约解析失败", async () => {
+  const llm = makeLlm(fakeCtx(["42"]));
+  await assert.rejects(() => llm.completeJson({ system: "s", user: "u", required: ["x"] }), /契约解析失败/);
+});
+
 test("complete：拼接 text-delta", async () => {
   const llm = makeLlm(fakeCtx(["hello world"]));
   assert.equal(await llm.complete({ system: "s", user: "u" }), "hello world");
