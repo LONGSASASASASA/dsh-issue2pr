@@ -761,6 +761,8 @@ window.__ModuleLoader__.load({
 			const p = props;
 			const [selFile, setSelFile] = React.useState(null);
 			const [fileText, setFileText] = React.useState(null);
+			const fileRef = React.useRef(null); // 竞态守卫：记录当前选中文件
+			React.useEffect(function () { fileRef.current = selFile; }, [selFile]);
 
 			React.useEffect(function () {
 				setSelFile(null); setFileText(null);
@@ -772,9 +774,12 @@ window.__ModuleLoader__.load({
 			}
 
 			const pick = function (path) {
+				fileRef.current = path;
 				setSelFile(path); setFileText(null);
 				apiGet("/projects/" + p.slug + "/runs/" + p.runId + "/artifact?path=" + encodeURIComponent(path))
 					.then(function (r) {
+						// 只采纳仍选中该文件时的响应（防乱序覆盖）
+						if (fileRef.current !== path) return;
 						if (r && r.ok) setFileText(r.text);
 						else p.toast((r && r.message) || "读取产物失败", "bad");
 					})
@@ -853,6 +858,12 @@ window.__ModuleLoader__.load({
 			const [run, setRun] = React.useState(null);
 			const [tree, setTree] = React.useState(null);
 
+			// 竞态守卫键：始终反映最新的 slug/runId，异步响应到达时比对，
+			// 不匹配则丢弃（防止旧项目的 runs/run/tree 响应覆盖新选择）
+			const ctxRef = React.useRef({ slug: null, runId: null });
+			ctxRef.current.slug = selSlug;
+			ctxRef.current.runId = selRunId;
+
 			const toastFn = React.useCallback(function (msg, kind) {
 				setToast({ msg: msg, kind: kind || "ok" });
 			}, []);
@@ -875,9 +886,12 @@ window.__ModuleLoader__.load({
 			React.useEffect(function () {
 				setSelRunId(null); setRun(null); setTree(null);
 				if (!selSlug) { setRuns(null); return; }
+				const slug = selSlug;
 				setRuns(null);
-				apiGet("/projects/" + selSlug + "/runs").then(function (r) {
+				apiGet("/projects/" + slug + "/runs").then(function (r) {
 					if (!r || !r.ok) return;
+					// 响应时用户已切到别的项目 → 丢弃旧项目的 runs 回填
+					if (ctxRef.current.slug !== slug) return;
 					setRuns(r.runs || []);
 					// 函数式设置：若期间已显式选了 run（如刚发起的新 run），不覆盖
 					setSelRunId(function (prev) {
@@ -901,33 +915,41 @@ window.__ModuleLoader__.load({
 				return function () { stale = true; };
 			}, [selSlug, selRunId]);
 
-			// 3s 轮询 run 摘要 / 详细 / 产物树（卸载时清理）
+			// 3s 轮询 run 摘要 / 详细 / 产物树（卸载时清理；响应按最新 slug/runId 守卫）
 			React.useEffect(function () {
 				if (!selSlug) return;
+				const slug = selSlug, runId = selRunId;
 				const timer = setInterval(function () {
-					apiGet("/projects/" + selSlug + "/runs").then(function (r) {
-						if (r && r.ok) setRuns(r.runs || []);
+					apiGet("/projects/" + slug + "/runs").then(function (r) {
+						if (r && r.ok && ctxRef.current.slug === slug) setRuns(r.runs || []);
 					});
-					if (selRunId) {
-						apiGet("/projects/" + selSlug + "/runs/" + selRunId).then(function (r) {
-							if (r && r.id) setRun(r);
+					if (runId) {
+						apiGet("/projects/" + slug + "/runs/" + runId).then(function (r) {
+							if (r && r.id && ctxRef.current.slug === slug && ctxRef.current.runId === runId) setRun(r);
 						});
-						apiGet("/projects/" + selSlug + "/runs/" + selRunId + "/tree").then(function (r) {
-							if (r && r.ok) setTree(r.files);
+						apiGet("/projects/" + slug + "/runs/" + runId + "/tree").then(function (r) {
+							if (r && r.ok && ctxRef.current.slug === slug && ctxRef.current.runId === runId) setTree(r.files);
 						});
 					}
 				}, 3000);
 				return function () { clearInterval(timer); };
 			}, [selSlug, selRunId]);
 
-			// 复核/回滚等动作后立即刷新（不等轮询）
+			// 复核等动作后立即刷新（不等轮询；响应同样按最新 slug/runId 守卫）
 			const refreshNow = React.useCallback(function () {
-				if (selSlug) {
-					apiGet("/projects/" + selSlug + "/runs").then(function (r) { if (r && r.ok) setRuns(r.runs || []); });
+				const slug = selSlug, runId = selRunId;
+				if (slug) {
+					apiGet("/projects/" + slug + "/runs").then(function (r) {
+						if (r && r.ok && ctxRef.current.slug === slug) setRuns(r.runs || []);
+					});
 				}
-				if (selSlug && selRunId) {
-					apiGet("/projects/" + selSlug + "/runs/" + selRunId).then(function (r) { if (r && r.id) setRun(r); });
-					apiGet("/projects/" + selSlug + "/runs/" + selRunId + "/tree").then(function (r) { if (r && r.ok) setTree(r.files); });
+				if (slug && runId) {
+					apiGet("/projects/" + slug + "/runs/" + runId).then(function (r) {
+						if (r && r.id && ctxRef.current.slug === slug && ctxRef.current.runId === runId) setRun(r);
+					});
+					apiGet("/projects/" + slug + "/runs/" + runId + "/tree").then(function (r) {
+						if (r && r.ok && ctxRef.current.slug === slug && ctxRef.current.runId === runId) setTree(r.files);
+					});
 				}
 			}, [selSlug, selRunId]);
 
@@ -940,7 +962,9 @@ window.__ModuleLoader__.load({
 				setSelSlug(slug);
 				setSelRunId(runId);
 				setTab("runs");
-				apiGet("/projects/" + slug + "/runs").then(function (r) { if (r && r.ok) setRuns(r.runs || []); });
+				apiGet("/projects/" + slug + "/runs").then(function (r) {
+					if (r && r.ok && ctxRef.current.slug === slug) setRuns(r.runs || []);
+				});
 			}, []);
 
 			const awaitingCount = (runs || []).filter(function (r) { return r.status === "awaiting_review"; }).length;
