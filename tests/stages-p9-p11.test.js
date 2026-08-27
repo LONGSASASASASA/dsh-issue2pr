@@ -14,6 +14,7 @@ function runDir() {
   writeFileSync(join(d, "06-implementation", "patches", "0001-a.diff"), "--- a/a\n+++ b/a\n@@ -1 +1 @@\n-x\n+y\n");
   writeFileSync(join(d, "07-test-report.json"), JSON.stringify({ passed: true, exitCode: 0 }));
   writeFileSync(join(d, "01-issue-analysis.json"), JSON.stringify({ phenomenon: "刷新退出" }));
+  writeFileSync(join(d, "06-implementation", "coder-report.json"), JSON.stringify({ mode: "builtin", patches: [{ node: "T1", file: "a", patch: "06-implementation/patches/0001-a.diff" }] }));
   return d;
 }
 const passLlm = {
@@ -24,10 +25,16 @@ const passLlm = {
 
 test("P9：三维门控产出 08-review-report.json", async () => {
   const d = runDir();
-  const r = await p9({ runDir: d, llm: passLlm, reviewComment: "" });
+  let captured = "";
+  const llm = { ...passLlm, completeJson: async (q) => { captured = q.user; return passLlm.completeJson(q); } };
+  const r = await p9({ runDir: d, llm, reviewComment: "" });
   assert.equal(r.artifact, "08-review-report.json");
   const saved = JSON.parse(readFileSync(join(d, r.artifact), "utf8"));
   assert.equal(saved.verdict, "pass");
+  // 修复轮：真实 diff 内容必须进入 prompt（Diff 范围裁决不许盲审）
+  assert.match(captured, /【Diff 全文】/);
+  assert.match(captured, /0001-a\.diff/);
+  assert.match(captured, /\+y/);
 });
 
 test("P9：verdict=fail 抛错", async () => {
