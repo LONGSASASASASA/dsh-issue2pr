@@ -45,6 +45,20 @@ test("key-only 模式：P1 直过，P5 停", async () => {
   assert.equal(isGate(run, "P1"), false);
 });
 
+test("awaiting_review 时再调 advance 不重跑门阶段", async () => {
+  const { runDir, run } = freshRun("every");
+  let calls = 0;
+  const counted = { ...okExecutors, P1: async () => { calls += 1; return { artifact: "P1.json" }; } };
+  const rcx = { runDir, run, executors: counted, log() {} };
+  await advance(rcx);
+  assert.equal(run.stages.P1.status, "awaiting_review");
+  assert.equal(calls, 1);
+  await advance(rcx); // 复核前再次推进：应被防护拦下，不得重跑
+  assert.equal(run.stages.P1.status, "awaiting_review");
+  assert.equal(calls, 1);
+  assert.equal(run.status, "awaiting_review");
+});
+
 test("auto 模式：跑完全程 completed", async () => {
   const { runDir, run } = freshRun("auto");
   const rcx = { runDir, run, executors: okExecutors, log() {} };
