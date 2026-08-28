@@ -52,3 +52,9 @@ test("createRun 建目录骨架；writeArtifact 拒绝 ..；listRunTree 递归",
 test("readArtifact 不存在返回 null", () => {
   assert.equal(store.readArtifact(root, "a/b/c.txt"), null);
 });
+
+test("createRun 同秒冲突：同一 trigger 连续两次创建抛 Run 已存在", () => {
+  store.saveProject(root, { name: "c", slug: "c", repos: ["r"], triggers: [], reviewMode: "every", p6Mode: "builtin" });
+  store.createRun(root, "c", { kind: "issue", uri: "dup.md" });
+  assert.throws(() => store.createRun(root, "c", { kind: "issue", uri: "dup.md" }), /Run 已存在/);
+});
