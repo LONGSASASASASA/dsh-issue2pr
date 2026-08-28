@@ -85,3 +85,14 @@ test("resolveRoute：currentSelection 抛错 → 回退 getConfig 路径", async
   assert.equal(seen.provider, "cfg-p");
   assert.equal(seen.model, "cfg-m");
 });
+
+// —— E2E 修复：Message.content 必须是 ContentBlock[]，字符串会触发适配器 content.some 异常 ——
+test("complete：messages[0].content 为 text 块数组（dsh-llm Message 契约）", async () => {
+  let seen = null;
+  const ctx = { llm: { async *stream(opts) { seen = opts; yield { type: "text-delta", index: 0, text: "ok" }; yield { type: "finish", reason: "stop" }; } } };
+  await makeLlm(ctx).complete({ system: "s", user: "我的需求" });
+  assert.equal(seen.messages.length, 1);
+  assert.equal(seen.messages[0].role, "user");
+  assert.ok(Array.isArray(seen.messages[0].content), "content 必须是数组");
+  assert.deepEqual(seen.messages[0].content, [{ type: "text", text: "我的需求" }]);
+});
