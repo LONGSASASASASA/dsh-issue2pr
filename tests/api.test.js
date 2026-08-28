@@ -81,3 +81,30 @@ test("API：非法 slug / 缺字段 400；artifact 防 ..", async () => {
   r = await call(handler2, "GET", "/issue2pr/api/projects/demo/runs/20260827-200000-x/artifact?path=../../secret");
   assert.equal(r.body.ok, false);
 });
+
+test("API：同秒同触发源重复 POST /runs → 第二次 409（Run 已存在）", async () => {
+  __setTestHooks({ dataRoot: root, executors: {} });
+  const handler2 = (function () { const rs = []; const c2 = fakeCtx(); c2.webServer.register = (s) => rs.push(s); apply(c2); return rs[0].handler; })();
+  let r = await call(handler2, "POST", "/issue2pr/api/projects", {
+    name: "冲突", slug: "dup", repos: ["r"], triggers: [{ kind: "issue", uri: "dup.md" }],
+    reviewMode: "every", p6Mode: "builtin",
+  });
+  assert.equal(r.status, 200);
+  const dupFile = join(root, "dup.md");
+  writeFileSync(dupFile, "重复触发同一触发源");
+  // runId 秒级精度：快速连续 POST，直到两请求落进同一秒（第二次同 runId 必 409）
+  let seen409 = false;
+  for (let i = 0; i < 20 && !seen409; i++) {
+    const a = await call(handler2, "POST", "/issue2pr/api/projects/dup/runs", { kind: "issue", uri: dupFile });
+    assert.equal(a.status, 200);
+    const b = await call(handler2, "POST", "/issue2pr/api/projects/dup/runs", { kind: "issue", uri: dupFile });
+    if (b.status === 409) {
+      seen409 = true;
+      assert.equal(b.body.ok, false);
+      assert.match(b.body.message, /Run 已存在/);
+    } else {
+      assert.equal(b.status, 200); // 落入下一秒则创建新 run，继续下一轮
+    }
+  }
+  assert.ok(seen409, "连续 POST 应能在同秒内观测到 409");
+});

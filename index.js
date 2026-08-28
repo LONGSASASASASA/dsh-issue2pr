@@ -145,7 +145,10 @@ async function handleApi(ctx, root, req, res) {
         let text;
         try { text = await readTriggerText({ trigger }); } // 读触发文本
         catch (e) { return sendJson(res, 400, { ok: false, message: (e && e.message) || String(e) }); }
-        const { runId, runDir } = createRun(root, slug, trigger);
+        let created;
+        try { created = createRun(root, slug, trigger); } // 同秒同触发源重复发起 → Run 已存在 → 409
+        catch (e) { return sendJson(res, 409, { ok: false, message: (e && e.message) || String(e) }); }
+        const { runId, runDir } = created;
         const run = initRun({ runId, slug, trigger: { ...trigger, text }, reviewMode: project.reviewMode, p6Mode: project.p6Mode });
         run.status = "running"; // 发起即进入运行态（drive 只在 running 时推进）
         saveRun(runDir, run);
