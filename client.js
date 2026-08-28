@@ -276,6 +276,18 @@ window.__ModuleLoader__.load({
 .i2p .hint-line{font-size:12px;color:var(--muted);margin:14px 0 0}
 .i2p .hint-line code{font-family:var(--mono);background:var(--surface-3);padding:1px 6px;border-radius:4px;font-size:11px}
 .i2p .empty-hint{color:var(--muted);font-size:13px;padding:18px 0}
+
+/* ---- 侧边栏入口按钮 + 悬浮层（shell.overlay 在 .i2p 作用域外，令牌值内联） ---- */
+.i2p-foot{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:7px 8px;border:0;border-radius:8px;background:transparent;color:inherit;cursor:pointer;font:inherit}
+.i2p-foot:hover{background:rgba(255,255,255,.06)}
+.i2p-foot-label{font-size:13px;white-space:nowrap}
+.i2p-overlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.45)}
+.i2p-overlay-panel{position:absolute;inset:24px;background:#18191b;border:1px solid #31343a;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,.5)}
+.i2p-overlay-head{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #31343a;color:#e8e9eb;font-size:14px;font-weight:600}
+.i2p-overlay-close{border:0;background:transparent;color:#8d919a;cursor:pointer;font-size:14px;padding:4px 10px;border-radius:6px;line-height:1}
+.i2p-overlay-close:hover{background:rgba(255,255,255,.06);color:#e8e9eb}
+.i2p-overlay-body{flex:1;overflow:auto}
+.i2p-overlay-body .i2p{min-height:100%;max-width:none}
 `;
 
 		const tagId = "dsh-issue2pr/styles";
@@ -1034,13 +1046,73 @@ window.__ModuleLoader__.load({
 		}
 
 		/* ================================================================
-		 * apply：注册 settings.section（沿用占位实现）
+		 * 悬浮层开关（sidebar.footer.action 入口 ↔ shell.overlay 共享）
+		 * ================================================================ */
+		const overlayStore = {
+			open: false,
+			listeners: new Set(),
+			set(v) { this.open = v; for (const fn of this.listeners) fn(); },
+			subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
+		};
+		function useOverlayOpen() {
+			const [open, setOpen] = React.useState(overlayStore.open);
+			React.useEffect(() => overlayStore.subscribe(() => setOpen(overlayStore.open)), []);
+			return open;
+		}
+
+		// 侧边栏底部入口按钮（参照 dsh-worktable：sidebar.footer.action 槽位，收拢态只显图标）
+		function FooterEntry(props) {
+			const wide = !!(props && props.wide);
+			return h("button", {
+				type: "button", className: "i2p-foot",
+				onClick: () => overlayStore.set(true),
+				"aria-label": "Issue2PR", title: "Issue2PR",
+			},
+				h("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, "aria-hidden": "true" },
+					h("circle", { cx: 4.5, cy: 3.5, r: 2 }),
+					h("circle", { cx: 4.5, cy: 12.5, r: 2 }),
+					h("circle", { cx: 11.5, cy: 6.5, r: 2 }),
+					h("path", { d: "M4.5 5.5v5M11.5 8.5c0 2.8-3.2 2.4-4.7 3.2" })),
+				wide ? h("span", { className: "i2p-foot-label" }, "Issue2PR") : null);
+		}
+
+		// 悬浮全屏面板（shell.overlay 槽位：未开启时渲染 null，天然点击穿透）
+		function OverlayEntry() {
+			const open = useOverlayOpen();
+			React.useEffect(() => {
+				if (!open) return undefined;
+				const onKey = (e) => { if (e.key === "Escape") overlayStore.set(false); };
+				window.addEventListener("keydown", onKey);
+				return () => window.removeEventListener("keydown", onKey);
+			}, [open]);
+			if (!open) return null;
+			return h("div", {
+				className: "i2p-overlay", role: "dialog", "aria-label": "Issue2PR",
+				onClick: () => overlayStore.set(false),
+			},
+				h("div", { className: "i2p-overlay-panel", onClick: (e) => e.stopPropagation() },
+					h("div", { className: "i2p-overlay-head" },
+						h("span", null, "Issue2PR"),
+						h("button", {
+							type: "button", className: "i2p-overlay-close",
+							onClick: () => overlayStore.set(false), "aria-label": "关闭",
+						}, "✕")),
+					h("div", { className: "i2p-overlay-body" }, h(Section))));
+		}
+
+		/* ================================================================
+		 * apply：主入口 = 侧边栏底部按钮 + 悬浮层（参照 dsh-worktable）；
+		 *        settings.section 保留为次级入口
 		 * ================================================================ */
 		function apply(ctx) {
 			const t = ctx.locale.bind("issue2pr");
 			ctx.effect(() => ctx.locale.register("issue2pr", { zh, en }), "issue2pr: dictionaries");
 			ctx.slots.inject("settings.section", () => ctx.slots.register(
 				{ name: "settings.section", id: "issue2pr", order: 17, label: () => t("nav"), locale: "issue2pr" }, Section));
+			ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register(
+				{ name: "sidebar.footer.action", id: "issue2pr", order: 30 }, FooterEntry), "issue2pr: sidebar entry");
+			ctx.slots.inject("shell.overlay", () => ctx.slots.register(
+				{ name: "shell.overlay", id: "issue2pr", order: 90 }, OverlayEntry), "issue2pr: overlay");
 		}
 		exports.apply = apply;
 		exports.inject = ["slots", "locale"];
