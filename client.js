@@ -16,18 +16,30 @@ window.__ModuleLoader__.load({
 		const API = "/issue2pr/api";
 
 		// ---------- 常量：11 阶段（与 lib/pipeline.js STAGES 对齐；P10 为失败旁路，不在 MAIN_FLOW） ----------
+		// about：阶段职责说明（「运行」页阶段详情·说明 tab 展示；输入 → 做什么 → 输出 → 何时介入）
 		const STAGES = [
-			{ id: "P1",  name: "IssueAnalyzer",      desc: "Issue → 结构化契约",            art: "01-issue-analysis.json",    key: false },
-			{ id: "P2",  name: "Search Layer",       desc: "候选文件 + 证据",                art: "02-search-candidates.json", key: false },
-			{ id: "P3",  name: "Code Understanding", desc: "调用链与修改点",                 art: "03-code-understanding.md",  key: false },
-			{ id: "P4",  name: "Hypothesis",         desc: "可验证根因假设",                 art: "04-hypotheses.json",        key: false },
-			{ id: "P5",  name: "Planner",            desc: "TaskGraph 规划 · 复核门",        art: "05-task-graph.json",        key: true  },
-			{ id: "P6",  name: "代码优化",            desc: "多智能体协同 · 复核门",          art: "06-implementation/",        key: true  },
-			{ id: "P7",  name: "Patch Pipeline",     desc: "版本校验 → 落盘 + ledger",       art: "ledger/patch-ledger.jsonl", key: false },
-			{ id: "P8",  name: "TestRunner",         desc: "沙箱真实执行",                   art: "07-test-report.json",       key: false },
-			{ id: "P9",  name: "Reviewer",           desc: "三维门控审查 · 复核门",          art: "08-review-report.json",     key: true  },
-			{ id: "P10", name: "FailureClassifier",  desc: "失败旁路 · 仅失败时执行",        art: "09-failure-analysis.json",  key: false, bypass: true },
-			{ id: "P11", name: "PRBuilder + Eval",   desc: "PR 说明 + Gate 评测 · 复核门",   art: "10-pr-description.md",      key: true  },
+			{ id: "P1",  name: "IssueAnalyzer",      desc: "Issue → 结构化契约",            art: "01-issue-analysis.json",    key: false,
+			  about: "把触发源原文（需求文档或 Issue）提炼为机器可读的结构化契约：现象、触发条件、影响模块、可验证成功标准、约束与风险等级。后续所有阶段都以该契约为源头，跑偏多因 P1 契约含糊——打回时优先补「成功标准」。" },
+			{ id: "P2",  name: "Search Layer",       desc: "候选文件 + 证据",                art: "02-search-candidates.json", key: false,
+			  about: "扫描仓库文件清单，结合 P1 契约选出候选修改文件，每条附选择理由（SearchEvidence）与置信度，另列测试候选与待探索项。仓库过大时受「扫描上限」参数约束；候选质量直接决定 P3 的理解深度。" },
+			{ id: "P3",  name: "Code Understanding", desc: "调用链与修改点",                 art: "03-code-understanding.md",  key: false,
+			  about: "按 P2 候选置信度取前 N 个文件读真实源码，分析关键函数、调用方与潜在修改点，产出中文理解报告。报告是假设与规划的依据；「深读文件数」「单文件读取上限」两个参数控制上下文规模。" },
+			{ id: "P4",  name: "Hypothesis",         desc: "可验证根因假设",                 art: "04-hypotheses.json",        key: false,
+			  about: "把 P3 报告转为可验证的根因假设：每条必须携带证据、验证文件与验证方法，禁止「我看着像」式结论。多假设并存时由 P5 规划验证顺序。" },
+			{ id: "P5",  name: "Planner",            desc: "TaskGraph 规划 · 复核门",        art: "05-task-graph.json",        key: true,
+			  about: "把修复任务拆成有依赖关系的 TaskGraph：每节点有输入产物、输出产物、成功标准与风险，并指定复核门与 PR 门。这是第一个关键复核门——规划错了后面全白跑，建议人工核对节点拆分与依赖。" },
+			{ id: "P6",  name: "代码优化",            desc: "多智能体协同 · 复核门",          art: "06-implementation/",        key: true,
+			  about: "按 TaskGraph 实施代码修改：内置模式为 Planner 派单 → 并行 Coder（TDD/最小 diff）→ Reviewer 门控；也可委托外部会话或 Claude Code CLI（执行模式三选一）。产物为逐节点 unified diff + coder-report，P7 落盘前不碰你的仓库。" },
+			{ id: "P7",  name: "Patch Pipeline",     desc: "版本校验 → 落盘 + ledger",       art: "ledger/patch-ledger.jsonl", key: false,
+			  about: "确定性 patch 应用管线（不调用大模型）：校验基线版本 → 逐条 git apply 落盘 → 写 patch ledger。每条 patch 可在运行页逐条回滚；基线不匹配会拒绝应用，防止盲覆盖。" },
+			{ id: "P8",  name: "TestRunner",         desc: "沙箱真实执行",                   art: "07-test-report.json",       key: false,
+			  about: "在仓库真实执行测试命令（项目配置的 testCommand 或自动探测 npm test），完整输出落盘 08-test-output.txt，报告只留末尾。结果必须来自真实执行——这是流水线的铁律。" },
+			{ id: "P9",  name: "Reviewer",           desc: "三维门控审查 · 复核门",          art: "08-review-report.json",     key: true,
+			  about: "独立 Reviewer 读真实 diff 与测试报告做三维门控：①Diff 范围（过大/越权/遗漏调用方）②API 与安全 ③测试补强与说明忠实。测试通过 ≠ 可合并；verdict=fail 会打回 P6。" },
+			{ id: "P10", name: "FailureClassifier",  desc: "失败旁路 · 仅失败时执行",        art: "09-failure-analysis.json",  key: false, bypass: true,
+			  about: "失败旁路（仅在任一阶段失败时执行）：把失败归入六类——实现错误/根因错误/测试选择/环境缺失/权限被拒/反复失败，并给出处理路径（replan/rollback/escalate）。分类决定重跑策略，避免盲目重试。" },
+			{ id: "P11", name: "PRBuilder + Eval",   desc: "PR 说明 + Gate 评测 · 复核门",   art: "10-pr-description.md",      key: true,
+			  about: "双角色收尾：PR 说明忠实反映修改与验证过程（背景/根因/修改点/验证证据/风险，禁止夸大）；Gate 按六项判定——ROOT 根因有证据 / PATCH 干净应用 / TEST 无回归 / DIFF 可审查 / DESC 说明忠实 / ACCEPT 门控通过。全部 pass 才算交付。" },
 		];
 
 		// 状态 → tag 样式（映射宿主语义状态色：成功/警告/错误/进行中）
@@ -348,6 +360,31 @@ body.i2p-dragging{user-select:none}
 .i2p .hint-line{font-size:13px;color:var(--muted);margin:12px 0 0}
 .i2p .hint-line code{font-family:var(--mono);background:var(--hover);padding:1px 6px;border-radius:4px;font-size:12px;color:var(--ink-2)}
 .i2p .empty-hint{color:var(--muted);font-size:14px;padding:14px 0}
+
+/* ===== 阶段详情二级菜单（项目/运行/产物/配置/说明，聚焦当前阶段） ===== */
+.i2p .stg-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:2px 0 14px}
+.i2p .stg-tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--ink-2);
+  padding:6px 12px 9px;font-size:13.5px;transition:color .14s,border-color .14s;margin-bottom:-1px}
+.i2p .stg-tab:hover{color:var(--ink)}
+.i2p .stg-tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.i2p .stg-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+/* 阶段产物 tab：左文件列表（目录分组）+ 右预览 */
+.i2p .stg-art{display:grid;grid-template-columns:280px minmax(0,1fr);gap:12px;align-items:start}
+@media (max-width:760px){.i2p .stg-art{grid-template-columns:1fr}}
+.i2p .stg-fgroup{font-family:var(--mono);font-size:11px;color:var(--muted);padding:8px 8px 3px;
+  text-transform:none;letter-spacing:.02em}
+.i2p .stg-fgroup:first-child{padding-top:0}
+.i2p .stg-file{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;
+  border:none;color:var(--ink-2);padding:4px 8px;border-radius:6px;font-family:var(--mono);font-size:12.5px}
+.i2p .stg-file:hover{background:var(--hover)}
+.i2p .stg-file.on{background:var(--nav-on);color:var(--accent)}
+.i2p .stg-file .ts{color:var(--muted);font-size:11px;flex:none}
+/* 阶段项目 tab：键值信息行 */
+.i2p .kv{display:grid;grid-template-columns:150px minmax(0,1fr);gap:7px 14px;font-size:13.5px}
+@media (max-width:600px){.i2p .kv{grid-template-columns:1fr}}
+.i2p .kv .k{color:var(--muted)}
+.i2p .kv .v{color:var(--ink);min-width:0;word-break:break-all}
+.i2p .kv .v.mono{font-family:var(--mono);font-size:12.5px}
 
 /* ===== 配置页 ===== */
 .i2p .cfg-layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px;align-items:start;margin-top:14px}
@@ -854,10 +891,87 @@ body.i2p-dragging{user-select:none}
 		/* ================================================================
 		 * 02 运行
 		 * ================================================================ */
+		// 键值信息行（项目 / 说明 tab 共用）：左灰标签右值，靠左两列
+		function kvRow(k, v, mono) {
+			return h(React.Fragment, null,
+				h("span", { className: "k" }, k),
+				h("span", { className: "v" + (mono ? " mono" : "") }, v));
+		}
+
+		// 阶段详情 · 项目 tab：本 Run 所属项目的只读上下文（阶段执行读的配置）
+		function StageProjectCard(props) {
+			const pr = props.project;
+			if (!pr) {
+				return h("p", { className: "empty-hint" },
+					"当前未选择项目。请先在左侧项目列表（或「项目」页）选择一个项目。");
+			}
+			return h("div", null,
+				h("p", { className: "run-hint", style: { margin: "0 0 12px" } },
+					"本 Run 所属项目的配置——阶段执行读的就是这些值：复核模式决定每阶段是否停顿，",
+					"P6 执行模式决定代码修改由谁完成，测试命令供 P8 使用。编辑请到「项目」页。"),
+				h("div", { className: "kv" },
+					kvRow("项目", (pr.name || "") + "（slug " + (pr.slug || "") + "）"),
+					kvRow("Git 仓库", (pr.repos || []).map(function (r, i) {
+						return h("div", { key: i }, r.uri || "");
+					}) || "（无）", true),
+					kvRow("触发源", (pr.triggers || []).length
+						? (pr.triggers || []).map(function (t, i) {
+							return h("div", { key: i }, kindLabel(t.kind) + " · " + (t.uri || ""));
+						})
+						: "（无）", true),
+					kvRow("人工复核模式", reviewModeLabel(pr.reviewMode) + "（" + (pr.reviewMode || "every") + "）"),
+					kvRow("P6 执行模式", p6ModeLabel(pr.p6Mode) + "（" + (pr.p6Mode || "builtin") + "）"),
+					kvRow("测试命令", pr.testCommand ? pr.testCommand : "（未配置 · P8 自动探测 npm test）", !!pr.testCommand)),
+				h("div", { style: { marginTop: 14 } },
+					h("button", { type: "button", className: "btn sm", onClick: props.onGoProjects },
+						Ic("folder", 12), " 到「项目」页编辑")));
+		}
+
+		// 阶段详情 · 说明 tab：职责 / 输入输出 / 委托契约 / 专属参数表
+		function StageGuideCard(props) {
+			const s = STAGES.find(function (x) { return x.id === props.stageId; });
+			if (!s) return null;
+			const d = props.defaults && props.defaults.stages ? props.defaults.stages[s.id] : null;
+			const caps = (d && d.caps) || {};
+			const params = (d && d.params) || {};
+			const paramKeys = Object.keys(params);
+			return h("div", null,
+				h("p", { className: "run-hint", style: { margin: "0 0 12px" } }, s.about),
+				h("div", { className: "kv", style: { marginBottom: 14 } },
+					kvRow("职责", s.desc),
+					kvRow("产物", s.art, true),
+					kvRow("复核门", s.key ? "是 · 产物就绪需人工通过后推进" : s.bypass ? "否 · 失败旁路，仅失败时执行" : "否 · 产物就绪自动推进"),
+					kvRow("能力", [
+						caps.route ? "可调模型/思考深度" : null,
+						caps.exec ? "可调超时" + (caps.test ? "/测试命令" : "/maxTokens") : null,
+						caps.delegate ? "可委托外部智能体" : null,
+						!caps.route && !caps.delegate ? "确定性执行（不调用大模型）" : null,
+					].filter(Boolean).join(" · ")),
+					d && d.delegateSpec ? kvRow("委托产出", d.delegateSpec.output, true) : null,
+					d && d.delegateSpec ? kvRow("输出契约", d.delegateSpec.contract, true) : null),
+				h("span", { className: "f-label" }, "本阶段专属参数"),
+				paramKeys.length ? h("table", { className: "tbl", style: { margin: "6px 0 0" } },
+					h("thead", null, h("tr", null,
+						h("th", null, "参数"), h("th", null, "默认值"), h("th", null, "说明"))),
+					h("tbody", null, paramKeys.map(function (k) {
+						const meta = params[k];
+						return h("tr", { key: k },
+							h("td", null, h("code", null, k)),
+							h("td", null, h("code", null, meta.type === "string" && !meta.def ? "（自动探测）" : String(meta.def) + (meta.unit ? " " + meta.unit : ""))),
+							h("td", null, meta.label + "——" + meta.hint));
+					})))
+					: h("p", { className: "hint-line", style: { margin: "4px 0 0" } },
+						"本阶段没有专属参数；通用项（提示词 / 模型 / 思考深度 / 超时 / 委托）在「配置」tab 调整。"),
+				h("p", { className: "hint-line" },
+					"参数与提示词的当前生效值都可以在「配置」tab 修改；保存后对进行中的 Run 从下一阶段起生效。"));
+		}
+
 		function RunsPanel(props) {
 			const p = props;
 			const [rerunStage, setRerunStage] = React.useState(null);
 			const [selStage, setSelStage] = React.useState(null);
+			// 阶段详情二级菜单（与工作台一级目录同名同序：项目/运行/产物/配置/说明，聚焦当前阶段）
+			const [stTab, setStTab] = React.useState("run");
 			const [selArt, setSelArt] = React.useState(null);
 			const [artText, setArtText] = React.useState(null);
 			const [comment, setComment] = React.useState("");
@@ -870,9 +984,9 @@ body.i2p-dragging{user-select:none}
 			const artRef = React.useRef(null);
 			React.useEffect(function () { artRef.current = selArt; }, [selArt]);
 
-			// run 切换：重置选择
+			// run 切换：重置选择（二级菜单回「运行」）
 			React.useEffect(function () {
-				setSelArt(null); setArtText(null); setComment(""); setRerunStage(null);
+				setSelArt(null); setArtText(null); setComment(""); setRerunStage(null); setStTab("run");
 				setReviews(null); setLedger(null); setEvents(null); setOpenEv(-1); evRef.current = null;
 				if (p.run) setSelStage(p.run.current || "P1");
 				else setSelStage(null);
@@ -1082,6 +1196,21 @@ body.i2p-dragging{user-select:none}
 				return h("option", { key: s.id, value: s.id }, s.id + " · " + s.name);
 			});
 
+			// 产物 tab：阶段文件按目录分组（patches/ 等子目录平铺为组；"·" = 产物根）
+			const artGroups = (function () {
+				if (!sDef) return [];
+				const root = sDef.art;
+				const groups = {};
+				files.forEach(function (f) {
+					const sub = root.charAt(root.length - 1) === "/" ? f.path.slice(root.length) : f.path.split("/").pop();
+					const seg = sub.split("/");
+					const g = seg.length > 1 ? seg[0] + "/" : "·";
+					(groups[g] || (groups[g] = [])).push(f);
+				});
+				return Object.keys(groups).sort().map(function (g) { return [g, groups[g]]; });
+			})();
+			const curProject = p.projects ? p.projects.find(function (x) { return x.slug === p.slug; }) : null;
+
 			return h("div", null,
 				h("div", { className: "run-bar" },
 					h("label", { className: "f-label", htmlFor: "run-select", style: { margin: 0 } }, "当前 Run"),
@@ -1103,7 +1232,8 @@ body.i2p-dragging{user-select:none}
 					p.runId ? h("button", { type: "button", className: "btn sm", onClick: openDir }, Ic("folder", 13), " 打开目录") : null,
 					p.runId ? h("button", { type: "button", className: "btn sm danger", onClick: deleteRun }, Ic("trash", 12), " 删除") : null),
 				h("p", { className: "run-hint" },
-					"点击阶段查看产物；", h("b", null, "待复核"), " 时在右侧通过或打回；",
+					"点击阶段查看详情——每个阶段内含 ", h("b", null, "项目 / 运行 / 产物 / 配置 / 说明"),
+					" 五个视图（配置可直接调本阶段参数）；", h("b", null, "待复核"), " 时在「运行」视图通过或打回；",
 					h("b", null, "停止"), " = 当前阶段跑完即停；", h("b", null, "重跑"), " = 从所选阶段重新推进；",
 					h("b", null, "删除"), " = 移除整个 Run 目录。P10 为失败旁路（仅失败时执行）。"),
 				h("div", { className: "pipe-layout" },
@@ -1145,11 +1275,18 @@ body.i2p-dragging{user-select:none}
 								h("div", { className: "path" },
 									"产物：" + (p.runId ? "runs\\" + p.runId + "\\" + (sDef ? sDef.art.replace(/\//g, "\\") : "") : ""))),
 							h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
-								sDef ? h("button", {
-									type: "button", className: "btn sm", title: "在「配置」页调整本阶段提示词/模型/超时/委托",
-									onClick: function () { p.onOpenConfig(sDef.id); },
-								}, Ic("sliders", 12), " 配置本阶段") : null,
 								stStatus ? h("span", { className: "tg " + tag(stStatus)[0] + (stClaudeRun ? " run" : "") }, stClaudeRun ? "claude 执行中" : stExternal ? "等外部执行" : tag(stStatus)[1]) : null)),
+						// 二级菜单条：五项与工作台一级目录同名同序，全部聚焦当前阶段
+						// （运行=过程与复核；项目=本 Run 项目上下文；产物=本阶段文件树；配置=本阶段全量参数；说明=职责契约）
+						sDef ? h("div", { className: "stg-tabs", role: "tablist", "aria-label": "阶段视图" },
+							[["run", "运行"], ["project", "项目"], ["artifacts", "产物"], ["config", "配置"], ["guide", "说明"]].map(function (t) {
+								return h("button", {
+									key: t[0], role: "tab", className: "stg-tab" + (stTab === t[0] ? " on" : ""),
+									"aria-selected": stTab === t[0] ? "true" : "false",
+									onClick: function () { setStTab(t[0]); },
+								}, t[1]);
+							})) : null,
+						stTab === "run" ? h("div", null,
 						files.length ? h("div", { className: "a-tabs" },
 							files.map(function (f) {
 								return h("button", {
@@ -1286,7 +1423,34 @@ body.i2p-dragging{user-select:none}
 										(r.decision === "approve" ? "通过" : "打回") + " " + (r.stage || "")),
 									h("span", { className: "at" }, fmtTime(r.at)),
 									h("span", { className: "cm" }, r.comment || "无意见"));
-							})) : null)));
+							})) : null) : null,
+						// —— 项目 tab：本 Run 的项目上下文（阶段执行读的就是这些配置） ——
+						stTab === "project" ? h(StageProjectCard, { project: curProject, onGoProjects: p.onGoProjects }) : null,
+						// —— 产物 tab：本阶段文件树（目录分组）+ 预览 ——
+						stTab === "artifacts" && sDef ? h("div", { className: "stg-art" },
+							h("div", null,
+								artGroups.length ? artGroups.map(function (g) {
+									return h(React.Fragment, { key: g[0] },
+										h("div", { className: "stg-fgroup" }, g[0] === "·" ? "阶段产物" : g[0]),
+										g[1].map(function (f) {
+											return h("button", {
+												key: f.path, className: "stg-file" + (f.path === selArt ? " on" : ""),
+												onClick: function () { setSelArt(f.path); fetchArt(f.path); },
+											},
+												h("span", null, f.path.split("/").pop()),
+												h("span", { className: "ts" }, fmtSize(f.size)));
+										}));
+								}) : h("p", { className: "empty-hint" }, "该阶段暂无产物文件（执行后自动生成）。")),
+							artMd && artText != null
+								? h("div", { className: "md-view", tabIndex: 0 }, h(MarkdownText, { text: artText }))
+								: h("pre", { className: "view", tabIndex: 0, dangerouslySetInnerHTML: { __html: viewHtml } })) : null,
+						// —— 配置 tab：本阶段全量参数（「配置」页表单嵌入，无左列） ——
+						stTab === "config" ? h(StageConfigPanel, {
+							embedded: true, defaults: p.defaults, projects: p.projects, slug: p.slug,
+							selStage: selStage, toast: p.toast, onSaved: p.onSaved,
+						}) : null,
+						// —— 说明 tab：职责 / 契约 / 专属参数 ——
+						stTab === "guide" ? h(StageGuideCard, { stageId: selStage, defaults: p.defaults }) : null)));
 		}
 
 		/* ================================================================
@@ -1427,8 +1591,15 @@ body.i2p-dragging{user-select:none}
 					Object.keys((def && def.prompts) || {}).forEach(function (k) {
 						prompts[k] = (user.prompts && user.prompts[k] != null) ? user.prompts[k] : def.prompts[k];
 					});
+					// 专属参数：字符串编辑态（空串 = 跟默认；placeholder 展示默认值）
+					const params = {};
+					Object.keys((def && def.params) || {}).forEach(function (k) {
+						const uv = user.params && user.params[k];
+						params[k] = uv != null && uv !== "" ? String(uv) : "";
+					});
 					next[s.id] = {
 						prompts,
+						params,
 						provider: user.provider || "",
 						model: user.model || "",
 						reasoningEffort: user.reasoningEffort || "",
@@ -1468,6 +1639,9 @@ body.i2p-dragging{user-select:none}
 			};
 			const setPrompt = function (key, val) {
 				setSt({ prompts: Object.assign({}, e.prompts, { [key || ""]: val }) });
+			};
+			const setParam = function (key, val) {
+				setSt({ params: Object.assign({}, e.params, { [key]: val }) });
 			};
 			const setDelegate = function (patch) {
 				setSt({ delegate: Object.assign({}, e.delegate, patch) });
@@ -1511,6 +1685,21 @@ body.i2p-dragging{user-select:none}
 						if (st.delegate.brief.trim()) d.brief = st.delegate.brief.trim();
 						out.delegate = d;
 					}
+					// 专属参数：与默认相同的项不落盘（保持 project.json 干净）
+					const pdef = (def && def.params) || {};
+					const po = {};
+					let pDirty = false;
+					Object.keys(pdef).forEach(function (k) {
+						const raw = String(st.params[k] == null ? "" : st.params[k]).trim();
+						if (!raw) return;
+						if (pdef[k].type === "string") {
+							if (raw !== pdef[k].def) { po[k] = raw; pDirty = true; }
+						} else {
+							const n = parseInt(raw, 10);
+							if (n > 0 && n !== pdef[k].def) { po[k] = n; pDirty = true; }
+						}
+					});
+					if (pDirty) out.params = po;
 					if (Object.keys(out).length) stageConfig[s.id] = out;
 				});
 				return {
@@ -1534,7 +1723,7 @@ body.i2p-dragging{user-select:none}
 				}).catch(function (err) { setSaving(false); p.toast("请求失败: " + err, "bad"); });
 			};
 
-			// 阶段是否已自定义（左列蓝点）：提示词偏离默认 / 路由覆盖 / 超时或 maxTokens 覆盖 / 委托开启
+			// 阶段是否已自定义（左列蓝点）：提示词偏离默认 / 路由覆盖 / 超时或 maxTokens 覆盖 / 专属参数覆盖 / 委托开启
 			const isCustomized = function (sid) {
 				const def = p.defaults.stages[sid];
 				const st = edit[sid];
@@ -1543,10 +1732,20 @@ body.i2p-dragging{user-select:none}
 				if (sid !== "P6" && st.delegate.mode === "session") return true;
 				if (st.provider.trim() || st.model.trim() || st.reasoningEffort) return true;
 				if (parseInt(st.timeoutMin, 10) > 0 || parseInt(st.maxTokens, 10) > 0) return true;
+				const pdef = def.params || {};
+				const pCustom = Object.keys(pdef).some(function (k) {
+					const raw = String(st.params[k] == null ? "" : st.params[k]).trim();
+					if (!raw) return false;
+					if (pdef[k].type === "string") return raw !== pdef[k].def;
+					const n = parseInt(raw, 10);
+					return n > 0 && n !== pdef[k].def;
+				});
+				if (pCustom) return true;
 				return Object.keys((def.prompts) || {}).some(function (k) { return st.prompts[k] !== def.prompts[k]; });
 			};
 
 			const promptKeys = Object.keys((dDef && dDef.prompts) || {});
+			const paramDefs = (dDef && dDef.params) || {};
 			const roleLabel = { planner: "派单 Planner", coder: "编码 Coder", reviewer: "门控 Reviewer", desc: "PR 说明", gate: "Gate 评测" };
 			const effortOpts = [
 				{ value: "", label: "跟随全局", hint: "默认" },
@@ -1567,31 +1766,9 @@ body.i2p-dragging{user-select:none}
 				rd.readAsText(file, "utf8");
 			};
 
-			return h("div", null,
-				h("p", { className: "run-hint" },
-					"按阶段覆盖 ", h("b", null, "提示词 / 模型 / 思考深度 / 超时 / 委托外部智能体"),
-					"；留空 = 用默认值。保存写入 project.json，对进行中的 Run 从下一阶段起生效。"),
-				h("div", { className: "cfg-layout" },
-					h("div", { className: "steps", role: "list", "aria-label": "阶段列表" },
-						STAGES.map(function (s) {
-							const customized = isCustomized(s.id);
-							const dlg = edit[s.id] && edit[s.id].delegate.mode !== "off"
-								&& (s.id !== "P6" ? true : edit.P6.delegate.mode !== "builtin");
-							return h("button", {
-								key: s.id, role: "listitem",
-								className: "cfg-row" + (s.id === stageId ? " on" : "") + (s.bypass ? "" : ""),
-								onClick: function () { p.onSelectStage(s.id); },
-							},
-								h("span", { className: "sdot" }),
-								h("span", { className: "s-main" },
-									h("span", { className: "s-name" }, s.id + " · " + s.name,
-										customized ? h("span", { className: "cdot", title: "已自定义" }) : null),
-									h("span", { className: "s-desc" }, s.desc)),
-								h("span", { className: "s-side" },
-									dlg ? h("span", { className: "wtg" }, "委托") : null));
-						})),
-					h("div", { className: "card" },
-						h("div", { className: "detail-head" },
+			// 右侧表单内容（配置页独立用 / 运行页「配置」tab 嵌入用共用）
+			const cardContent = h("div", null,
+						p.embedded ? null : h("div", { className: "detail-head" },
 							h("div", null,
 								h("h3", null, sDef.id + " · " + sDef.name),
 								h("div", { className: "path" },
@@ -1665,6 +1842,26 @@ body.i2p-dragging{user-select:none}
 									placeholder: "如 npm test / python -m pytest …",
 									onChange: function (ev) { setSt({ testCommand: ev.target.value }); },
 								})) : null) : null,
+						// —— 阶段专属参数（本阶段工具行为：扫描上限/深读数/claude 路径等；开源场景不藏在代码里） ——
+						Object.keys(paramDefs).length ? h("div", { className: "field" },
+							h("span", { className: "f-label" }, "阶段专属参数（本阶段工具行为 · 留空 = 默认值）"),
+							h("div", { className: "field-row" },
+								Object.keys(paramDefs).map(function (k) {
+									const meta = paramDefs[k];
+									return h("div", { key: k, className: "field", style: { marginBottom: 0 } },
+										h("label", { className: "f-label", htmlFor: "cfg-p-" + stageId + "-" + k },
+											meta.label + (meta.unit ? "（" + meta.unit + "）" : "")),
+										h("input", {
+											className: "f-input mono", id: "cfg-p-" + stageId + "-" + k,
+											type: meta.type === "string" ? "text" : "number", min: 1,
+											value: e.params[k],
+											placeholder: meta.type === "string"
+												? (meta.def ? "默认 " + meta.def : "自动探测")
+												: "默认 " + meta.def + (meta.unit ? " " + meta.unit : ""),
+											onChange: function (ev) { setParam(k, ev.target.value); },
+										}),
+										h("p", { className: "hint-line", style: { margin: "5px 0 0" } }, meta.hint));
+								}))) : null,
 						// —— 委托外部智能体 ——
 						caps.delegate ? (function () {
 							if (stageId === "P6") {
@@ -1726,7 +1923,40 @@ body.i2p-dragging{user-select:none}
 							h("button", { type: "button", className: "btn pri", disabled: saving, onClick: save },
 								Ic("check"), saving ? " 保存中…" : " 保存阶段配置"),
 							h("span", { className: "hint-line", style: { margin: 0 } },
-								"写入 …\\issue2pr\\projects\\" + p.slug + "\\project.json 的 stageConfig 字段")))));
+								"写入 …\\issue2pr\\projects\\" + p.slug + "\\project.json 的 stageConfig 字段")));
+
+			if (p.embedded) {
+				// 运行页「配置」tab：运行页已有阶段头与左列，这里只出表单体
+				return h("div", null,
+					h("p", { className: "run-hint", style: { margin: "0 0 10px" } },
+						"本阶段全量参数：", h("b", null, "提示词 / 模型 / 思考深度 / 超时 / 专属参数 / 委托"),
+						"；留空 = 用默认值。保存对进行中的 Run 从下一阶段起生效；阶段切换用左侧时间线。"),
+					cardContent);
+			}
+			return h("div", null,
+				h("p", { className: "run-hint" },
+					"按阶段覆盖 ", h("b", null, "提示词 / 模型 / 思考深度 / 超时 / 专属参数 / 委托外部智能体"),
+					"；留空 = 用默认值。保存写入 project.json，对进行中的 Run 从下一阶段起生效。「运行」页各阶段详情也可直接配置。"),
+				h("div", { className: "cfg-layout" },
+					h("div", { className: "steps", role: "list", "aria-label": "阶段列表" },
+						STAGES.map(function (s) {
+							const customized = isCustomized(s.id);
+							const dlg = edit[s.id] && edit[s.id].delegate.mode !== "off"
+								&& (s.id !== "P6" ? true : edit.P6.delegate.mode !== "builtin");
+							return h("button", {
+								key: s.id, role: "listitem",
+								className: "cfg-row" + (s.id === stageId ? " on" : ""),
+								onClick: function () { p.onSelectStage(s.id); },
+							},
+								h("span", { className: "sdot" }),
+								h("span", { className: "s-main" },
+									h("span", { className: "s-name" }, s.id + " · " + s.name,
+										customized ? h("span", { className: "cdot", title: "已自定义" }) : null),
+									h("span", { className: "s-desc" }, s.desc)),
+								h("span", { className: "s-side" },
+									dlg ? h("span", { className: "wtg" }, "委托") : null));
+						})),
+					h("div", { className: "card" }, cardContent)));
 		}
 
 		/* ================================================================
@@ -1772,7 +2002,8 @@ body.i2p-dragging{user-select:none}
 					h("div", { className: "callout acc" },
 						h("h4", null, "按阶段调参"),
 						h("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 13.5 } },
-							h("li", null, "「配置」页逐阶段覆盖提示词 / 模型 / 思考深度 / 超时 / maxTokens"),
+							h("li", null, "「运行」页每个阶段详情内有「配置」视图，直接调本阶段参数；「配置」页可集中管理全部阶段"),
+							h("li", null, "可调：提示词 / 模型 / 思考深度 / 超时 / 阶段专属参数（扫描上限、深读数、claude 路径等）/ 委托外部智能体"),
 							h("li", null, "可把任一 LLM 阶段委托外部智能体（生成任务包，产出落盘后回复核门）"),
 							h("li", null, "留空一律回落内置默认；保存后对进行中的 Run 下一阶段起生效")))),
 				h("div", { className: "card" },
@@ -1792,7 +2023,8 @@ body.i2p-dragging{user-select:none}
 			const [nav, setNav] = React.useState("projects");
 			const [toast, setToast] = React.useState(null);
 			const [projects, setProjects] = React.useState(null);
-			const [selSlug, setSelSlug] = React.useState(null);
+			// 选中记忆：进入时恢复上次选中的项目（无记忆则保持未选中）
+			const [selSlug, setSelSlug] = React.useState(function () { return localStorage.getItem("i2p.proj") || null; });
 			const [runs, setRuns] = React.useState(null);
 			const [selRunId, setSelRunId] = React.useState(null);
 			const [run, setRun] = React.useState(null);
@@ -1813,6 +2045,13 @@ body.i2p-dragging{user-select:none}
 			ctxRef.current.slug = selSlug;
 			ctxRef.current.runId = selRunId;
 
+			// 选中项目统一入口：同步 localStorage 记忆，下次进入据此恢复
+			const selectSlug = React.useCallback(function (slug) {
+				setSelSlug(slug);
+				if (slug) localStorage.setItem("i2p.proj", slug);
+				else localStorage.removeItem("i2p.proj");
+			}, []);
+
 			const toastFn = React.useCallback(function (msg, kind) {
 				setToast({ msg: msg, kind: kind || "ok" });
 			}, []);
@@ -1830,6 +2069,12 @@ body.i2p-dragging{user-select:none}
 				}).catch(function (e) { toastFn("请求失败: " + e, "bad"); });
 			}, [toastFn]);
 			React.useEffect(function () { loadProjects(); }, [loadProjects]);
+
+			// 记忆选中的项目若已不存在（被他处删除），回到未选中状态
+			React.useEffect(function () {
+				if (selSlug == null || projects == null) return;
+				if (!projects.some(function (x) { return x.slug === selSlug; })) selectSlug(null);
+			}, [selSlug, projects, selectSlug]);
 
 			// slug 变化 → 重置 run 选择并加载 runs 摘要
 			React.useEffect(function () {
@@ -1901,9 +2146,9 @@ body.i2p-dragging{user-select:none}
 			}, [selSlug, selRunId]);
 
 			const onSaved = React.useCallback(function (slug) {
-				setSelSlug(slug);
+				selectSlug(slug);
 				loadProjects();
-			}, [loadProjects]);
+			}, [loadProjects, selectSlug]);
 
 			const onRunDeleted = React.useCallback(function () {
 				setSelRunId(null); setRun(null); setTree(null);
@@ -1915,18 +2160,18 @@ body.i2p-dragging{user-select:none}
 			}, [selSlug]);
 
 			const onProjectDeleted = React.useCallback(function () {
-				setSelSlug(null); setRuns(null); setSelRunId(null); setRun(null); setTree(null);
+				selectSlug(null); setRuns(null); setSelRunId(null); setRun(null); setTree(null);
 				loadProjects();
-			}, [loadProjects]);
+			}, [loadProjects, selectSlug]);
 
 			const onRunStarted = React.useCallback(function (slug, runId) {
-				setSelSlug(slug);
+				selectSlug(slug);
 				setSelRunId(runId);
 				setNav("runs");
 				apiGet("/projects/" + slug + "/runs").then(function (r) {
 					if (r && r.ok && ctxRef.current.slug === slug) setRuns(r.runs || []);
 				});
-			}, []);
+			}, [selectSlug]);
 
 			const awaitingCount = (runs || []).filter(function (r) { return r.status === "awaiting_review"; }).length;
 
@@ -2032,7 +2277,7 @@ body.i2p-dragging{user-select:none}
 							projects: projects,
 							slug: selSlug,
 							toast: toastFn,
-							onSelectProject: function (s) { setSelSlug(s); },
+							onSelectProject: selectSlug,
 							onSaved: onSaved,
 							onRunStarted: onRunStarted,
 							onDeletedProject: onProjectDeleted,
@@ -2043,11 +2288,14 @@ body.i2p-dragging{user-select:none}
 							runs: runs,
 							run: run,
 							tree: tree,
+							projects: projects,
+							defaults: stageDefaults,
 							toast: toastFn,
 							onPickRun: function (id) { setSelRunId(id); },
 							onChanged: refreshNow,
 							onDeleted: onRunDeleted,
-							onOpenConfig: function (sid) { setCfgStage(sid || "P1"); setNav("config"); },
+							onSaved: onSaved,
+							onGoProjects: function () { setNav("projects"); },
 						}) : null,
 						nav === "artifacts" ? h(ArtifactsPanel, {
 							slug: selSlug,

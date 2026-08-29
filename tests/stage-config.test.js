@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  STAGE_DEFS, stageCfgOf, sysOf, routeOverridesOf, validateStageConfig,
+  STAGE_DEFS, stageCfgOf, sysOf, paramsOf, routeOverridesOf, validateStageConfig,
   stageDelegated, buildDelegateTask, delegateReady,
 } from "../lib/stageConfig.js";
 import { maybeDelegate } from "../lib/stages/helpers.js";
@@ -44,6 +44,34 @@ test("sysOf：rcx.stageCfgOf 覆盖；裸 rcx 回落内置默认", () => {
   assert.equal(sysOf({}, "P6", "coder"), STAGE_DEFS.P6.prompts.coder);
 });
 
+test("params：专属参数合并——无配置回落默认、覆盖生效、非法值回落、裸 rcx 安全", () => {
+  // 无配置 = 默认
+  const base = stageCfgOf(null, "P3");
+  assert.equal(base.params.deepReadFiles, 6);
+  assert.equal(base.params.fileChars, 6000);
+  // 覆盖逐键生效，未覆盖键保持默认
+  const proj = { stageConfig: { P3: { params: { deepReadFiles: 10 } } } };
+  const cfg = stageCfgOf(proj, "P3");
+  assert.equal(cfg.params.deepReadFiles, 10);
+  assert.equal(cfg.params.fileChars, 6000);
+  // 数字型：0/负数/NaN 回落默认；字符串型：空串回落默认
+  const bad = stageCfgOf({ stageConfig: { P3: { params: { deepReadFiles: 0, fileChars: -1 } }, P6: { params: { claudeBin: "" } } } }, "P3");
+  assert.equal(bad.params.deepReadFiles, 6);
+  assert.equal(bad.params.fileChars, 6000);
+  const p6 = stageCfgOf({ stageConfig: { P6: { params: { claudeBin: "" } } } }, "P6");
+  assert.equal(p6.params.claudeBin, "");
+  assert.equal(p6.params.claudeTimeoutMin, 120);
+  const p6on = stageCfgOf({ stageConfig: { P6: { params: { claudeBin: "D:\\bin\\claude.cmd", claudeTimeoutMin: 30 } } } }, "P6");
+  assert.equal(p6on.params.claudeBin, "D:\\bin\\claude.cmd");
+  assert.equal(p6on.params.claudeTimeoutMin, 30);
+  // 裸 rcx（单测无 stageCfgOf）：paramsOf 回落 STAGE_DEFS 默认
+  assert.equal(paramsOf({}, "P2").repoScanMax, 400);
+  assert.equal(paramsOf({}, "P9").diffChars, 1200);
+  // stageCfgOf 注入时 paramsOf 透传合并结果
+  const rcx = { stageCfgOf: () => ({ params: { repoScanMax: 99 } }) };
+  assert.equal(paramsOf(rcx, "P2").repoScanMax, 99);
+});
+
 test("routeOverridesOf：透传合并后的路由与执行覆盖", () => {
   const rcx = { stageCfgOf: () => ({ provider: "prov", model: "mdl", reasoningEffort: "low", timeoutMs: 60000, maxTokens: 2048, prompts: {}, delegate: {} }) };
   assert.deepEqual(routeOverridesOf(rcx), { provider: "prov", model: "mdl", reasoningEffort: "low", timeoutMs: 60000, maxTokens: 2048 });
@@ -56,6 +84,13 @@ test("validateStageConfig：合法配置通过；未知阶段/字段类型错误
   assert.equal(validateStageConfig({ P1: { timeoutMs: -1 } })[0], false);
   assert.equal(validateStageConfig({ P1: { prompts: { "": 1 } } })[0], false);
   assert.equal(validateStageConfig({ P1: { delegate: { mode: "claude" } } })[0], false);
+  // params：合法（数字/字符串）通过；未知键、类型不符、非正数被拒
+  assert.equal(validateStageConfig({ P3: { params: { deepReadFiles: 12 } } })[0], true);
+  assert.equal(validateStageConfig({ P6: { params: { claudeBin: "C:\\claude.cmd" } } })[0], true);
+  assert.equal(validateStageConfig({ P2: { params: { noSuchParam: 1 } } })[0], false);
+  assert.equal(validateStageConfig({ P3: { params: { deepReadFiles: "8" } } })[0], false);
+  assert.equal(validateStageConfig({ P6: { params: { claudeBin: 7 } } })[0], false);
+  assert.equal(validateStageConfig({ P3: { params: { deepReadFiles: 0 } } })[0], false);
 });
 
 test("stageDelegated：P6 读 rcx 或 run 上的 p6Mode；其余阶段读 stageCfgOf；裸 rcx 安全回落", () => {

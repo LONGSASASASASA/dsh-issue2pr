@@ -87,6 +87,8 @@ globalThis.fetch = (url) => {
     body = { ok: true, runs: [{ id: "r1", status: "awaiting_review", current: "P5", trigger: fakeRun.trigger }] };
   } else if (/\/projects$/.test(u)) {
     body = { ok: true, projects: [
+      { name: "P 项目", slug: "p", repos: [{ uri: "https://p.git" }], triggers: [{ kind: "issue", uri: "D:\\x.md" }],
+        reviewMode: "every", p6Mode: "builtin", testCommand: "" },
       { name: "演示", slug: "demo", repos: [{ uri: "https://x.git" }], triggers: [],
         reviewMode: "every", p6Mode: "builtin", testCommand: "",
         stageConfig: { P1: { prompts: { "": "自定义 P1 提示词" } } } },
@@ -97,7 +99,12 @@ globalThis.fetch = (url) => {
 
 // ---------- 载入 client.js 并执行 apply ----------
 let modExports = null;
-globalThis.localStorage = { getItem: () => null, setItem() {} }; // navStore 持久化依赖
+const lsStore = {}; // 可写 localStorage：navStore 持久化 / 项目选中记忆
+globalThis.localStorage = {
+  getItem: (k) => (k in lsStore ? lsStore[k] : null),
+  setItem: (k, v) => { lsStore[k] = String(v); },
+  removeItem: (k) => { delete lsStore[k]; },
+};
 globalThis.document = { // 拖宽手柄事件委托 / WorkbenchPage anchor 探测（smoke 环境无 DOM，事件 no-op、anchor 给固定 rect）
   addEventListener() {}, removeEventListener() {},
   querySelector: (sel) => String(sel).includes("conversation")
@@ -271,6 +278,27 @@ let ocls = []; classNames(ov, ocls);
 assert.ok(ocls.includes("i2p-page") && ocls.includes("i2p-page-body"), "悬浮层 = 贴合主区列的整页工作台");
 
 function flattenTexts(node, out = []) { flatten(node, out); return out; }
+
+// ---------- 视图 8：项目选中记忆（进入恢复 / 新建清除 / 选择写回） ----------
+// 新实例：换 curComp 前缀让 hookCells 走全新 key，useState 初始函数才会重新执行（读 localStorage）
+lsStore["i2p.proj"] = "demo";
+curComp = "root2"; hookSeq = 0; effectSeq = 0;
+let el8 = Section(); await settle();
+curComp = "root2"; hookSeq = 0; effectSeq = 0;
+el8 = Section();
+const cls8 = []; classNames(el8, cls8);
+assert.ok(cls8.some((c) => String(c).includes("proj-item on")), "进入时应恢复上次选中的项目（demo 高亮）");
+const textsOf = (n) => flattenTexts(n).join("");
+const els8 = []; elements(el8, els8);
+const newBtn = els8.find((n) => n.props.className === "add-row" && textsOf(n).includes("新建项目"));
+assert.ok(newBtn, "项目列表应有新建项目按钮");
+newBtn.props.onClick(); // onSelectProject(null) → 清除记忆
+assert.ok(!("i2p.proj" in lsStore), "点击新建项目应清除选中记忆");
+const demoItem = els8.find((n) => String(n.props.className || "").split(" ").includes("proj-item") && textsOf(n).includes("演示"));
+assert.ok(demoItem, "项目列表应有 demo 项目");
+demoItem.props.onClick(); // onSelectProject("demo") → 写回记忆
+assert.equal(lsStore["i2p.proj"], "demo", "点击选择项目应写回记忆");
+curComp = "root"; hookSeq = 0; effectSeq = 0;
 
 console.log("SMOKE-OK: 全部视图渲染通过（含配置页、入口按钮与整页工作台）");
 process.exit(0); // 3s 轮询定时器会挂住进程，显式退出

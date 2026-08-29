@@ -204,6 +204,7 @@ async function handleApi(ctx, root, req, res) {
           maxTokens: 8192,
           stages: Object.fromEntries(Object.entries(STAGE_DEFS).map(([id, def]) => [id, {
             name: def.name, desc: def.desc, caps: def.caps, prompts: def.prompts,
+            params: Object.keys(def.params || {}).length ? def.params : undefined,
             delegateSpec: def.caps.delegate ? def.delegateSpec : undefined,
           }])),
         },
