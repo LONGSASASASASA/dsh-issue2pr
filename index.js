@@ -243,7 +243,10 @@ async function handleApi(ctx, root, req, res) {
         const state = {
           ...prev,
           lastProject: (typeof lp === "string" && /^[a-z0-9-]+$/.test(lp)) ? lp : null,
-          aiW: (body ? intIn(body.aiW, 180, 560) : null) ?? prev.aiW,
+          aiW: (body ? intIn(body.aiW, 240, 760) : null) ?? prev.aiW,
+          aiH: (body ? intIn(body.aiH, 200, 1800) : null) ?? prev.aiH,
+          aiX: (body ? intIn(body.aiX, 0, 4000) : null) ?? prev.aiX,
+          aiY: (body ? intIn(body.aiY, 44, 2000) : null) ?? prev.aiY,
           aiTop: (body ? intIn(body.aiTop, 44, 600) : null) ?? prev.aiTop,
         };
         saveUiState(root, state);

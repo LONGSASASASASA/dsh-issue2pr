@@ -705,22 +705,27 @@ body.i2p-dragging{user-select:none}
 @keyframes i2p-ai-in{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
 /* 面板：轻天蓝底（color-mix 混主题底色，浅色=淡天蓝/深色=深蓝调，官方 Markdown 文字两主题可读），
    全部强调（边框/focus/hover/chip 圆点）统一同一天蓝色系，避免杂色 */
-.i2p-ai-panel{pointer-events:auto;position:absolute;top:60px;right:78px;bottom:16px;width:min(400px,calc(100% - 120px));
-  max-width:calc(100% - 100px);
+.i2p-ai-panel{pointer-events:auto;position:absolute;top:60px;width:400px;height:calc(100% - 76px);
+  min-width:240px;min-height:200px;
   display:flex;flex-direction:column;
   background:color-mix(in srgb,#3aa0f5 7%,var(--panel,#fff));
   border:1px solid color-mix(in srgb,#3aa0f5 20%,var(--line-2,#d8dae3));border-radius:12px;
   box-shadow:0 6px 28px rgba(9,12,20,.12);overflow:hidden;
   animation:i2p-ai-in .2s cubic-bezier(.2,.8,.2,1)}
-/* 尺寸手柄：贴面板边内侧（外伸会被 overflow:hidden 裁剪点不到）；hover 显蓝 */
-.i2p-ai-grip-w,.i2p-ai-grip-h{position:absolute;z-index:3;touch-action:none}
-.i2p-ai-grip-w{left:0;top:0;bottom:0;width:8px;cursor:col-resize}
-.i2p-ai-grip-h{top:0;left:0;right:0;height:8px;cursor:row-resize}
-.i2p-ai-grip-w:hover,.i2p-ai-grip-h:hover{
-  background:color-mix(in srgb,#3aa0f5 32%,transparent)}
-body.i2p-dragging-r *{cursor:row-resize!important}
+/* 自由窗口 resize 层：四边+四角，hover 显天蓝；角命中区 24×24（WCAG 2.2 目标尺寸），
+   贴面板内侧（外伸会被 overflow:hidden 裁剪点不到）；双击任一处恢复默认位置与尺寸 */
+.i2p-ai-rz{position:absolute;z-index:4;touch-action:none}
+.i2p-ai-rz.n{top:0;left:24px;right:24px;height:7px;cursor:ns-resize}
+.i2p-ai-rz.s{bottom:0;left:24px;right:24px;height:7px;cursor:ns-resize}
+.i2p-ai-rz.e{right:0;top:24px;bottom:24px;width:7px;cursor:ew-resize}
+.i2p-ai-rz.w{left:0;top:24px;bottom:24px;width:7px;cursor:ew-resize}
+.i2p-ai-rz.nw{top:0;left:0;width:24px;height:24px;cursor:nwse-resize}
+.i2p-ai-rz.ne{top:0;right:0;width:24px;height:24px;cursor:nesw-resize}
+.i2p-ai-rz.sw{bottom:0;left:0;width:24px;height:24px;cursor:nesw-resize}
+.i2p-ai-rz.se{bottom:0;right:0;width:24px;height:24px;cursor:nwse-resize}
+.i2p-ai-rz:hover{background:color-mix(in srgb,#3aa0f5 35%,transparent)}
 /* 头部：标题 + 小字副题 + 关闭，细分割线（无图标） */
-.i2p-ai-head{flex:none;display:flex;align-items:baseline;gap:8px;padding:11px 14px;
+.i2p-ai-head{flex:none;display:flex;align-items:baseline;gap:8px;padding:11px 14px;cursor:move;
   border-bottom:1px solid color-mix(in srgb,#3aa0f5 14%,var(--line,#e5e6ec))}
 .i2p-ai-title{font-size:13.5px;font-weight:600;color:var(--ink);letter-spacing:.01em}
 .i2p-ai-sub{font-size:11.5px;color:var(--muted)}
@@ -2998,43 +3003,84 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 		 * ================================================================ */
 		const aiStore = {
 			open: false,
-			// 面板尺寸记忆（宽/面板顶）：localStorage 快路径，服务端 ui-state 兜底跨软件重启
-			w: clampInt(localStorage.getItem("i2p.aiW"), 180, 560, 400),
-			top: clampInt(localStorage.getItem("i2p.aiTop"), 44, aiMaxTop(), 60),
+			// 自由窗口矩形（x/y/w/h，相对工作台）：localStorage 快路径 + 服务端 ui-state 兜底；
+			// 兼容旧版字段（i2p.aiW/i2p.aiTop）：miss aiX/aiH 时按"右贴、底到页底"推导
+			rect: (function () {
+				const d = aiDefaultRect();
+				const x = clampInt(localStorage.getItem("i2p.aiX"), 0, 4000, null);
+				const y = clampInt(localStorage.getItem("i2p.aiY"), 44, 2000, null);
+				const w = clampInt(localStorage.getItem("i2p.aiW"), 240, 760, null);
+				const h = clampInt(localStorage.getItem("i2p.aiH"), 200, 1800, null);
+				const oldTop = clampInt(localStorage.getItem("i2p.aiTop"), 44, 2000, null);
+				if (x == null && y == null && w == null && h == null && oldTop == null) return d;
+				const p = aiPageRect();
+				const w2 = w != null ? w : d.w;
+				const y2 = y != null ? y : (oldTop != null ? oldTop : d.y);
+				return {
+					x: x != null ? x : Math.round(p.w - 78 - w2),
+					y: y2,
+					w: w2,
+					h: h != null ? h : Math.max(200, Math.round(p.h - 16 - y2)),
+				};
+			})(),
 			listeners: new Set(),
 			set(v) { this.open = v; for (const fn of this.listeners) fn(); },
-			setSize(patch, persist) {
-				if (patch && patch.w != null) this.w = Math.max(180, Math.min(560, Math.round(patch.w)));
-				if (patch && patch.top != null) this.top = Math.max(44, Math.min(aiMaxTop(), Math.round(patch.top)));
+			// setRect：先 clamp 尺寸再 clamp 位置（面板始终完整落在工作台内）；
+			// resize 的锚定边由调用方以推导后的 x/y 一并传入（西/北边拖动时对边固定）
+			setRect(patch, persist) {
+				const p = aiPageRect();
+				const cur = this.rect;
+				let w = patch.w != null ? Math.round(patch.w) : cur.w;
+				let h = patch.h != null ? Math.round(patch.h) : cur.h;
+				w = Math.max(240, Math.min(Math.max(240, Math.min(760, p.w - 24)), w));
+				h = Math.max(200, Math.min(Math.max(200, p.h - 60), h));
+				let x = patch.x != null ? Math.round(patch.x) : cur.x;
+				let y = patch.y != null ? Math.round(patch.y) : cur.y;
+				x = Math.max(4, Math.min(Math.max(4, p.w - w - 4), x));
+				y = Math.max(44, Math.min(Math.max(44, p.h - h - 8), y));
+				this.rect = { x: x, y: y, w: w, h: h };
 				if (persist) {
 					try {
-						localStorage.setItem("i2p.aiW", String(this.w));
-						localStorage.setItem("i2p.aiTop", String(this.top));
+						localStorage.setItem("i2p.aiX", String(x));
+						localStorage.setItem("i2p.aiY", String(y));
+						localStorage.setItem("i2p.aiW", String(w));
+						localStorage.setItem("i2p.aiH", String(h));
+						localStorage.removeItem("i2p.aiTop");
 					} catch (e) { /* webview localStorage 可能被禁，服务端兜底仍在 */ }
 					fetch(API + "/ui-state", {
 						method: "POST",
 						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ aiW: this.w, aiTop: this.top }),
+						body: JSON.stringify({ aiX: x, aiY: y, aiW: w, aiH: h }),
 					}).catch(function () { /* 兜底失败静默 */ });
 				}
 				for (const fn of this.listeners) fn();
 			},
+			resetRect() { this.setRect(aiDefaultRect(), true); },
 			subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
 		};
-		function useAiState() {
-			const [s, setS] = React.useState({ open: aiStore.open, w: aiStore.w, top: aiStore.top });
-			React.useEffect(() => aiStore.subscribe(() => setS({ open: aiStore.open, w: aiStore.w, top: aiStore.top })), []);
-			return s;
-		}
+			function useAiState() {
+				const [s, setS] = React.useState({ open: aiStore.open, rect: aiStore.rect });
+				React.useEffect(() => aiStore.subscribe(() => setS({ open: aiStore.open, rect: aiStore.rect })), []);
+				return s;
+			}
 
-		const AI_CHIPS = ["现在的运行到哪一步了？", "P1-P11 各做什么？", "这个 Run 为什么会失败？"];
+			const AI_CHIPS = ["现在的运行到哪一步了？", "P1-P11 各做什么？", "这个 Run 为什么会失败？"];
 
 		function clampInt(v, lo, hi, def) {
 			const n = parseInt(v, 10);
 			return Number.isFinite(n) && n >= lo && n <= hi ? n : def;
 		}
-		// 面板顶缘上限随视口高：保证面板至少约 200px 高（矮屏下 600 的静态上限会把面板挤成一条线）
-		function aiMaxTop() { return Math.max(150, Math.min(600, (window.innerHeight || 720) - 240)); }
+		// 工作台 page 的可用尺寸（查询失败退回视口近似——smoke/preview 环境无真实 rect）
+		function aiPageRect() {
+			const el = document.querySelector(".i2p-page");
+			const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+			return r ? { w: r.width, h: r.height } : { w: window.innerWidth || 1280, h: window.innerHeight || 720 };
+		}
+		// 默认窗口：右贴（避宿主右缘悬浮按钮排约 70px）、头部下方、底到页底
+		function aiDefaultRect() {
+			const p = aiPageRect();
+			return { x: Math.max(4, Math.round(p.w - 78 - 400)), y: 60, w: 400, h: Math.max(200, Math.round(p.h - 76)) };
+		}
 
 		function AssistantDock() {
 			const ai = useAiState();
@@ -3133,55 +3179,80 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 				return function () { if (acRef.current) acRef.current.abort(); };
 			}, []);
 
-			// 面板尺寸兜底：宿主 webview 的 localStorage 不跨软件重启——本地无记忆时
-			// 从服务端 ui-state 恢复；本地有记忆时反向同步服务端（防旧值空窗）
+			// 面板窗口矩形兜底：宿主 webview 的 localStorage 不跨软件重启——本地无记忆时
+			// 从服务端 ui-state 恢复（兼容旧 aiW/aiTop）；本地有记忆时反向同步服务端（防旧值空窗）
 			React.useEffect(function () {
 				apiGet("/ui-state").then(function (r) {
 					if (!r || !r.ok || !r.state) return;
-					const local = localStorage.getItem("i2p.aiW") != null || localStorage.getItem("i2p.aiTop") != null;
+					const local = ["i2p.aiX", "i2p.aiY", "i2p.aiW", "i2p.aiH", "i2p.aiTop"].some(function (k) { return localStorage.getItem(k) != null; });
 					if (local) {
 						fetch(API + "/ui-state", {
 							method: "POST",
 							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ aiW: aiStore.w, aiTop: aiStore.top }),
+							body: JSON.stringify({ aiX: aiStore.rect.x, aiY: aiStore.rect.y, aiW: aiStore.rect.w, aiH: aiStore.rect.h }),
 						}).catch(function () { /* 兜底失败静默 */ });
-					} else if (r.state.aiW || r.state.aiTop) {
-						aiStore.setSize({ w: r.state.aiW, top: r.state.aiTop }, false);
+					} else if (r.state.aiX != null || r.state.aiW != null || r.state.aiTop != null) {
+						aiStore.setRect({
+							x: r.state.aiX, y: r.state.aiY != null ? r.state.aiY : r.state.aiTop,
+							w: r.state.aiW, h: r.state.aiH,
+						}, false);
 					}
 				}).catch(function () { /* 兜底失败静默 */ });
 			}, []);
 
-			// 面板尺寸拖拽（仿目录列拖宽）：原生事件委托（宿主注入环境里 React 合成
-			// 事件对 pointer 不可靠）；左缘调宽、顶缘调高，双击任一手柄恢复默认
+			// 自由窗口拖拽：resize 边/角（含双向角点）+ 标题栏拖动移动。
+			// 原生事件委托（宿主注入环境里 React 合成事件对 pointer 不可靠）；
+			// 双击 resize 区或标题栏 = 恢复默认位置与尺寸（WCAG 2.2 拖拽的单指针替代路径）
 			React.useEffect(function () {
-				const gripOf = function (t) { return t && t.closest ? t.closest(".i2p-ai-grip-w,.i2p-ai-grip-h") : null; };
+				const hitOf = function (t) {
+					if (!t || !t.closest) return null;
+					return t.closest(".i2p-ai-rz") || t.closest(".i2p-ai-head");
+				};
 				const down = function (e) {
-					const grip = gripOf(e.target);
-					if (!grip || e.button !== 0) return;
-					const panel = grip.closest(".i2p-ai-panel");
-					const page = grip.closest(".i2p-page");
-					if (!panel || !page) return;
+					if (e.button !== 0) return;
+					const hit = hitOf(e.target);
+					if (!hit) return;
+					// 标题栏上的按钮（关闭等）不触发拖动
+					if (hit.classList.contains("i2p-ai-head") && e.target.closest && e.target.closest("button")) return;
+					const page = hit.closest(".i2p-page");
+					if (!page) return;
 					e.preventDefault();
-					const rect = panel.getBoundingClientRect();
-					const pr = page.getBoundingClientRect();
-					const isW = grip.classList.contains("i2p-ai-grip-w");
+					const mode = hit.classList.contains("i2p-ai-head") ? "move"
+						: ((hit.className.match(/i2p-ai-rz\s+(\S+)/) || [])[1] || "");
+					if (!mode) return;
+					const start = {
+						x: e.clientX, y: e.clientY,
+						rect: { x: aiStore.rect.x, y: aiStore.rect.y, w: aiStore.rect.w, h: aiStore.rect.h },
+					};
 					document.body.classList.add("i2p-dragging");
-					if (!isW) document.body.classList.add("i2p-dragging-r");
+					document.body.style.cursor = mode === "move" ? "move"
+						: (/n|s/.test(mode) && /e|w/.test(mode) ? (/nw|se/.test(mode) ? "nwse-resize" : "nesw-resize")
+						: (/n|s/.test(mode) ? "ns-resize" : "ew-resize"));
 					const move = function (ev) {
-						if (isW) aiStore.setSize({ w: rect.right - ev.clientX }, false);
-						else aiStore.setSize({ top: ev.clientY - pr.top }, false);
+						const dx = ev.clientX - start.x, dy = ev.clientY - start.y;
+						if (mode === "move") {
+							aiStore.setRect({ x: start.rect.x + dx, y: start.rect.y + dy }, false);
+							return;
+						}
+						let w = start.rect.w, h = start.rect.h, x = start.rect.x, y = start.rect.y;
+						if (mode.indexOf("e") >= 0) w = start.rect.w + dx;
+						if (mode.indexOf("s") >= 0) h = start.rect.h + dy;
+						if (mode.indexOf("w") >= 0) { w = start.rect.w - dx; x = start.rect.x + dx; }
+						if (mode.indexOf("n") >= 0) { h = start.rect.h - dy; y = start.rect.y + dy; }
+						aiStore.setRect({ x: x, y: y, w: w, h: h }, false);
 					};
 					const up = function () {
 						window.removeEventListener("pointermove", move);
 						window.removeEventListener("pointerup", up);
-						document.body.classList.remove("i2p-dragging", "i2p-dragging-r");
-						aiStore.setSize({ w: aiStore.w, top: aiStore.top }, true); // 拖动结束落盘（双写）
+						document.body.style.cursor = "";
+						document.body.classList.remove("i2p-dragging");
+						aiStore.setRect({}, true); // 拖动结束落盘（双写）
 					};
 					window.addEventListener("pointermove", move);
 					window.addEventListener("pointerup", up);
 				};
 				const dbl = function (e) {
-					if (gripOf(e.target)) aiStore.setSize({ w: 400, top: 60 }, true);
+					if (hitOf(e.target)) aiStore.resetRect();
 				};
 				document.addEventListener("pointerdown", down);
 				document.addEventListener("dblclick", dbl);
@@ -3201,12 +3272,13 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 				}, Ic("msg", 15)),
 				open ? h("aside", {
 					className: "i2p-ai-panel", role: "complementary", "aria-label": "智能助手",
-					style: { width: ai.w + "px", top: ai.top + "px" },
+					style: { left: ai.rect.x + "px", top: ai.rect.y + "px", width: ai.rect.w + "px", height: ai.rect.h + "px" },
 				},
-					h("div", { className: "i2p-ai-grip-w", title: "拖动调整宽度 · 双击恢复默认" }),
-					h("div", { className: "i2p-ai-grip-h", title: "拖动调整高度 · 双击恢复默认" }),
-					h("div", { className: "i2p-ai-head" },
-						h("span", { className: "i2p-ai-title" }, "智能助手"),
+					["n", "s", "e", "w", "nw", "ne", "sw", "se"].map(function (d) {
+						return h("div", { key: d, className: "i2p-ai-rz " + d, title: "拖动调整大小 · 双击恢复默认" });
+					}),
+					h("div", { className: "i2p-ai-head", title: "拖动移动位置 · 双击恢复默认" },
+							h("span", { className: "i2p-ai-title" }, "智能助手"),
 						h("span", { className: "i2p-ai-sub" }, "问答 · 运行状态"),
 						h("button", {
 							type: "button", className: "i2p-ai-close", onClick: function () { aiStore.set(false); },

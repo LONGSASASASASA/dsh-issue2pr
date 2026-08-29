@@ -322,17 +322,20 @@ const hasCls = (tree, cls) => { const out = []; classNames(tree, out); return ou
 assert.ok(hasCls(ov, "i2p-ai-fab"), "工作台右上角应有智能助手悬浮球");
 assert.ok(!hasCls(ov, "i2p-ai-panel"), "默认不展开面板");
 const gripClsOf = (tree, cls) => { const out = []; elements(tree, out); return out.some((n) => String(n.props.className || "").split(/\s+/).includes(cls)); };
-assert.ok(!gripClsOf(ov, "i2p-ai-grip-w") && !gripClsOf(ov, "i2p-ai-grip-h"), "面板未展开时无尺寸手柄");
+assert.ok(!gripClsOf(ov, "i2p-ai-rz"), "面板未展开时无 resize 层");
 const ovEls = []; elements(ov, ovEls);
 const fab = ovEls.find((n) => String(n.props.className || "").split(/\s+/).includes("i2p-ai-fab"));
 assert.ok(fab, "悬浮球应为可点击按钮");
 fab.props.onClick(); // 点击悬浮球 → aiStore.set(true)
 ov = h(Overlay);
 assert.ok(hasCls(ov, "i2p-ai-panel"), "点击悬浮球后展开对话面板");
-assert.ok(gripClsOf(ov, "i2p-ai-grip-w") && gripClsOf(ov, "i2p-ai-grip-h"), "面板应带宽/高两个拖拽手柄");
-// 面板尺寸走内联 style（aiStore 尺寸记忆 → width/top）
+// 自由窗口：四边 + 四角 resize 层齐全（角 24×24 命中区）
+assert.ok(gripClsOf(ov, "i2p-ai-rz"), "面板应带 resize 层");
+const rzCls = (() => { const out = []; elements(ov, out); return out.filter((n) => /i2p-ai-rz/.test(String(n.props.className || ""))).map((n) => n.props.className.trim()); })();
+assert.equal(rzCls.length, 8, "应有 8 个 resize 命中区（四边+四角）");
+// 窗口矩形走内联 style（aiStore rect → left/top/width/height）
 const ovPanel = (() => { const out = []; elements(ov, out); return out.find((n) => String(n.props.className || "").split(/\s+/).includes("i2p-ai-panel")); })();
-assert.ok(ovPanel && ovPanel.props.style && ovPanel.props.style.width && ovPanel.props.style.top, "面板尺寸由 store 内联注入");
+assert.ok(ovPanel && ovPanel.props.style && ovPanel.props.style.left && ovPanel.props.style.top && ovPanel.props.style.width && ovPanel.props.style.height, "窗口矩形由 store 内联注入");
 let dtexts = flattenTexts(ov);
 assert.ok(dtexts.some((t) => t.includes("现在的运行到哪一步了？")), "空历史时应显示快捷问题");
 assert.ok(dtexts.some((t) => t.includes("我能看到你的项目")), "面板应带能力说明");

@@ -376,6 +376,17 @@ test("API：ui-state 兜底存储 — POST 写入 / GET 回读 / 非法 slug 拒
   assert.equal(r.body.state.aiTop, 120);
   r = await call(handler, "POST", "/issue2pr/api/ui-state", { aiW: 300.5 });
   assert.equal(r.body.state.aiW, 480); // 非整数忽略
+  // 自由窗口矩形：aiX/aiY/aiW/aiH 四字段保存回读；aiW 新范围 240-760
+  r = await call(handler, "POST", "/issue2pr/api/ui-state", { aiX: 320, aiY: 90, aiW: 520, aiH: 560 });
+  assert.equal(r.body.state.aiX, 320);
+  assert.equal(r.body.state.aiY, 90);
+  assert.equal(r.body.state.aiW, 520);
+  assert.equal(r.body.state.aiH, 560);
+  r = await call(handler, "POST", "/issue2pr/api/ui-state", { aiX: -1, aiY: 10, aiW: 9999, aiH: 50 });
+  assert.equal(r.body.state.aiX, 320); // 越界忽略保留旧值
+  assert.equal(r.body.state.aiY, 90);
+  assert.equal(r.body.state.aiW, 520);
+  assert.equal(r.body.state.aiH, 560);
 });
 
 test("API：项目保存带 stageConfig 落盘并可回读；非法阶段被拒", async () => {
