@@ -1,0 +1,1394 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>生产级 Issue-to-PR Coding Agent · 调研笔记</title>
+<style>
+  :root{
+    --bg:#f3efe6;
+    --paper:#fbf8f1;
+    --surface:#ffffff;
+    --ink:#171820;
+    --ink-2:#2b2d3a;
+    --muted:#6f6b78;
+    --line:#dcd6c7;
+    --line-soft:#ece7d8;
+    --accent:#2a3f7a;
+    --accent-soft:#dee3f1;
+    --accent-ink:#15214a;
+    --warn:#a6453a;
+    --warn-soft:#f3e1dc;
+    --evidence:#a07a1f;
+    --evidence-soft:#efe4c9;
+    --good:#506b3a;
+    --good-soft:#dfe6d2;
+    --mono:'JetBrains Mono','IBM Plex Mono','SFMono-Regular',Consolas,'Liberation Mono',monospace;
+    --sans:'Inter','Source Han Sans SC','Noto Sans SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif;
+    --serif:'Source Serif Pro','Source Han Serif SC','Noto Serif SC','Songti SC','SimSun',Georgia,serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15.5px;
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  a{color:inherit;text-decoration:none}
+  ::selection{background:#15214a;color:#fff}
+
+  /* ---------- Layout ---------- */
+  .wrap{
+    max-width:1200px;
+    margin:0 auto;
+    padding:64px 56px 96px;
+    display:grid;
+    grid-template-columns:240px 1fr;
+    gap:56px;
+  }
+  @media (max-width:980px){
+    .wrap{grid-template-columns:1fr;gap:32px;padding:40px 24px 64px}
+    aside.toc{position:static!important}
+  }
+
+  /* ---------- Header ---------- */
+  header.hero{
+    grid-column:1/-1;
+    border-bottom:1px solid var(--line);
+    padding:0 0 36px;
+    margin-bottom:12px;
+    display:grid;
+    grid-template-columns:1fr auto;
+    gap:24px;
+    align-items:end;
+  }
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:11.5px;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:var(--accent);
+    display:inline-flex;align-items:center;gap:10px;
+  }
+  .eyebrow .dot{width:7px;height:7px;background:var(--accent);display:inline-block;border-radius:50%}
+  h1.title{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:46px;
+    line-height:1.15;
+    letter-spacing:-0.01em;
+    margin:18px 0 14px;
+    color:var(--ink);
+  }
+  .lede{
+    font-family:var(--serif);
+    font-size:18px;
+    color:var(--ink-2);
+    max-width:760px;
+    line-height:1.65;
+  }
+  .meta{
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--muted);
+    text-align:right;
+    line-height:1.6;
+  }
+  .meta b{color:var(--ink-2);font-weight:600}
+
+  /* ---------- TOC ---------- */
+  aside.toc{
+    position:sticky;top:36px;align-self:start;
+    font-family:var(--sans);
+    padding-top:6px;
+  }
+  aside.toc h4{
+    font-family:var(--mono);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.18em;
+    color:var(--muted);
+    margin:0 0 14px;
+    font-weight:600;
+  }
+  aside.toc ol{
+    list-style:none;
+    padding:0;
+    margin:0;
+    counter-reset:toc;
+    border-left:1px solid var(--line);
+  }
+  aside.toc li{
+    counter-increment:toc;
+    position:relative;
+  }
+  aside.toc a{
+    display:block;
+    padding:7px 14px 7px 28px;
+    font-size:13.5px;
+    color:var(--ink-2);
+    border-left:2px solid transparent;
+    margin-left:-1px;
+    transition:all .15s;
+  }
+  aside.toc a:hover{color:var(--ink)}
+  aside.toc a.active{
+    border-left-color:var(--accent);
+    color:var(--accent);
+    font-weight:600;
+    background:linear-gradient(to right,var(--accent-soft),transparent);
+  }
+  aside.toc a::before{
+    content:counter(toc,decimal-leading-zero);
+    position:absolute;left:8px;top:8px;
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--muted);
+  }
+
+  /* ---------- Section ---------- */
+  section.sec{
+    padding:48px 0 56px;
+    border-top:1px solid var(--line);
+  }
+  section.sec:first-of-type{border-top:none;padding-top:18px}
+  .sec-head{
+    display:grid;
+    grid-template-columns:auto 1fr;
+    gap:24px;
+    align-items:baseline;
+    margin-bottom:24px;
+  }
+  .sec-num{
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--accent);
+    letter-spacing:0.1em;
+    padding-top:8px;
+  }
+  .sec h2{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:30px;
+    line-height:1.25;
+    letter-spacing:-0.005em;
+    margin:0 0 8px;
+    color:var(--ink);
+  }
+  .sec .sub{
+    font-family:var(--serif);
+    font-size:16px;
+    color:var(--muted);
+    font-style:italic;
+    margin:0;
+  }
+  .sec p{margin:0 0 14px}
+  .sec p strong{color:var(--ink-2)}
+
+  /* ---------- Cards / callouts ---------- */
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:18px 0}
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0}
+  .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}
+  @media (max-width:760px){
+    .grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
+  }
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:18px 18px 16px;
+  }
+  .card h4{
+    font-family:var(--mono);
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:0.14em;
+    color:var(--muted);
+    margin:0 0 10px;
+    font-weight:600;
+  }
+  .card p{margin:0 0 8px;font-size:14.5px}
+  .card ul{margin:6px 0 0;padding-left:18px;font-size:14px}
+  .card ul li{margin-bottom:4px}
+
+  .card.evidence{border-left:3px solid var(--evidence);background:var(--evidence-soft)}
+  .card.evidence h4{color:var(--evidence)}
+  .card.warn{border-left:3px solid var(--warn);background:var(--warn-soft)}
+  .card.warn h4{color:var(--warn)}
+  .card.good{border-left:3px solid var(--good);background:var(--good-soft)}
+  .card.good h4{color:var(--good)}
+  .card.accent{border-left:3px solid var(--accent);background:#f0f2fa}
+  .card.accent h4{color:var(--accent)}
+
+  /* ---------- Inline lists ---------- */
+  ul.tight{padding-left:18px;margin:8px 0 14px}
+  ul.tight li{margin-bottom:6px;font-size:14.5px}
+  ul.tight li b{color:var(--ink-2)}
+
+  /* ---------- Code / pre ---------- */
+  pre,code{font-family:var(--mono)}
+  pre{
+    background:var(--ink);
+    color:#e8e6df;
+    padding:16px 18px;
+    border-radius:4px;
+    overflow-x:auto;
+    font-size:13px;
+    line-height:1.6;
+    margin:14px 0;
+    border:1px solid #0c0d18;
+  }
+  pre .k{color:#c2a26f}   /* key */
+  pre .s{color:#9bc28b}   /* string */
+  pre .n{color:#e8e6df}   /* number/punct */
+  pre .c{color:#7a7785;font-style:italic} /* comment */
+  pre .t{color:#d9a55b}   /* type */
+
+  /* ---------- Tables ---------- */
+  .tbl-wrap{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:4px;background:var(--surface)}
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:14px;
+  }
+  th,td{
+    text-align:left;
+    padding:11px 14px;
+    border-bottom:1px solid var(--line-soft);
+    vertical-align:top;
+  }
+  th{
+    background:#ece7d8;
+    font-family:var(--mono);
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:0.1em;
+    color:var(--ink-2);
+    font-weight:600;
+  }
+  tr:last-child td{border-bottom:none}
+  td code{background:#eee8d8;padding:1px 6px;border-radius:3px;font-size:12.5px;color:var(--accent-ink)}
+
+  /* ---------- Inline tags ---------- */
+  .tag{
+    display:inline-block;
+    font-family:var(--mono);
+    font-size:10.5px;
+    padding:2px 8px;
+    border-radius:2px;
+    letter-spacing:0.05em;
+    margin-right:6px;
+    border:1px solid;
+  }
+  .tag.do{color:var(--good);border-color:var(--good);background:var(--good-soft)}
+  .tag.dont{color:var(--warn);border-color:var(--warn);background:var(--warn-soft)}
+  .tag.evidence{color:var(--evidence);border-color:var(--evidence);background:var(--evidence-soft)}
+  .tag.gate{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+
+  /* ---------- Pull quote ---------- */
+  .pull{
+    font-family:var(--serif);
+    font-size:22px;
+    line-height:1.45;
+    color:var(--ink);
+    border-left:3px solid var(--accent);
+    padding:6px 0 6px 22px;
+    margin:20px 0 24px;
+    max-width:780px;
+  }
+  .pull .src{
+    display:block;
+    margin-top:10px;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:0.14em;
+  }
+
+  /* ---------- SVG diagram container ---------- */
+  .fig{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:24px;
+    margin:20px 0;
+  }
+  .fig figcaption{
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:0.14em;
+    margin-top:14px;
+    text-align:center;
+  }
+  .fig svg{display:block;max-width:100%;height:auto;margin:0 auto}
+
+  /* ---------- Timeline ---------- */
+  .timeline{
+    border-left:2px solid var(--line);
+    margin:18px 0 18px 8px;
+    padding-left:24px;
+  }
+  .timeline .step{
+    position:relative;
+    padding:6px 0 18px;
+  }
+  .timeline .step::before{
+    content:"";
+    position:absolute;
+    left:-31px;top:14px;
+    width:12px;height:12px;
+    border:2px solid var(--accent);
+    background:var(--bg);
+    border-radius:50%;
+  }
+  .timeline .step h5{
+    font-family:var(--sans);
+    margin:0 0 4px;
+    font-size:15px;
+    color:var(--ink);
+  }
+  .timeline .step .desc{
+    font-size:14px;
+    color:var(--ink-2);
+  }
+  .timeline .step code{
+    font-size:12.5px;
+    background:#ece7d8;
+    color:var(--accent-ink);
+    padding:1px 6px;
+    border-radius:3px;
+  }
+
+  /* ---------- Footer ---------- */
+  footer.foot{
+    grid-column:1/-1;
+    margin-top:48px;
+    padding-top:24px;
+    border-top:1px solid var(--line);
+    color:var(--muted);
+    font-family:var(--mono);
+    font-size:11.5px;
+    letter-spacing:0.1em;
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;
+  }
+
+  /* ---------- Mobile tweaks ---------- */
+  @media (max-width:760px){
+    h1.title{font-size:32px}
+    .sec h2{font-size:24px}
+    header.hero{grid-template-columns:1fr}
+    .meta{text-align:left}
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none!important;animation:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ========== HERO ========== -->
+  <header class="hero">
+    <div>
+      <span class="eyebrow"><span class="dot"></span>Research Notes · Issue-to-PR Agent · 第二季</span>
+      <h1 class="title">生产级 Coding Agent<br/>是一条可验证交付链</h1>
+      <p class="lede">从一条 Issue 到一份被合并的 PR，中间不能跳步。每一段路径都要有自己的输入契约、失败信号、可回滚产物与可独立审查的 Artifact。本笔记把整套端到端架构按"不可省略"的原则重新组织，沉淀成可直接对照执行的 16 节。</p>
+    </div>
+    <div class="meta">
+      <div><b>来源</b> B 站调研 · 第二季</div>
+      <div><b>主题</b> Production-grade Coding Agent</div>
+      <div><b>形态</b> 长读模式 · 非 deck</div>
+    </div>
+  </header>
+
+  <!-- ========== TOC ========== -->
+  <aside class="toc" aria-label="目录">
+    <h4>索引</h4>
+    <ol>
+      <li><a href="#s-first">第一性原理：5 个不变命题</a></li>
+      <li><a href="#s-overview">端到端总架构</a></li>
+      <li><a href="#s-analyzer">IssueAnalyzer：先把问题读清楚</a></li>
+      <li><a href="#s-search">理解代码：Search + Code Understanding</a></li>
+      <li><a href="#s-hypothesis">诊断：根因假设必须可验证</a></li>
+      <li><a href="#s-planner">规划：TaskGraph 而非一锅汤</a></li>
+      <li><a href="#s-subagent">执行取舍：什么时候用 Sub-Agent</a></li>
+      <li><a href="#s-patch">安全修改：Patch Pipeline</a></li>
+      <li><a href="#s-verify">验证：Sandbox TestRunner + Reviewer</a></li>
+      <li><a href="#s-failure">失败处理：分类决定路径</a></li>
+      <li><a href="#s-rollback">回滚：只撤销 Agent 引入的修改</a></li>
+      <li><a href="#s-memory">记忆边界：Memory 参与而不替代</a></li>
+      <li><a href="#s-cache">缓存边界：稳定前缀与动态内容</a></li>
+      <li><a href="#s-obs">可观测性：每一步独立 Span</a></li>
+      <li><a href="#s-eval">评测 Gate 与关键指标</a></li>
+      <li><a href="#s-metrics">项目级评估：双维度 8 指标</a></li>
+      <li><a href="#s-end">收束：3 条 takeaway + 9 步交付流</a></li>
+    </ol>
+  </aside>
+
+  <main>
+
+  <!-- ========== §1 第一性原理 ========== -->
+  <section class="sec" id="s-first">
+    <div class="sec-head">
+      <span class="sec-num">§ 01</span>
+      <div>
+        <h2>第一性原理：端到端的 5 个不变命题</h2>
+        <p class="sub">从 Issue 到 PR 这条链上，无论 Agent 如何演进，这 5 条不能变。</p>
+      </div>
+    </div>
+
+    <ol class="tight">
+      <li><b>不可跳步</b> —— Issue 分析、检索、理解、规划、修改、测试、Review、评测，一步都不能省。省了任何一步，PR 都不能称为"交付"。</li>
+      <li><b>可定位</b> —— 任何失败都必须能落到具体模块。没有归属的失败，不允许简单重跑。</li>
+      <li><b>可回滚</b> —— Agent 引入的修改必须可逆，且必须能区分"用户改的"与"Agent 改的"。</li>
+      <li><b>可审查</b> —— 交付物不是一段回答，而是一份 Patch、一组测试日志、一份 PR 说明与一份评测报告，每一份都要能被打回重做。</li>
+      <li><b>可复现</b> —— 全链路 Trace 必须从 Issue 一直贯穿到 PR。没有 Trace，PR 是怎么生成的永远无法解释。</li>
+    </ol>
+
+    <p class="pull">
+      真正的交付物不是"PR 文本"，而是一份<span style="color:var(--accent)"><b>可审查系统</b></span>——每一段产出都有证据链。<span class="src">— 这份笔记的全部主张都建立在这 5 条之上</span>
+    </p>
+  </section>
+
+  <!-- ========== §2 架构总览 ========== -->
+  <section class="sec" id="s-overview">
+    <div class="sec-head">
+      <span class="sec-num">§ 02</span>
+      <div>
+        <h2>端到端总架构</h2>
+        <p class="sub">Agent Orchestrator 是协调器，不是合并器；12 个模块各自有专属职责。</p>
+      </div>
+    </div>
+
+    <figure class="fig">
+      <svg viewBox="0 0 880 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="端到端架构图">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#2a3f7a"/>
+          </marker>
+        </defs>
+
+        <!-- 簇背景 -->
+        <rect x="20" y="20" width="200" height="200" rx="6" fill="#f0f2fa" stroke="#dee3f1"/>
+        <text x="32" y="40" font-family="JetBrains Mono" font-size="10" fill="#2a3f7a" letter-spacing="2">UNDERSTAND</text>
+
+        <rect x="660" y="20" width="200" height="200" rx="6" fill="#dfe6d2" stroke="#cdd9b9"/>
+        <text x="672" y="40" font-family="JetBrains Mono" font-size="10" fill="#506b3a" letter-spacing="2">ACT</text>
+
+        <rect x="20" y="320" width="200" height="200" rx="6" fill="#efe4c9" stroke="#e2d3a8"/>
+        <text x="32" y="340" font-family="JetBrains Mono" font-size="10" fill="#a07a1f" letter-spacing="2">VERIFY</text>
+
+        <rect x="660" y="320" width="200" height="200" rx="6" fill="#f3e1dc" stroke="#e3c5bd"/>
+        <text x="672" y="340" font-family="JetBrains Mono" font-size="10" fill="#a6453a" letter-spacing="2">TRUST &amp; SAFETY</text>
+
+        <!-- 中央协调器 -->
+        <circle cx="440" cy="270" r="64" fill="#171820" stroke="#15214a" stroke-width="2"/>
+        <text x="440" y="266" text-anchor="middle" font-family="Source Serif Pro, serif" font-size="15" font-weight="600" fill="#fff">Agent</text>
+        <text x="440" y="284" text-anchor="middle" font-family="Source Serif Pro, serif" font-size="13" fill="#a0a3b0">Orchestrator</text>
+        <text x="440" y="302" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#9aa0bc" letter-spacing="1">CENTRAL · COORDINATOR</text>
+
+        <!-- 12 模块节点（不同形状表达不同角色） -->
+        <!-- Understand cluster -->
+        <g font-family="Inter, sans-serif" font-size="12" fill="#15214a">
+          <rect x="44" y="62" width="152" height="36" rx="3" fill="#fff" stroke="#dee3f1"/>
+          <text x="56" y="80">IssueAnalyzer</text>
+          <text x="56" y="93" font-size="10" fill="#6f6b78">解析 Issue</text>
+
+          <rect x="44" y="116" width="152" height="36" rx="3" fill="#fff" stroke="#dee3f1"/>
+          <text x="56" y="134">Search Layer</text>
+          <text x="56" y="147" font-size="10" fill="#6f6b78">检索候选文件</text>
+
+          <rect x="44" y="170" width="152" height="36" rx="3" fill="#fff" stroke="#dee3f1"/>
+          <text x="56" y="188">Code Understanding</text>
+          <text x="56" y="201" font-size="10" fill="#6f6b78">构建调用链</text>
+        </g>
+
+        <!-- Act cluster (右) -->
+        <g font-family="Inter, sans-serif" font-size="12" fill="#3a4a23">
+          <rect x="684" y="62" width="152" height="36" rx="3" fill="#fff" stroke="#cdd9b9"/>
+          <text x="696" y="80">Planner / TaskGraph</text>
+          <text x="696" y="93" font-size="10" fill="#6f6b78">拆解为 TaskNode</text>
+
+          <rect x="684" y="116" width="152" height="36" rx="3" fill="#fff" stroke="#cdd9b9"/>
+          <text x="696" y="134">DelegationManager</text>
+          <text x="696" y="147" font-size="10" fill="#6f6b78">分配 Sub-Agent</text>
+
+          <rect x="684" y="170" width="152" height="36" rx="3" fill="#fff" stroke="#cdd9b9"/>
+          <text x="696" y="188">Coder Sub-Agent</text>
+          <text x="696" y="201" font-size="10" fill="#6f6b78">局部 Patch</text>
+        </g>
+
+        <!-- Verify cluster -->
+        <g font-family="Inter, sans-serif" font-size="12" fill="#5c4709">
+          <rect x="44" y="362" width="152" height="36" rx="3" fill="#fff" stroke="#e2d3a8"/>
+          <text x="56" y="380">Patch Pipeline</text>
+          <text x="56" y="393" font-size="10" fill="#6f6b78">最小化 Diff</text>
+
+          <rect x="44" y="416" width="152" height="36" rx="3" fill="#fff" stroke="#e2d3a8"/>
+          <text x="56" y="434">Sandbox TestRunner</text>
+          <text x="56" y="447" font-size="10" fill="#6f6b78">受控环境执行</text>
+
+          <rect x="44" y="470" width="152" height="36" rx="3" fill="#fff" stroke="#e2d3a8"/>
+          <text x="56" y="488">Reviewer Agent</text>
+          <text x="56" y="501" font-size="10" fill="#6f6b78">Diff &amp; 风险</text>
+        </g>
+
+        <!-- Trust cluster -->
+        <g font-family="Inter, sans-serif" font-size="12" fill="#5e2620">
+          <rect x="684" y="362" width="152" height="36" rx="3" fill="#fff" stroke="#e3c5bd"/>
+          <text x="696" y="380">PRBuilder</text>
+          <text x="696" y="393" font-size="10" fill="#6f6b78">产出可合并 PR</text>
+
+          <rect x="684" y="416" width="152" height="36" rx="3" fill="#fff" stroke="#e3c5bd"/>
+          <text x="696" y="434">Rollback Manager</text>
+          <text x="696" y="447" font-size="10" fill="#6f6b78">只撤 Agent 改的</text>
+
+          <rect x="684" y="470" width="152" height="36" rx="3" fill="#fff" stroke="#e3c5bd"/>
+          <text x="696" y="488">EvaluationRunner</text>
+          <text x="696" y="501" font-size="10" fill="#6f6b78">指标 &amp; 报告</text>
+        </g>
+
+        <!-- 协调器到各簇的连接线（带箭头，方向从中心出） -->
+        <g stroke="#2a3f7a" stroke-width="1.4" fill="none" opacity="0.5" marker-end="url(#arr)">
+          <line x1="380" y1="248" x2="200" y2="120"/>
+          <line x1="500" y1="248" x2="680" y2="120"/>
+          <line x1="380" y1="292" x2="200" y2="380"/>
+          <line x1="500" y1="292" x2="680" y2="380"/>
+        </g>
+
+        <!-- FailureClassifier 节点（异常侧通道） -->
+        <rect x="380" y="440" width="120" height="40" rx="3" fill="#fff" stroke="#a6453a" stroke-width="1.5"/>
+        <text x="440" y="460" text-anchor="middle" font-family="Inter" font-size="12" fill="#a6453a">Failure Classifier</text>
+        <text x="440" y="473" text-anchor="middle" font-size="10" fill="#6f6b78" font-family="JetBrains Mono">分类后再处理</text>
+
+        <!-- 阶段序号 -->
+        <g font-family="JetBrains Mono" font-size="11" fill="#6f6b78" letter-spacing="1">
+          <text x="240" y="490">→ P1 · 分析</text>
+          <text x="240" y="505">→ P2 · 检索</text>
+          <text x="240" y="520">→ P3 · 理解</text>
+
+          <text x="555" y="490">→ P4 · 规划</text>
+          <text x="555" y="505">→ P5 · 委派</text>
+
+          <text x="240" y="60">P0 · 入口</text>
+        </g>
+      </svg>
+      <figcaption>图 1 · 端到端架构：12 个模块按 4 个职责簇组织，Orchestrator 只做协调</figcaption>
+    </figure>
+
+    <div class="grid-2">
+      <div class="card accent">
+        <h4>设计原则</h4>
+        <ul>
+          <li>Orchestrator 负责模块间协调与状态流转</li>
+          <li>不替代各模块的专属职责</li>
+          <li>不把所有逻辑塞进一个 Agent Prompt</li>
+        </ul>
+      </div>
+      <div class="card evidence">
+        <h4>核心约束</h4>
+        <ul>
+          <li>每个模块有独立输入输出契约</li>
+          <li>失败可定位到具体模块</li>
+          <li>全链路 Trace 从 Issue 贯穿到 PR</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card warn">
+      <h4>Anti-Pattern · 巨型 Prompt</h4>
+      <p>把所有职责塞进同一个 Prompt 看似省事，实际上让失败无法定位——一旦它出错，你不知道是"分析错了"还是"理解错了"。把模块拆开是给失败一个家。</p>
+    </div>
+  </section>
+
+  <!-- ========== §3 IssueAnalyzer ========== -->
+  <section class="sec" id="s-analyzer">
+    <div class="sec-head">
+      <span class="sec-num">§ 03</span>
+      <div>
+        <h2>IssueAnalyzer：先把问题读清楚</h2>
+        <p class="sub">自然语言 → 结构化任务输入。这是后续 Search 与 Planner 共用的"事实基础"。</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <h4 style="font-family:var(--mono);font-size:11.5px;letter-spacing:0.14em;color:var(--muted);text-transform:uppercase;margin:0 0 10px">提取维度</h4>
+        <div class="grid-2" style="gap:12px">
+          <div class="card"><h4>现象 &amp; 触发条件</h4><p class="muted">用户看到的现象、复现路径</p></div>
+          <div class="card"><h4>成功标准</h4><p>什么样的修复算成功？</p></div>
+          <div class="card"><h4>影响模块</h4><p>大致涉及哪些模块，风险多大</p></div>
+          <div class="card"><h4>缺口信息</h4><p>偏环境、复现步骤、版本差异</p></div>
+        </div>
+      </div>
+      <div>
+        <h4 style="font-family:var(--mono);font-size:11.5px;letter-spacing:0.14em;color:var(--muted);text-transform:uppercase;margin:0 0 10px">输出契约</h4>
+        <pre><span class="c">// IssueAnalyzer 输出（结构化）</span>
+<span class="p">{</span>
+  <span class="k">"phenomenon"</span>: <span class="s">"刷新后偶发退出"</span>,
+  <span class="k">"trigger"</span>:    <span class="s">"登录后刷新页面"</span>,
+  <span class="k">"scope"</span>:      [<span class="s">"Auth"</span>, <span class="s">"Session"</span>, <span class="s">"Router"</span>],
+  <span class="k">"success_criteria"</span>: [
+    <span class="s">"刷新后不再退出"</span>,
+    <span class="s">"补充 Session 刷新测试"</span>
+  ],
+  <span class="k">"constraints"</span>: [<span class="s">"不破坏现有登录主流程"</span>],
+  <span class="k">"risk_level"</span>: <span class="s">"medium"</span>
+<span class="p">}</span></pre>
+      </div>
+    </div>
+
+    <div class="card evidence">
+      <h4>为什么契约必须明确</h4>
+      <p>同一个 Issue 在不同模块看来意义不同：Search 关心 <code>scope</code>，Planner 关心 <code>success_criteria</code>，TestRunner 关心 <code>constraints</code>。没有这个共同"事实层"，后端各模块会各自脑补出不同版本的 Issue。</p>
+    </div>
+  </section>
+
+  <!-- ========== §4 Search + Code Understanding ========== -->
+  <section class="sec" id="s-search">
+    <div class="sec-head">
+      <span class="sec-num">§ 04</span>
+      <div>
+        <h2>理解代码：Search Layer + Code Understanding</h2>
+        <p class="sub">先找代码，再走向调用链。两步都不能省，谁先谁后不能颠倒。</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <h4 style="font-family:var(--mono);font-size:11.5px;letter-spacing:0.14em;color:var(--muted);text-transform:uppercase;margin:0 0 10px">Search Layer</h4>
+        <div class="card">
+          <h4>输入来源</h4>
+          <ul>
+            <li>结构化 Issue（来自 IssueAnalyzer）</li>
+            <li>项目 Memory（模块路径、历史问题）</li>
+            <li>仓库索引（语义 + 词法）</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>输出</h4>
+          <ul>
+            <li><b>候选文件列表</b> + 每个文件的 <code>SearchEvidence</code></li>
+            <li>相关 <code>Symbol</code> 线索</li>
+            <li>测试文件候选</li>
+            <li>不确定项（标出"需进一步探索"）</li>
+          </ul>
+        </div>
+      </div>
+
+      <div>
+        <h4 style="font-family:var(--mono);font-size:11.5px;letter-spacing:0.14em;color:var(--muted);text-transform:uppercase;margin:0 0 10px">Code Understanding</h4>
+        <div class="card">
+          <h4>四步流水线</h4>
+          <ol style="padding-left:18px;margin:6px 0;font-size:14.5px">
+            <li><b>解析 AST</b>：抽取 Symbol 定义</li>
+            <li><b>构建调用图</b>：Definition × References</li>
+            <li><b>类型分析</b>：评估影响范围</li>
+            <li><b>输出报告</b>：列出关键函数、调用方、潜在修改点</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <caption style="caption-side:top;text-align:left;padding:0 0 10px;font-family:var(--serif);font-size:16px;color:var(--ink-2)"><b>案例：刷新退出的根因调研路径</b></caption>
+        <thead>
+          <tr>
+            <th style="width:30%">候选文件</th>
+            <th style="width:25%">角色</th>
+            <th>关键发现</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>web/src/auth/session.ts</code></td>
+            <td>Session 核心逻辑</td>
+            <td>高置信度候选</td>
+          </tr>
+          <tr>
+            <td><code>web/src/auth/AuthProvider.tsx</code></td>
+            <td>Auth 状态管理</td>
+            <td>高置信度候选</td>
+          </tr>
+          <tr>
+            <td><code>web/src/router/guard.ts</code></td>
+            <td>路由守卫</td>
+            <td>中置信度候选</td>
+          </tr>
+          <tr>
+            <td><code>tests/session-refresh.test.ts</code></td>
+            <td>测试候选</td>
+            <td>需要补强的回归测试</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card evidence">
+      <h4>关键洞察 · Bug 往往藏在调用链里</h4>
+      <p>从 <code>AuthProvider</code> 走到 <code>restoreSession</code>，再到 <code>refreshSession</code>（它返回 Promise），最后到 <code>routerGuard</code>（依赖 <code>currentUser</code>）。文件级搜索找不到异步缺口，只有调用图能指出——某个 <code>await</code> 在错过的瞬间把状态切走了。</p>
+    </div>
+  </section>
+
+  <!-- ========== §5 Root Cause Hypothesis ========== -->
+  <section class="sec" id="s-hypothesis">
+    <div class="sec-head">
+      <span class="sec-num">§ 05</span>
+      <div>
+        <h2>诊断：根因假设必须可验证</h2>
+        <p class="sub">Agent 不应直接宣布根因。每个假设必须携带证据、验证文件、验证方法。</p>
+      </div>
+    </div>
+
+    <div class="grid-3">
+      <div class="card evidence">
+        <h4>假设 A · 异步时序</h4>
+        <p><code>refreshSession</code> 返回 Promise，但路由守卫没有 <code>await</code>，它就基于一个尚未完成的会话状态去做判断。</p>
+        <p class="muted"><b>验证方法</b>：检查 <code>routerGuard</code> 是否 <code>await restoreSession</code>。</p>
+      </div>
+      <div class="card evidence">
+        <h4>假设 B · 401 中间件</h4>
+        <p>401 中间件在 Session 刷新期间过早早清了 Session 状态，导致后续刷新被误判为未登录。</p>
+        <p class="muted"><b>验证方法</b>：检查 401 拦截器与 <code>refreshSession</code> 的执行顺序。</p>
+      </div>
+      <div class="card evidence">
+        <h4>假设 C · 状态恢复顺序</h4>
+        <p>Cookie 与 <code>localStorage</code> 的状态恢复顺序在不同浏览器存在差异，导致 Session 还没准备好路由就走了。</p>
+        <p class="muted"><b>验证方法</b>：检查 <code>restoreSession</code> 的两个存储读取顺序。</p>
+      </div>
+    </div>
+
+    <div class="card warn">
+      <h4>Anti-Pattern · "我看着像"式结论</h4>
+      <p>模型靠经验拍脑袋给的根因，常常恰好蒙对——但错的时候没人能复盘验证。根因必须挂在"可重现的命令 / 可断言的代码位置 / 可跑的脚本"上，否则就是猜测。</p>
+    </div>
+  </section>
+
+  <!-- ========== §6 Planner ========== -->
+  <section class="sec" id="s-planner">
+    <div class="sec-head">
+      <span class="sec-num">§ 06</span>
+      <div>
+        <h2>规划：TaskGraph 而非一锅汤</h2>
+        <p class="sub">修复任务 = 一张有依赖关系的图。每个节点都有契约，不是"一句口语任务"。</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <div class="timeline">
+          <div class="step"><h5>T1 · 验证 Session 恢复调用链</h5><div class="desc">用 Code Understanding 的输出作为锚</div></div>
+          <div class="step"><h5>T2 · 确认异步时序缺口</h5><div class="desc">对应根因 <b>假设 A</b></div></div>
+          <div class="step"><h5>T3 · 修改 AuthProvider 或路由守卫</h5><div class="desc">最小修改、局部可逆</div></div>
+          <div class="step"><h5>T4 · 补充刷新保持登录测试</h5><div class="desc">复现 + 防回归</div></div>
+          <div class="step"><h5>T5 · 运行 Auth 相关测试套件</h5><div class="desc">由 Sandbox 隔离执行</div></div>
+          <div class="step"><h5>T6 · Review Diff</h5><div class="desc">Reviewer Agent 自动审查</div></div>
+          <div class="step"><h5>T7 · 生成 PR 说明</h5><div class="desc">忠实反映修改与验证</div></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card accent">
+          <h4>每个 TaskNode 必须包含</h4>
+          <ul>
+            <li><b>Input</b>：前置任务输出的 Artifact</li>
+            <li><b>Output</b>：本任务产出的结构化 Artifact</li>
+            <li><b>Dependencies</b>：依赖的节点 ID</li>
+            <li><b>Success Criteria</b>：可验证的通过条件（最好绑定测试）</li>
+            <li><b>Risk Level</b>：low / medium / high</li>
+          </ul>
+        </div>
+        <div class="card warn">
+          <h4>硬约束</h4>
+          <p>修复任务必须拆成可独立验证的节点，而不是一句"把登录改对"。节点太粗等于让 Sub-Agent 重新陷入"一锅汤"困境。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== §7 Sub-Agent ========== -->
+  <section class="sec" id="s-subagent">
+    <div class="sec-head">
+      <span class="sec-num">§ 07</span>
+      <div>
+        <h2>执行取舍：什么时候用 Sub-Agent</h2>
+        <p class="sub">Sub-Agent 不是越多越好，它是"为可隔离的 TaskNode 开的副作用空间"。</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card good">
+        <h4>适合派给 Sub-Agent</h4>
+        <ul>
+          <li><b>Search Agent</b> · 并发检索全部相关调用方</li>
+          <li><b>Coder Agent</b> · 实现局部 Patch，范围明确</li>
+          <li><b>Tester Agent</b> · 运行测试、分析日志</li>
+          <li><b>Reviewer Agent</b> · 检查 Diff 和风险边界</li>
+        </ul>
+      </div>
+      <div class="card warn">
+        <h4>不适合的场景</h4>
+        <ul>
+          <li>高度耦合的同一文件修改</li>
+          <li>极限风险的操作（如生产凭证擦写）</li>
+          <li>无法结构化验证的主观判断</li>
+          <li>过于细小、委派成本高于收益的任务</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="pull">
+      Sub-Agent 是给"可隔离、可验证、可并行"的 <span style="color:var(--accent)"><b>TaskNode</b></span> 开的。</p>
+  </section>
+
+  <!-- ========== §8 Patch Pipeline ========== -->
+  <section class="sec" id="s-patch">
+    <div class="sec-head">
+      <span class="sec-num">§ 08</span>
+      <div>
+        <h2>安全修改：Patch Pipeline</h2>
+        <p class="sub">模型不能直接覆盖文件。修改的原子单位是 Patch（Diff），而不是整个文件。</p>
+      </div>
+    </div>
+
+    <figure class="fig">
+      <svg viewBox="0 0 880 130" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Patch 五步流水线">
+        <defs>
+          <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#2a3f7a"/>
+          </marker>
+        </defs>
+        <g font-family="Inter, sans-serif">
+          <!-- 5 step nodes, chevron shape -->
+          <g>
+            <polygon points="20,40 160,40 180,65 160,90 20,90 40,65" fill="#fff" stroke="#2a3f7a" stroke-width="1.5"/>
+            <text x="100" y="62" text-anchor="middle" font-size="13" font-weight="600" fill="#15214a">01 · 读取</text>
+            <text x="100" y="78" text-anchor="middle" font-size="11" fill="#6f6b78">当前文件</text>
+          </g>
+          <g transform="translate(180,0)">
+            <polygon points="20,40 160,40 180,65 160,90 20,90 40,65" fill="#fff" stroke="#2a3f7a" stroke-width="1.5"/>
+            <text x="100" y="62" text-anchor="middle" font-size="13" font-weight="600" fill="#15214a">02 · 最小编辑</text>
+            <text x="100" y="78" text-anchor="middle" font-size="11" fill="#6f6b78">构建 Edit Unit</text>
+          </g>
+          <g transform="translate(360,0)">
+            <polygon points="20,40 160,40 180,65 160,90 20,90 40,65" fill="#fff" stroke="#2a3f7a" stroke-width="1.5"/>
+            <text x="100" y="62" text-anchor="middle" font-size="13" font-weight="600" fill="#15214a">03 · 生成 Diff</text>
+            <text x="100" y="78" text-anchor="middle" font-size="11" fill="#6f6b78">可审查 Patch</text>
+          </g>
+          <g transform="translate(540,0)">
+            <polygon points="20,40 160,40 180,65 160,90 20,90 40,65" fill="#fff" stroke="#2a3f7a" stroke-width="1.5"/>
+            <text x="100" y="62" text-anchor="middle" font-size="13" font-weight="600" fill="#15214a">04 · 检查版本</text>
+            <text x="100" y="78" text-anchor="middle" font-size="11" fill="#6f6b78">匹配已验证快照</text>
+          </g>
+          <g transform="translate(720,0)">
+            <polygon points="20,40 160,40 180,65 160,90 20,90 40,65" fill="#15214a" stroke="#15214a" stroke-width="1.5"/>
+            <text x="100" y="62" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">05 · 应用</text>
+            <text x="100" y="78" text-anchor="middle" font-size="11" fill="#a0a3b0">落盘 + Artifact</text>
+          </g>
+        </g>
+        <!-- arrows between -->
+        <g stroke="#2a3f7a" stroke-width="1.2" fill="none" opacity="0.7">
+          <line x1="200" y1="65" x2="200" y2="65"/>
+        </g>
+        <text x="440" y="115" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="#6f6b78" letter-spacing="2">AGENT EDITS ONLY AS DIFF · NEVER OVERWRITE THE WHOLE FILE</text>
+      </svg>
+      <figcaption>图 2 · Patch 五步：每一步都是单独可审查的产物</figcaption>
+    </figure>
+
+    <div class="grid-2">
+      <div class="card evidence">
+        <h4>Patch 必须满足</h4>
+        <ul>
+          <li><b>可审查</b> · 最小修改范围</li>
+          <li><b>可验证</b> · 基于已验证的正确文件版本</li>
+          <li><b>幂等</b> · 不覆盖用户修改</li>
+          <li><b>可回滚</b> · 留 Artifact 记录</li>
+        </ul>
+      </div>
+      <div class="card accent">
+        <h4>交付单位</h4>
+        <p>代码修改的文件单位必须是 <b>Patch（Diff）</b>，不是整文件覆盖。<span class="muted">这也是 Rollback 与 Review 能成立的前提。</span></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== §9 Verify ========== -->
+  <section class="sec" id="s-verify">
+    <div class="sec-head">
+      <span class="sec-num">§ 09</span>
+      <div>
+        <h2>验证：Sandbox TestRunner + Reviewer</h2>
+        <p class="sub">验证发生在受控环境里；Review 发生在 Patch 落盘之后、PR 之前。</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <h4 style="font-family:var(--mono);font-size:11.5px;letter-spacing:0.14em;color:var(--muted);text-transform:uppercase;margin:0 0 10px">Sandbox TestRunner · 受控执行</h4>
+        <ol style="padding-left:18px;font-size:14.5px">
+          <li><b>选择相关测试集</b>：基于 Patch 影响范围自动选取</li>
+          <li><b>创建 Sandbox</b>：限制资源、隔离网络与文件系统</li>
+          <li><b>运行并截断日志</b>：<code>pnpm test session-refresh</code></li>
+          <li><b>结构化失败分类</b>：输出 Test Artifact，供 Replan 使用</li>
+        </ol>
+        <div class="card warn" style="margin-top:14px">
+          <h4>铁律</h4>
+          <p>测试结果必须来自<b>真实工具执行</b>，不是模型口头声称——一旦 Agent 能"编"测试结果，整个验证闭环失效。</p>
+        </div>
+      </div>
+
+      <div>
+        <h4 style="font-family:var(--mono);font-size:11.5px;letter-spacing:0.14em;color:var(--muted);text-transform:uppercase;margin:0 0 10px">Reviewer Agent · 三维度门控</h4>
+        <div class="grid-3" style="grid-template-columns:1fr 1fr 1fr;gap:10px">
+          <div class="card" style="padding:14px"><h4>Diff 范围</h4><ul style="padding-left:16px;font-size:13px"><li>Diff 是否过大</li><li>是否越权修改</li><li>是否遗漏调用方</li></ul></div>
+          <div class="card" style="padding:14px"><h4>API &amp; 安全</h4><ul style="padding-left:16px;font-size:13px"><li>破坏公共 API？</li><li>引入安全风险？</li><li>违反安全策略？</li></ul></div>
+          <div class="card" style="padding:14px"><h4>测试 &amp; 说明</h4><ul style="padding-left:16px;font-size:13px"><li>是否补强测试</li><li>PR 说明是否忠实</li><li>是否有未解决问题</li></ul></div>
+        </div>
+        <div class="card evidence" style="margin-top:14px">
+          <h4>Review 是 PRBuilder 的前置门控</h4>
+          <p>测试通过 ≠ 可合并。Review 负责发现"测试覆盖不到的" 风险。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== §10 Failure ========== -->
+  <section class="sec" id="s-failure">
+    <div class="sec-head">
+      <span class="sec-num">§ 10</span>
+      <div>
+        <h2>失败处理：分类决定路径</h2>
+        <p class="sub">失败不是终点，是进入 Replan 或 Rollback 的信号。先分类，再决定。</p>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:24%">失败原因</th>
+            <th style="width:36%">具体表现</th>
+            <th>处理路径</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="tag dont">实现错误</span></td>
+            <td>Coder Sub-Agent 产出的 Patch 与意图不符</td>
+            <td>Rollback · 回滚 Patch，更新 TaskGraph 再 Replan</td>
+          </tr>
+          <tr>
+            <td><span class="tag dont">根因错误</span></td>
+            <td>修好了症状，没修到根因</td>
+            <td>补充读取代码，回到 IssueAnalyzer 重新分类</td>
+          </tr>
+          <tr>
+            <td><span class="tag dont">测试选择</span></td>
+            <td>现有测试集没暴露这个 Bug</td>
+            <td>扩大检索范围 / 补充新测试</td>
+          </tr>
+          <tr>
+            <td><span class="tag dont">环境缺失</span></td>
+            <td>依赖缺失、版本问题、Sandbox 拒绝</td>
+            <td>请求用户确认环境来源，或转人工介入</td>
+          </tr>
+          <tr>
+            <td><span class="tag dont">权限被拒</span></td>
+            <td>Sandbox 拒绝命令（敏感路径 / 网络）</td>
+            <td>请求提升白名单，或拆分命令为更安全的形式</td>
+          </tr>
+          <tr>
+            <td><span class="tag dont">反复失败</span></td>
+            <td>同一 TaskNode 连续 N 次失败</td>
+            <td>转人工介入，存档为 Memory 中的失败模式</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid-2">
+      <div class="card warn">
+        <h4>核心原则</h4>
+        <ul>
+          <li>系统不能在测试失败后简单重跑</li>
+          <li>必须先由 FailureClassifier 对失败原因分类</li>
+          <li>分类后再决定分支，分类不明先扩大检索</li>
+          <li>超出 Agent 处理边界 → 升级人工介入</li>
+        </ul>
+      </div>
+      <div class="card evidence">
+        <h4>设计隐喻</h4>
+        <p style="margin:0;font-size:14.5px">失败是 <b>Replan / Rollback 的入口</b>，不是"再来一次"的信号。每一次失败都必须 <b>留下结构化原因</b>，否则下次模型会用同一套假设碰同一面墙。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== §11 Rollback ========== -->
+  <section class="sec" id="s-rollback">
+    <div class="sec-head">
+      <span class="sec-num">§ 11</span>
+      <div>
+        <h2>回滚：只撤销 Agent 引入的修改</h2>
+        <p class="sub">Rollback 是 Patch Pipeline 的镜像：保护用户工作区，而不是清盘。</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <ol class="tight" style="counter-reset:step;list-style:none;padding:0">
+          <li style="counter-increment:step;margin:0 0 14px;padding-left:36px;position:relative"><b style="position:absolute;left:0;font-family:var(--mono)">01</b><b>定位 <code>applied_patch</code></b>：从 Agent Edit Ledger 查找对应记录</li>
+          <li style="counter-increment:step;margin:0 0 14px;padding-left:36px;position:relative"><b style="position:absolute;left:0;font-family:var(--mono)">02</b><b>检查当前文件 hash</b>：确认是否混入用户自己改过的内容</li>
+          <li style="counter-increment:step;margin:0 0 14px;padding-left:36px;position:relative"><b style="position:absolute;left:0;font-family:var(--mono)">03</b><b>反向应用 Agent Patch</b>：只撤销 Agent 这一份变更</li>
+          <li style="counter-increment:step;margin:0 0 14px;padding-left:36px;position:relative"><b style="position:absolute;left:0;font-family:var(--mono)">04</b><b>保存 rollback Artifact</b>：更新 TaskGraph 状态，触发 Replan</li>
+        </ol>
+      </div>
+      <div>
+        <div class="card warn">
+          <h4>硬性禁止</h4>
+          <p style="margin:0;font-family:var(--mono);font-size:13px;color:var(--warn)">⛔ 禁止默认执行 <code>git reset --hard</code>。这会把用户当天的工作区一起清掉，且无法审计。</p>
+        </div>
+        <div class="card evidence" style="margin-top:14px">
+          <h4>保护原则</h4>
+          <p>回滚必须保护用户工作区，<b>只撤销 Agent 通过 PatchApplier 引入的变更</b>，且必须留下可审计的 Artifact。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== §12 Memory ========== -->
+  <section class="sec" id="s-memory">
+    <div class="sec-head">
+      <span class="sec-num">§ 12</span>
+      <div>
+        <h2>记忆边界：Memory 参与而不替代</h2>
+        <p class="sub">Memory 给你"线索"，但不能替代你"重新读代码"。</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card good">
+        <h4>Memory 可以提供</h4>
+        <ul>
+          <li>项目测试命令与模块路径</li>
+          <li>历史失败经验与修复模式</li>
+          <li>用户输出偏好与安全约束</li>
+          <li>常见修复流程（加速路径生成）</li>
+        </ul>
+      </div>
+      <div class="card warn">
+        <h4>Memory 不能替代</h4>
+        <ul>
+          <li>读取当前代码（文件可能已变更）</li>
+          <li>运行当前测试（环境可能已变更）</li>
+          <li>当前 Patch 的 Review 验证</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4><span class="tag do">正确用法</span></h4>
+        <p>历史记录：曾因缺少 <code>await</code> 导致 Session 测试失败。</p>
+        <p>→ 用作<b>假设 A 的支持线索</b>，再去代码里检查 <code>routerGuard</code> 是否 <code>await restoreSession</code>。</p>
+      </div>
+      <div class="card">
+        <h4><span class="tag dont">错误用法</span></h4>
+        <p>直接跳过代码读取环节，给出结论。</p>
+        <p>→ 模型把历史当事实，结论<b>无法证伪</b>，下次问题相同。</p>
+      </div>
+    </div>
+
+    <p class="pull">Memory 加速定位，但不能取代当前证据链。</p>
+  </section>
+
+  <!-- ========== §13 Prompt Cache ========== -->
+  <section class="sec" id="s-cache">
+    <div class="sec-head">
+      <span class="sec-num">§ 13</span>
+      <div>
+        <h2>缓存边界：稳定前缀 vs 动态内容</h2>
+        <p class="sub">缓存能省钱，但 Stale Cache 会污染权限判断和工具结果。</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <h4 style="font-family:var(--mono);font-size:11.5px;letter-spacing:0.14em;color:var(--good);text-transform:uppercase;margin:0 0 10px">可缓存（稳定前缀）</h4>
+        <div class="card good">
+          <ul>
+            <li><b>System Prompt + Tool Schema</b>：跨任务不变，缓存收益最高</li>
+            <li><b>安全规则 + 项目稳定摘要</b>：每次任务重复加载，适合缓存</li>
+            <li><b>Task 协议 + Reviewer 输出 Schema</b>：结构固定，缓存可降低多轮成本</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <h4 style="font-family:var(--mono);font-size:11.5px;letter-spacing:0.14em;color:var(--warn);text-transform:uppercase;margin:0 0 10px">动态内容（不可缓存）</h4>
+        <div class="card warn">
+          <ul>
+            <li>最新工具执行结果</li>
+            <li>当前 Patch Diff</li>
+            <li>测试日志与错误输出</li>
+            <li>当前 TaskNode 状态</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="card evidence">
+      <h4>工程准则</h4>
+      <p>必须严格区分稳定前缀与动态内容。一旦把"工具结果"放进缓存前缀，下一轮 Agent 会基于<b>上一轮的旧结果</b>做判断——这是最容易出问题的隐性 bug。</p>
+    </div>
+  </section>
+
+  <!-- ========== §14 Observability ========== -->
+  <section class="sec" id="s-obs">
+    <div class="sec-head">
+      <span class="sec-num">§ 14</span>
+      <div>
+        <h2>可观测性：每一步独立 Span</h2>
+        <p class="sub">没有 Trace，就无法解释"PR 是怎么生成的"，也无法定位失败原因。</p>
+      </div>
+    </div>
+
+    <figure class="fig">
+      <svg viewBox="0 0 920 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="可观测性五阶段">
+        <g font-family="JetBrains Mono" font-size="12" fill="#171820">
+          <line x1="60" y1="110" x2="860" y2="110" stroke="#dcd6c7" stroke-width="2"/>
+
+          <g>
+            <circle cx="120" cy="110" r="22" fill="#2a3f7a"/>
+            <text x="120" y="115" text-anchor="middle" fill="#fff" font-weight="700">1</text>
+            <text x="120" y="55" text-anchor="middle" fill="#15214a" font-weight="600">Issue 分析</text>
+            <text x="120" y="72" text-anchor="middle" fill="#6f6b78" font-size="10">IssueAnalyzer Span</text>
+            <text x="120" y="86" text-anchor="middle" fill="#6f6b78" font-size="10">+ Artifact</text>
+          </g>
+
+          <g>
+            <circle cx="280" cy="110" r="22" fill="#2a3f7a"/>
+            <text x="280" y="115" text-anchor="middle" fill="#fff" font-weight="700">2</text>
+            <text x="280" y="170" text-anchor="middle" fill="#15214a" font-weight="600">检索 &amp; 理解</text>
+            <text x="280" y="187" text-anchor="middle" fill="#6f6b78" font-size="10">Search / CallGraph Span</text>
+          </g>
+
+          <g>
+            <circle cx="460" cy="110" r="22" fill="#2a3f7a"/>
+            <text x="460" y="55" text-anchor="middle" fill="#15214a" font-weight="600">规划 &amp; 执行</text>
+            <text x="460" y="72" text-anchor="middle" fill="#6f6b78" font-size="10">Model / Tool / TaskNode</text>
+            <text x="460" y="86" text-anchor="middle" fill="#6f6b78" font-size="10">+ Sub-Agent 事件</text>
+            <circle cx="460" cy="110" r="22" fill="#2a3f7a"/>
+            <text x="460" y="115" text-anchor="middle" fill="#fff" font-weight="700">3</text>
+          </g>
+
+          <g>
+            <circle cx="640" cy="110" r="22" fill="#2a3f7a"/>
+            <text x="640" y="170" text-anchor="middle" fill="#15214a" font-weight="600">Patch &amp; 验证</text>
+            <text x="640" y="187" text-anchor="middle" fill="#6f6b78" font-size="10">测试结果 / Review / Rollback</text>
+            <text x="640" y="115" text-anchor="middle" fill="#fff" font-weight="700">4</text>
+          </g>
+
+          <g>
+            <circle cx="820" cy="110" r="22" fill="#a6453a"/>
+            <text x="820" y="115" text-anchor="middle" fill="#fff" font-weight="700">5</text>
+            <text x="820" y="55" text-anchor="middle" fill="#a6453a" font-weight="600">PR &amp; 评测</text>
+            <text x="820" y="72" text-anchor="middle" fill="#6f6b78" font-size="10">PR 生成 + Eval 指标</text>
+          </g>
+
+          <!-- connecting line progress -->
+          <line x1="142" y1="110" x2="258" y2="110" stroke="#2a3f7a" stroke-width="1.5" opacity="0.5"/>
+          <line x1="302" y1="110" x2="438" y2="110" stroke="#2a3f7a" stroke-width="1.5" opacity="0.5"/>
+          <line x1="482" y1="110" x2="618" y2="110" stroke="#2a3f7a" stroke-width="1.5" opacity="0.5"/>
+          <line x1="662" y1="110" x2="798" y2="110" stroke="#2a3f7a" stroke-width="1.5" opacity="0.5"/>
+        </g>
+      </svg>
+      <figcaption>图 3 · Observability 五阶段 · 每步独立 Span + Artifact 引用</figcaption>
+    </figure>
+
+    <div class="card evidence">
+      <h4>一个 Span = 一个可问责单元</h4>
+      <p>每一步都要有独立的 <b>Span</b>（耗时、token、关键决策）和 <b>Artifact 引用</b>（上游输出物）。Trace 缺失等同于："为什么这个 PR 被合并了"——没人能答。</p>
+    </div>
+  </section>
+
+  <!-- ========== §15 Evaluation Gate ========== -->
+  <section class="sec" id="s-eval">
+    <div class="sec-head">
+      <span class="sec-num">§ 15</span>
+      <div>
+        <h2>评测 Gate 与关键指标</h2>
+        <p class="sub">单次成功可被 Gate 验证；多次成功被指标刻画。</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card accent">
+        <h4>成功标准 · Gate 检查</h4>
+        <ul>
+          <li><span class="tag gate">ROOT</span> 根因定位正确，有证据支持</li>
+          <li><span class="tag gate">PATCH</span> Patch 能干净应用，无冲突</li>
+          <li><span class="tag gate">TEST</span> 相关测试通过，无回归</li>
+          <li><span class="tag gate">DIFF</span> Diff 可审查、无越权修改</li>
+          <li><span class="tag gate">DESC</span> PR 说明忠实反映修改</li>
+          <li><span class="tag gate">ACCEPT</span> Reviewer 或用户接受</li>
+        </ul>
+      </div>
+      <div>
+        <div class="grid-2" style="gap:12px">
+          <div class="card evidence"><h4>Task Success Rate</h4><p style="margin:0">端到端完成率</p></div>
+          <div class="card evidence"><h4>Patch Correctness</h4><p style="margin:0">Patch 正确性</p></div>
+          <div class="card warn"><h4>Regression Rate</h4><p style="margin:0">回归引入率</p></div>
+          <div class="card warn"><h4>Human Intervention Rate</h4><p style="margin:0">人工介入率</p></div>
+        </div>
+        <div class="card evidence" style="margin-top:14px">
+          <h4>关键提醒</h4>
+          <p style="margin:0">Issue-to-PR 成功不是"PR 文本"生成，而是<b>可验证的修复</b>。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== §16 Project Metrics ========== -->
+  <section class="sec" id="s-metrics">
+    <div class="sec-head">
+      <span class="sec-num">§ 16</span>
+      <div>
+        <h2>项目级评估：双维度 8 指标</h2>
+        <p class="sub">单轮 Gate 验证是底线，长期看的是交付质量能否稳定。</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <h4 style="font-family:var(--mono);font-size:11.5px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;margin:0 0 10px">过程质量</h4>
+        <div class="grid-2" style="gap:10px">
+          <div class="card"><h4>Root Cause Accuracy</h4><p style="margin:0;font-size:13.5px">根因定位准确率</p></div>
+          <div class="card"><h4>Patch Correctness</h4><p style="margin:0;font-size:13.5px">Patch 正确应用率</p></div>
+          <div class="card"><h4>Regression Rate</h4><p style="margin:0;font-size:13.5px">回归引入率（越低越好）</p></div>
+          <div class="card"><h4>Rollback Success Rate</h4><p style="margin:0;font-size:13.5px">回滚成功且保护用户改</p></div>
+        </div>
+      </div>
+      <div>
+        <h4 style="font-family:var(--mono);font-size:11.5px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;margin:0 0 10px">交付质量</h4>
+        <div class="grid-2" style="gap:10px">
+          <div class="card"><h4>Issue Resolution Rate</h4><p style="margin:0;font-size:13.5px">Issue 最终被解决率</p></div>
+          <div class="card"><h4>PR Acceptance Rate</h4><p style="margin:0;font-size:13.5px">PR 被 Reviewer 接受率</p></div>
+          <div class="card"><h4>Cost per Merged PR</h4><p style="margin:0;font-size:13.5px">每个可合并 PR 的推理成本</p></div>
+          <div class="card"><h4>Human Intervention Rate</h4><p style="margin:0;font-size:13.5px">需要人工介入的任务比例</p></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="pull">
+      最终评估的核心问题只有一个：<br/>
+      <span style="color:var(--accent);font-size:26px"><b>能否稳定交付可合并 PR，且人工介入率持续下降？</b></span>
+    </p>
+  </section>
+
+  <!-- ========== §17 收束 ========== -->
+  <section class="sec" id="s-end">
+    <div class="sec-head">
+      <span class="sec-num">§ 17</span>
+      <div>
+        <h2>收束：3 条 takeaway + 9 步交付流</h2>
+        <p class="sub">把这一季的所有主张压缩到一页。</p>
+      </div>
+    </div>
+
+    <div class="grid-3">
+      <div class="card accent">
+        <h4>1 · 不能跳步</h4>
+        <p>从 Issue 到 PR 必须经历<b>检索、理解、规划、修改、测试、Review 与评估</b>。每一步都有结构化的输入输出和 Artifact。</p>
+      </div>
+      <div class="card good">
+        <h4>2 · 失败是闭环的一部分</h4>
+        <p>失败后能 Rollback 或 Replan，Trace 可追溯。<b>不让模型以"成功"替代硬验证</b>。</p>
+      </div>
+      <div class="card evidence">
+        <h4>3 · 真正的交付物</h4>
+        <p>不是一段回答，而是一份<b>可审查系统</b>——Patch、测试结果、PR 说明与评测报告，每一项都有证据链。</p>
+      </div>
+    </div>
+
+    <figure class="fig">
+      <svg viewBox="0 0 920 80" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="9 步交付流">
+        <defs>
+          <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#2a3f7a"/>
+          </marker>
+        </defs>
+        <g font-family="Inter, sans-serif" font-size="12" fill="#171820">
+          <g>
+            <text x="20"  y="48" fill="#2a3f7a" font-weight="600">① 找到代码</text>
+          </g>
+          <line x1="100" y1="42" x2="138" y2="42" stroke="#2a3f7a" stroke-width="1" marker-end="url(#arr3)" opacity="0.6"/>
+          <text x="140" y="48" fill="#2a3f7a" font-weight="600">② 理解代码</text>
+          <line x1="220" y1="42" x2="258" y2="42" stroke="#2a3f7a" stroke-width="1" marker-end="url(#arr3)" opacity="0.6"/>
+          <text x="260" y="48" fill="#2a3f7a" font-weight="600">③ 规划任务</text>
+          <line x1="340" y1="42" x2="378" y2="42" stroke="#2a3f7a" stroke-width="1" marker-end="url(#arr3)" opacity="0.6"/>
+          <text x="380" y="48" fill="#2a3f7a" font-weight="600">④ 分工执行</text>
+          <line x1="460" y1="42" x2="498" y2="42" stroke="#2a3f7a" stroke-width="1" marker-end="url(#arr3)" opacity="0.6"/>
+          <text x="500" y="48" fill="#2a3f7a" font-weight="600">⑤ 安全修改</text>
+          <line x1="580" y1="42" x2="618" y2="42" stroke="#2a3f7a" stroke-width="1" marker-end="url(#arr3)" opacity="0.6"/>
+          <text x="620" y="48" fill="#2a3f7a" font-weight="600">⑥ 长期记忆</text>
+          <line x1="700" y1="42" x2="738" y2="42" stroke="#2a3f7a" stroke-width="1" marker-end="url(#arr3)" opacity="0.6"/>
+          <text x="740" y="48" fill="#2a3f7a" font-weight="600">⑦ 性能优化</text>
+          <line x1="820" y1="42" x2="858" y2="42" stroke="#a6453a" stroke-width="1.5" marker-end="url(#arr3)"/>
+          <text x="770" y="68" fill="#a6453a" font-weight="600">⑧ 评测上线  ⑨ 最终交付 PR</text>
+        </g>
+      </svg>
+      <figcaption>图 4 · 从代码到 PR 的 9 步交付流</figcaption>
+    </figure>
+
+  </section>
+
+  </main>
+
+  <footer class="foot">
+    <span>END-TO-END DELIVERY CHAIN · ISSUE → PR · 研究笔记</span>
+    <span>第 02 季 · 共 16 + 1 节 · 重画而非复刻</span>
+  </footer>
+
+</div>
+
+<script>
+  // TOC active highlight
+  (function(){
+    const links = document.querySelectorAll('aside.toc a');
+    const sections = Array.from(links).map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+    function onScroll(){
+      const top = window.scrollY + 100;
+      let active = sections[0];
+      for(const s of sections){
+        if(s.offsetTop <= top) active = s;
+      }
+      links.forEach(a => a.classList.remove('active'));
+      if(active){
+        const idx = sections.indexOf(active);
+        links[idx] && links[idx].classList.add('active');
+      }
+    }
+    document.addEventListener('scroll', onScroll, {passive:true});
+    onScroll();
+  })();
+
+  // Smooth scroll for TOC links
+  document.querySelectorAll('aside.toc a').forEach(a=>{
+    a.addEventListener('click',e=>{
+      const target = document.querySelector(a.getAttribute('href'));
+      if(!target) return;
+      e.preventDefault();
+      window.scrollTo({top: target.offsetTop - 24, behavior: 'smooth'});
+    });
+  });
+</script>
+</body>
+</html>
