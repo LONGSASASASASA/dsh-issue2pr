@@ -345,6 +345,27 @@ test("API：stage-defaults 返回能力表与默认提示词（配置页数据�
   assert.ok(r.body.defaults.stages.P8.caps.test);
 });
 
+test("API：ui-state 兜底存储 — POST 写入 / GET 回读 / 非法 slug 拒绝 / null 清除", async () => {
+  const handler = (function () { const rs = []; const c2 = fakeCtx(); c2.webServer.register = (s) => rs.push(s); apply(c2); return rs[0].handler; })();
+  let r = await call(handler, "GET", "/issue2pr/api/ui-state");
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.state.lastProject, undefined); // 初始无文件 → 空 state
+  r = await call(handler, "POST", "/issue2pr/api/ui-state", { lastProject: "demo" });
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.state.lastProject, "demo");
+  r = await call(handler, "GET", "/issue2pr/api/ui-state");
+  assert.equal(r.body.state.lastProject, "demo");
+  // 非法 slug（大写/路径形态）拒收 → 清为 null，防 ui-state.json 被写成任意路径
+  r = await call(handler, "POST", "/issue2pr/api/ui-state", { lastProject: "../Evil" });
+  assert.equal(r.body.state.lastProject, null);
+  // 清除：lastProject 显式 null
+  r = await call(handler, "POST", "/issue2pr/api/ui-state", { lastProject: "x" });
+  r = await call(handler, "POST", "/issue2pr/api/ui-state", { lastProject: null });
+  assert.equal(r.body.state.lastProject, null);
+  assert.equal(JSON.parse(readFileSync(join(root, "ui-state.json"), "utf8")).lastProject, null);
+});
+
 test("API：项目保存带 stageConfig 落盘并可回读；非法阶段被拒", async () => {
   const handler = (function () { const rs = []; const c2 = fakeCtx(); c2.webServer.register = (s) => rs.push(s); apply(c2); return rs[0].handler; })();
   let r = await call(handler, "POST", "/issue2pr/api/projects", {

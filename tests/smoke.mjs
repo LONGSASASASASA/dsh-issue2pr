@@ -43,6 +43,8 @@ const primitives = { MarkdownText: (props) => ({ type: "div", props: { "data-md"
 
 // ---------- fetch mock：按 URL 分发 ----------
 const iso = (s) => new Date(Date.parse("2026-08-28T04:00:00Z") + s * 1000).toISOString();
+// ui-state 服务端兜底记忆（视图 8b 用；POST 会更新它，模拟宿主端文件）
+let serverUiState = { lastProject: null };
 const fakeRun = {
   id: "r1", project: "p", status: "awaiting_review", current: "P5",
   trigger: { kind: "issue", uri: "D:\\x.md" }, reviewMode: "key-only", p6Mode: "builtin",
@@ -55,10 +57,13 @@ const fakeRun = {
   },
 };
 globalThis.window = globalThis; // document 不定义：client 内有 typeof 守卫
-globalThis.fetch = (url) => {
+globalThis.fetch = (url, opts) => {
   const u = String(url);
   let body = { ok: true };
-  if (/\/stage-defaults/.test(u)) {
+  if (/\/ui-state/.test(u)) {
+    if (opts && opts.body) { try { serverUiState = { lastProject: JSON.parse(opts.body).lastProject || null }; } catch { /* 忽略 */ } }
+    body = { ok: true, state: serverUiState };
+  } else if (/\/stage-defaults/.test(u)) {
     body = { ok: true, defaults: {
       llmTimeoutMs: 300000, testTimeoutMs: 300000, maxTokens: 8192,
       stages: Object.fromEntries([
@@ -179,6 +184,10 @@ assert.ok(texts.some((t) => t.includes("3.0s")), "时间线应显示阶段耗时
 assert.ok(texts.some((t) => t.includes("重试1")), "时间线应显示重试次数");
 assert.ok(texts.some((t) => t.includes("过程 · 本阶段调用记录")), "阶段详情应渲染过程事件面板");
 assert.ok(texts.some((t) => t.includes("deepseek-v4-pro")), "过程事件应展示 LLM 调用");
+// 阶段契约卡（运行 tab 顶部）：输出产物 / 输出契约
+assert.ok(texts.some((t) => t.includes("阶段契约 · 输入 → 输出")), "运行 tab 应渲染阶段契约卡");
+assert.ok(texts.some((t) => t.includes("05-task-graph.json")), "P5 契约卡应展示输出产物");
+assert.ok(texts.some((t) => t.includes("输出契约")), "运行 tab 契约卡应含输出契约行");
 assert.ok(cls.some((c) => String(c).includes("t-warn")), "待复核应用 warn tag");
 assert.ok(cls.some((c) => String(c).split(" ").includes("step-row") && String(c).includes("awaiting_review")), "时间线步骤应带状态类");
 
@@ -221,6 +230,8 @@ el = render(); await settle(); el = render(); await settle(); el = render();
 texts = []; flatten(el, texts);
 assert.ok(texts.some((t) => t.includes("提示词（system）")), "配置页应渲染提示词编辑区");
 assert.ok(texts.some((t) => t.includes("已自定义")), "自定义过的提示词应带标记");
+assert.ok(texts.some((t) => t.includes("阶段契约 · 输入 → 输出")), "配置表单顶部应渲染阶段契约卡");
+assert.ok(texts.some((t) => t === "trigger"), "P1 契约卡应展示上游输入 trigger");
 assert.ok(texts.some((t) => t.includes("模型 · 思考深度")), "配置页应渲染模型/思考深度区");
 assert.ok(texts.some((t) => t.includes("LLM 调用超时（分钟）")), "配置页应渲染超时输入");
 assert.ok(texts.some((t) => t.includes("委托外部智能体")), "配置页应渲染委托开关");
@@ -231,6 +242,7 @@ hookCells.get("root:s8").set("P7");   // setCfgStage("P7")
 el = render();
 texts = []; flatten(el, texts);
 assert.ok(texts.some((t) => t.includes("本阶段无可配置参数")), "P7 应显示无可配置说明");
+assert.ok(texts.some((t) => t.includes("无 LLM 输出契约")), "P7 契约卡应显示确定性阶段说明");
 // 切到 P6：执行模式三态（与项目页 p6Mode 同源）
 hookCells.get("root:s8").set("P6");
 el = render();
@@ -298,6 +310,19 @@ const demoItem = els8.find((n) => String(n.props.className || "").split(" ").inc
 assert.ok(demoItem, "项目列表应有 demo 项目");
 demoItem.props.onClick(); // onSelectProject("demo") → 写回记忆
 assert.equal(lsStore["i2p.proj"], "demo", "点击选择项目应写回记忆");
+curComp = "root"; hookSeq = 0; effectSeq = 0;
+
+// ---------- 视图 8b：宿主重启场景（localStorage 被清空）→ 服务端 ui-state 兜底恢复 ----------
+delete lsStore["i2p.proj"];            // 模拟 webview localStorage 不跨软件重启
+serverUiState = { lastProject: "demo" }; // 服务端文件仍在（上次会话双写过）
+curComp = "root3"; hookSeq = 0; effectSeq = 0;
+let el9 = Section(); await settle();  // 挂载 effect：localStorage miss → GET /ui-state → setSelSlug("demo")
+curComp = "root3"; hookSeq = 0; effectSeq = 0;
+el9 = Section(); await settle();      // 等项目列表回填（失效校验需要）
+curComp = "root3"; hookSeq = 0; effectSeq = 0;
+el9 = Section();
+const cls9 = []; classNames(el9, cls9);
+assert.ok(cls9.some((c) => String(c).includes("proj-item on")), "宿主重启（localStorage 清空）后应从服务端兜底恢复选中");
 curComp = "root"; hookSeq = 0; effectSeq = 0;
 
 console.log("SMOKE-OK: 全部视图渲染通过（含配置页、入口按钮与整页工作台）");

@@ -8,7 +8,7 @@ import { existsSync, readdirSync, mkdirSync, readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import {
   defaultDataRoot, saveProject, loadProject, listProjects,
-  createRun, runDirOf, readArtifact, listRunTree, rmTree,
+  createRun, runDirOf, readArtifact, listRunTree, rmTree, loadUiState, saveUiState,
 } from "./lib/store.js";
 import { initRun, saveRun, loadRun, advance, applyReview, STAGES } from "./lib/pipeline.js";
 import { makeLlm } from "./lib/llm.js";
@@ -210,7 +210,27 @@ async function handleApi(ctx, root, req, res) {
         },
       });
     }
-    if (parts[0] !== "issue2pr" || parts[1] !== "api" || parts[2] !== "projects") {
+    if (parts[0] !== "issue2pr" || parts[1] !== "api") {
+      return sendJson(res, 404, { ok: false, message: "not found" });
+    }
+    // —— /issue2pr/api/ui-state：UI 偏好兜底存储（宿主重启丢 localStorage 时恢复选中记忆） ——
+    if (parts[2] === "ui-state" && !parts[3]) {
+      if (m === "GET") return sendJson(res, 200, { ok: true, state: loadUiState(root) });
+      if (m === "POST") {
+        const body = await readBody(req);
+        const prev = loadUiState(root);
+        // 只认 lastProject 字段；slug 走既有白名单形态，null/空 = 清除
+        const lp = body && Object.prototype.hasOwnProperty.call(body, "lastProject") ? body.lastProject : prev.lastProject;
+        const state = {
+          ...prev,
+          lastProject: (typeof lp === "string" && /^[a-z0-9-]+$/.test(lp)) ? lp : null,
+        };
+        saveUiState(root, state);
+        return sendJson(res, 200, { ok: true, state });
+      }
+      return sendJson(res, 404, { ok: false, message: "not found" });
+    }
+    if (parts[2] !== "projects") {
       return sendJson(res, 404, { ok: false, message: "not found" });
     }
     const slug = parts[3];

@@ -1105,6 +1105,23 @@ body.i2p-dragging{user-select:none}
 				h("span", { className: "v" + (mono ? " mono" : "") }, v));
 		}
 
+		// 阶段契约卡：上游输入 → 输出产物 → 输出契约（「配置」表单与「运行」页阶段详情共用；
+		// 数据源 defaults.stages[id].delegateSpec——内置执行与委托外部智能体同受此约束；
+		// P7/P8 为确定性执行阶段，无 LLM 输出契约）
+		function StageContractCard(props) {
+			const d = props.defaults && props.defaults.stages ? props.defaults.stages[props.stageId] : null;
+			const spec = d && d.delegateSpec;
+			return h("div", { className: "field" },
+				h("span", { className: "f-label" }, "阶段契约 · 输入 → 输出（内置执行与委托外部智能体同受约束）"),
+				spec
+					? h("div", { className: "kv" },
+						spec.inputs ? kvRow("上游输入", (Array.isArray(spec.inputs) ? spec.inputs : [spec.inputs]).join("、"), true) : null,
+						kvRow("输出产物", spec.output, true),
+						kvRow("输出契约", spec.contract, true))
+					: h("p", { className: "hint-line", style: { margin: 0 } },
+						"确定性执行阶段（不调用大模型），无 LLM 输出契约。"));
+		}
+
 		// 阶段详情 · 项目 tab：本 Run 所属项目的只读上下文（阶段执行读的配置）
 		function StageProjectCard(props) {
 			const pr = props.project;
@@ -1494,6 +1511,8 @@ body.i2p-dragging{user-select:none}
 								}, t[1]);
 							})) : null,
 						stTab === "run" ? h("div", null,
+						// —— 阶段契约（本阶段输入 → 输出约定；过程与复核见下方） ——
+						h(StageContractCard, { stageId: selStage, defaults: p.defaults }),
 						files.length ? h("div", { className: "a-tabs" },
 							files.map(function (f) {
 								return h("button", {
@@ -1978,8 +1997,10 @@ body.i2p-dragging{user-select:none}
 						p.embedded ? null : h("div", { className: "detail-head" },
 							h("div", null,
 								h("h3", null, sDef.id + " · " + sDef.name),
-								h("div", { className: "path" },
-									sDef.desc + " · 产物 " + sDef.art + (dDef && dDef.delegateSpec ? " · 委托产出就绪判定：" + dDef.delegateSpec.output : "")))),
+						h("div", { className: "path" },
+							sDef.desc + " · 产物 " + sDef.art + (dDef && dDef.delegateSpec ? " · 委托产出就绪判定：" + dDef.delegateSpec.output : "")))),
+						// —— 阶段契约（先看本阶段输入 → 输出约定，再调下面的参数） ——
+						h(StageContractCard, { stageId: stageId, defaults: p.defaults }),
 						// —— 提示词（P7 无；P6 三角色 / P11 双角色） ——
 						promptKeys.length ? h("div", { className: "field" },
 							h("span", { className: "f-label" }, "提示词（system）"),
@@ -2252,11 +2273,33 @@ body.i2p-dragging{user-select:none}
 			ctxRef.current.slug = selSlug;
 			ctxRef.current.runId = selRunId;
 
-			// 选中项目统一入口：同步 localStorage 记忆，下次进入据此恢复
+			// 选中项目统一入口：双写记忆——localStorage（快路径，同会话零延迟）
+			// + 服务端 ui-state 文件（兜底：宿主 webview 重启后 localStorage 不持久）
+			const touchedRef = React.useRef(false);
 			const selectSlug = React.useCallback(function (slug) {
+				touchedRef.current = true;
 				setSelSlug(slug);
 				if (slug) localStorage.setItem("i2p.proj", slug);
 				else localStorage.removeItem("i2p.proj");
+				apiPost("/ui-state", { lastProject: slug || null })
+					.catch(function () { /* 兜底写失败静默：localStorage 仍有效 */ });
+			}, []);
+
+			// 进入时记忆恢复的兜底：localStorage 无记忆（宿主重启清空 / 换 origin）→
+			// 拉服务端 ui-state 恢复上次选中；有记忆则反向同步到服务端，保证下次重启后兜底可用。
+			// 异步返回时用户已手动选过（touched）或已处于选中态则不覆盖。
+			React.useEffect(function () {
+				const local = localStorage.getItem("i2p.proj");
+				if (local) {
+					apiPost("/ui-state", { lastProject: local }).catch(function () { /* 同步失败静默 */ });
+					return;
+				}
+				apiGet("/ui-state").then(function (r) {
+					if (!r || !r.ok) return;
+					const lp = r.state && r.state.lastProject;
+					if (!lp || touchedRef.current || ctxRef.current.slug != null) return;
+					setSelSlug(lp);
+				}).catch(function () { /* 兜底不可用：保持未选中 */ });
 			}, []);
 
 			const toastFn = React.useCallback(function (msg, kind) {
