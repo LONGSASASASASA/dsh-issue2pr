@@ -673,18 +673,23 @@ body.i2p-dragging{user-select:none}
 .i2p-close:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .i2p-page-body{flex:1;min-height:0;display:flex}
 
-/* ===== 悬浮智能助手（右上角悬浮球 + 右侧滑出对话栏；z-index 高于 toast） ===== */
-.i2p-ai{position:absolute;inset:0;pointer-events:none;z-index:2200}
+/* ===== 悬浮智能助手（右上角悬浮球 + 右侧滑出对话栏；渲染层压过一切插件/宿主内容层） ===== */
+.i2p-ai{position:absolute;inset:0;pointer-events:none;z-index:9999}
 .i2p-ai-fab{pointer-events:auto;position:absolute;top:64px;right:88px;width:36px;height:36px;border-radius:50%;
-  border:1px solid var(--line-2);background:var(--panel);color:var(--accent);display:inline-flex;
+  border:1px solid color-mix(in srgb,#3aa0f5 26%,var(--line-2,#d8dae3));
+  background:color-mix(in srgb,#3aa0f5 14%,var(--panel,#fff));color:var(--accent);display:inline-flex;
   align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(9,12,20,.10);
   transition:transform .16s,box-shadow .16s,border-color .16s,color .16s}
 .i2p-ai-fab:hover{transform:translateY(-1px);border-color:var(--accent);box-shadow:0 4px 16px rgba(9,12,20,.16)}
 .i2p-ai-fab:active{transform:scale(.95)}
 .i2p-ai-fab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 @keyframes i2p-ai-in{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
+/* 面板底色：很轻的天蓝（浅色主题），深色主题自动转深蓝调——color-mix 混主题底色，
+   保证官方 Markdown 文字（随主题变色）在两种主题下都正常可读 */
 .i2p-ai-panel{pointer-events:auto;position:absolute;top:60px;right:78px;bottom:16px;width:min(400px,calc(100% - 120px));
-  display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line-2);border-radius:14px;
+  display:flex;flex-direction:column;
+  background:color-mix(in srgb,#3aa0f5 8%,var(--panel,#fff));
+  border:1px solid color-mix(in srgb,#3aa0f5 24%,var(--line-2,#d8dae3));border-radius:14px;
   box-shadow:0 8px 32px rgba(9,12,20,.14);overflow:hidden;
   animation:i2p-ai-in .22s cubic-bezier(.2,.8,.2,1)}
 .i2p-ai-head{flex:none;display:flex;align-items:center;gap:8px;padding:12px 14px 8px}
