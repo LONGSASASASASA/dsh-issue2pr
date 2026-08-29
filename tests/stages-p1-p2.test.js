@@ -75,3 +75,22 @@ test("helpers：GitHub issue API 失败时明确报错（不降级抓 HTML 页�
     );
   } finally { globalThis.fetch = realFetch; }
 });
+
+test("helpers：有 GITHUB_TOKEN 时 GitHub API 请求带 Authorization 头", async () => {
+  const realFetch = globalThis.fetch;
+  const realToken = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_TOKEN = "test-token";
+  let seen = null;
+  globalThis.fetch = async (_url, opts) => {
+    seen = opts.headers;
+    return { ok: true, status: 200, json: async () => ({ title: "T", body: "B" }) };
+  };
+  try {
+    const text = await readTriggerText({ trigger: { uri: "https://github.com/o/r/issues/1" } });
+    assert.match(text, /# T/);
+    assert.equal(seen.Authorization, "Bearer test-token");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = realToken;
+  }
+});
