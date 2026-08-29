@@ -96,3 +96,27 @@ test("complete：messages[0].content 为 text 块数组（dsh-llm Message 契约
   assert.ok(Array.isArray(seen.messages[0].content), "content 必须是数组");
   assert.deepEqual(seen.messages[0].content, [{ type: "text", text: "我的需求" }]);
 });
+test("makeLlm(ctx, hook)：LLM 调用发事件（开始『调用中』+ 结束含耗时/预览；失败含 ok:false）", async () => {
+  const okEvents = [];
+  const llmOk = makeLlm(fakeCtx(["hello"]), (ev) => okEvents.push(ev));
+  await llmOk.complete({ system: "s", user: "你好" });
+  assert.equal(okEvents.length, 2);
+  assert.equal(okEvents[0].kind, "llm");
+  assert.match(okEvents[0].name, /调用中/);
+  assert.equal(okEvents[0].ms, null, "进行中事件无耗时");
+  assert.match(okEvents[0].detail, /【prompt】你好/);
+  assert.equal(okEvents[1].ok, true);
+  assert.ok(typeof okEvents[1].ms === "number");
+  assert.match(okEvents[1].name, /完成/);
+  assert.match(okEvents[1].detail, /【prompt】你好/);
+  assert.match(okEvents[1].detail, /【响应】hello/);
+
+  const badEvents = [];
+  const llmBad = makeLlm(fakeCtxChunks([{ type: "finish", reason: { kind: "error", failure: { message: "boom" } } }]), (ev) => badEvents.push(ev));
+  await assert.rejects(() => llmBad.complete({ system: "s", user: "x" }), /LLM 调用失败/);
+  assert.equal(badEvents.length, 2);
+  assert.match(badEvents[0].name, /调用中/);
+  assert.equal(badEvents[1].ok, false);
+  assert.match(badEvents[1].name, /失败/);
+  assert.match(badEvents[1].detail, /boom/);
+});

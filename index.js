@@ -4,19 +4,20 @@
  * 数据读写一律走 lib/store.js 与 lib/pipeline.js，不重复造轮子。
  */
 import { join } from "node:path";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, mkdirSync } from "node:fs";
+import { execFile } from "node:child_process";
 import {
   defaultDataRoot, saveProject, loadProject, listProjects,
-  createRun, runDirOf, readArtifact, listRunTree,
+  createRun, runDirOf, readArtifact, listRunTree, rmTree,
 } from "./lib/store.js";
 import { initRun, saveRun, loadRun, advance, applyReview, STAGES } from "./lib/pipeline.js";
 import { makeLlm } from "./lib/llm.js";
 import { buildExecutors } from "./lib/stages/index.js";
 import { rollbackLedger } from "./lib/stages/p7-patch.js";
-import { readTriggerText } from "./lib/stages/helpers.js";
+import { readTriggerText, logEvent } from "./lib/stages/helpers.js";
 
 export const name = "dsh-issue2pr";
-export const inject = ["webServer"];
+export const inject = ["webServer", "llm"];
 
 // —— 测试注入（仅本插件测试用）：覆盖内部默认值 dataRoot / executors ——
 let __testHooks = null;
@@ -24,7 +25,8 @@ export function __setTestHooks(hooks) { __testHooks = hooks || null; }
 
 export function sendJson(res, code, obj) {
   const data = Buffer.from(JSON.stringify(obj), "utf8");
-  res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Content-Length": data.length });
+  // no-store：run 状态高频轮询，任何浏览器/代理缓存都会让停止/删除「看起来没生效」
+  res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Content-Length": data.length, "Cache-Control": "no-store" });
   res.end(data);
 }
 
@@ -48,17 +50,20 @@ function executorsOf() {
 }
 
 // —— rcx 组装（简报指定形态）；project 每次刷新，保证读取最新配置 ——
+// llm 的事件钩子绑定到 rcx 本身（读 run.current 得到当前阶段），LLM 调用自动进 trace/events.jsonl
 function buildRcx(ctx, root, runDir, run) {
-  return {
+  const rcx = {
     runDir, run,
     project: loadProject(root, run.project),
     repoDir: join(root, "projects", run.project, "repo"),
     trigger: run.trigger,
-    llm: makeLlm(ctx),
+    llm: null,
     p6Mode: run.p6Mode,
     executors: executorsOf(),
     log() {},
   };
+  rcx.llm = makeLlm(ctx, (ev) => logEvent(rcx, ev));
+  return rcx;
 }
 
 // —— 单 run 一把锁防并发；rcx 跨 drive/review 共享（打回意见 reviewComment 跨循环传递） ——
@@ -69,14 +74,77 @@ function sessionFor(runDir) {
   return runSessions.get(runDir);
 }
 
+// —— 仓库克隆：repo 目录不存在时 git clone --depth 1 主仓库（幂等） ——
+function ensureRepo(root, project, rcx) {
+  const repoDir = join(root, "projects", project.slug, "repo");
+  if (existsSync(join(repoDir, ".git"))) return Promise.resolve(repoDir);
+  if (!project.repos || !project.repos.length) return Promise.reject(new Error("项目未配置仓库"));
+  mkdirSync(repoDir, { recursive: true });
+  const uri = typeof project.repos[0] === "string" ? project.repos[0] : project.repos[0].uri;
+  const t0 = Date.now();
+  logEvent(rcx, { kind: "git", name: "git clone --depth 1 " + uri, detail: "克隆主仓库到本地 repo/" });
+  return new Promise((resolve, reject) => {
+    execFile("git", ["clone", "--depth", "1", uri, repoDir], { stdio: "pipe", timeout: 120000, windowsHide: true }, (err, stdout, stderr) => {
+      if (err) {
+        logEvent(rcx, { kind: "git", name: "git clone 失败", detail: String(stderr || err.message), ms: Date.now() - t0, ok: false });
+        reject(new Error("git clone 失败: " + (stderr || err.message)));
+      } else {
+        logEvent(rcx, { kind: "git", name: "git clone 完成", detail: uri, ms: Date.now() - t0 });
+        resolve(repoDir);
+      }
+    });
+  });
+}
+
+// —— 快速失败：把运行中的 run 置为 failed（阶段状态同步落盘），供克隆失败等开工前错误使用 ——
+export function failRun(runDir, stageId, message) {
+  const run = loadRun(runDir);
+  if (!run || run.status !== "running") return run;
+  run.status = "failed";
+  const st = run.stages[stageId || run.current || "P1"];
+  if (st) { st.status = "failed"; st.error = message; }
+  saveRun(runDir, run);
+  return run;
+}
+
 // 推进循环：仅 run.status==="running" 时调用 advance（awaiting_review 停手等 applyReview）；
 // 阶段失败自动调 P10 executor 写分类产物后停（v1：不自动 replan）。
 function drive(ctx, root, runDir) {
   const s = sessionFor(runDir);
   const task = s.lock.then(async () => {
+    // 确保仓库已克隆（幂等：已存在则跳过）。克隆失败 = 流水线无法开工：
+    // 快速失败写入 run.json 并走 P10 分类，而不是让 P2 拿空仓库产出垃圾候选。
+    // 测试钩子注入执行器时跳过真实 clone（用例使用假仓库地址）。
+    const initRun = loadRun(runDir);
+    if (!__testHooks && initRun && initRun.status === "running") {
+      const project = loadProject(root, initRun.project);
+      if (project) {
+        const rcx0 = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, initRun));
+        try { await ensureRepo(root, project, rcx0); }
+        catch (e) {
+          const msg = "仓库克隆失败: " + String((e && e.message) || e);
+          const run = failRun(runDir, initRun.current, msg);
+          if (run) {
+            const rcx = s.rcx;
+            rcx.run = run;
+            try {
+              await rcx.executors.P10({ ...rcx, failure: { stage: run.current, error: msg } });
+            } catch { /* P10 自身失败不阻断主流程 */ }
+          }
+          ctx.logger?.warn?.("issue2pr: " + msg);
+          return;
+        }
+      }
+    }
     for (;;) {
       const run = loadRun(runDir);
-      if (!run || run.status !== "running") return;
+      if (!run) {
+        // run.json 不在了 = 运行中被删除：清掉执行器可能重建的孤儿产物目录
+        try { rmTree(runDir); } catch { /* 尽力清理 */ }
+        runSessions.delete(runDir);
+        return;
+      }
+      if (run.status !== "running") return;
       const rcx = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, run));
       rcx.run = run; // 刷新为最新落盘状态（reviewComment 保留在 rcx 上）
       await advance(rcx);
@@ -90,6 +158,27 @@ function drive(ctx, root, runDir) {
   });
   s.lock = task.then(() => {}, () => {}); // 失败不污染锁链
   return s.lock;
+}
+
+// 启动恢复：dsh 进程重启后，盘上遗留 status==="running" 的 Run 已无驱动循环，
+// 置为 stopped（阶段状态同步），避免 UI 永远显示「运行中」。可用「重跑」续跑。
+export function recoverInterruptedRuns(root) {
+  const projectsDir = join(root, "projects");
+  if (!existsSync(projectsDir)) return;
+  for (const slug of readdirSync(projectsDir)) {
+    const runsDir = join(projectsDir, slug, "runs");
+    if (!existsSync(runsDir)) continue;
+    for (const id of readdirSync(runsDir)) {
+      const runDir = join(runsDir, id);
+      const run = loadRun(runDir);
+      if (!run || run.status !== "running") continue;
+      const st = run.stages[run.current];
+      if (st && st.status === "running") st.status = "stopped";
+      run.status = "stopped";
+      run.interruptedAt = new Date().toISOString();
+      saveRun(runDir, run);
+    }
+  }
 }
 
 async function handleApi(ctx, root, req, res) {
@@ -118,6 +207,32 @@ async function handleApi(ctx, root, req, res) {
       return sendJson(res, 404, { ok: false, message: "not found" });
     }
     if (!/^[a-z0-9-]+$/.test(slug)) return sendJson(res, 400, { ok: false, message: "非法 slug" });
+
+    // —— 删除项目（整目录：project.json + runs + repo 克隆）；?confirm=slug 防误删 ——
+    if (!parts[4] && m === "DELETE") {
+      const dir = join(root, "projects", slug);
+      if (!existsSync(dir)) return sendJson(res, 404, { ok: false, message: "项目不存在" });
+      if (url.searchParams.get("confirm") !== slug) return sendJson(res, 400, { ok: false, message: "缺少 confirm=slug 确认参数" });
+      // 运行中/待复核的 Run 先落 stopped（驱动循环下一圈读盘即退出；目录随后整体删除）
+      const runsDir = join(dir, "runs");
+      let stopped = 0;
+      if (existsSync(runsDir)) {
+        for (const id of readdirSync(runsDir)) {
+          const rd = join(runsDir, id);
+          const r = loadRun(rd);
+          if (r && (r.status === "running" || r.status === "awaiting_review")) {
+            r.status = "stopped";
+            if (r.stages[r.current] && r.stages[r.current].status === "running") r.stages[r.current].status = "stopped";
+            saveRun(rd, r);
+            runSessions.delete(rd);
+            stopped += 1;
+          }
+        }
+      }
+      try { rmTree(dir); }
+      catch (e) { return sendJson(res, 500, { ok: false, message: "删除失败: " + String((e && e.message) || e) }); }
+      return sendJson(res, 200, { ok: true, message: stopped > 0 ? `项目已删除（含 ${stopped} 个进行中的 Run，已一并停止移除）` : "项目已删除" });
+    }
 
     const project = loadProject(root, slug);
     const runsDir = join(root, "projects", slug, "runs");
@@ -173,6 +288,58 @@ async function handleApi(ctx, root, req, res) {
         return sendJson(res, 200, run); // 直接吐 run.json
       }
 
+      // —— 停止：不再推进（当前正在执行的阶段跑完即停；异步执行器不阻塞本请求） ——
+      if (action === "stop" && m === "POST") {
+        const run = loadRun(runDir);
+        if (!run) return sendJson(res, 404, { ok: false, message: "run 不存在" });
+        if (run.status !== "running" && run.status !== "awaiting_review") {
+          return sendJson(res, 400, { ok: false, message: "仅运行中/待复核的 Run 可停止（当前: " + run.status + "）" });
+        }
+        run.status = "stopped";
+        if (run.stages[run.current] && run.stages[run.current].status === "running") {
+          run.stages[run.current].status = "stopped";
+        }
+        saveRun(runDir, run);
+        return sendJson(res, 200, { ok: true, message: "已停止（当前阶段执行完即停）" });
+      }
+
+      // —— 回退重跑：指定阶段及其后全部置为 pending，从该阶段重新推进 ——
+      if (action === "rerun" && m === "POST") {
+        const run = loadRun(runDir);
+        if (!run) return sendJson(res, 404, { ok: false, message: "run 不存在" });
+        if (run.status === "running") return sendJson(res, 400, { ok: false, message: "运行中的 Run 请先停止再回退" });
+        const body = await readBody(req);
+        const stage = String(body?.stage || "");
+        const ids = STAGES.map((s) => s.id);
+        if (!ids.includes(stage)) return sendJson(res, 400, { ok: false, message: "非法阶段: " + stage });
+        for (const s of STAGES) {
+          const idx = ids.indexOf(s.id);
+          if (idx >= ids.indexOf(stage)) {
+            run.stages[s.id] = { status: "pending", attempts: run.stages[s.id]?.attempts || 0 };
+          }
+        }
+        run.current = stage;
+        run.status = "running";
+        saveRun(runDir, run);
+        sendJson(res, 200, { ok: true, message: "已从 " + stage + " 重跑" });
+        setImmediate(() => drive(ctx, root, runDir));
+        return;
+      }
+
+      // —— 删除：整目录移除（先落一个 stopped 状态让推进循环退出；孤儿产物由驱动循环兜底清理） ——
+      if (!action && m === "DELETE") {
+        if (!existsSync(runDir)) return sendJson(res, 404, { ok: false, message: "run 不存在" });
+        const run = loadRun(runDir);
+        if (run && (run.status === "running" || run.status === "awaiting_review")) {
+          run.status = "stopped";
+          saveRun(runDir, run); // 推进循环下一圈 loadRun 读到 stopped 即退出
+        }
+        runSessions.delete(runDir); // 丢弃共享 rcx（reviewComment 等），防复活
+        try { rmTree(runDir); }
+        catch (e) { return sendJson(res, 500, { ok: false, message: "删除失败: " + String((e && e.message) || e) }); }
+        return sendJson(res, 200, { ok: true, message: "已删除" });
+      }
+
       if (action === "review" && m === "POST") {
         const run = loadRun(runDir);
         if (!run) return sendJson(res, 404, { ok: false, message: "run 不存在" });
@@ -188,13 +355,29 @@ async function handleApi(ctx, root, req, res) {
       }
 
       if (action === "rollback" && m === "POST") {
+        const run = loadRun(runDir);
+        // 运行中/待复核时禁止回滚：避免推进循环或后续阶段在半撤销的仓库上继续工作
+        if (run && (run.status === "running" || run.status === "awaiting_review")) {
+          return sendJson(res, 400, { ok: false, message: "Run 运行中/待复核，请先停止再回滚" });
+        }
         const body = await readBody(req);
         const lineNo = Number(body?.lineNo);
         if (!Number.isInteger(lineNo) || lineNo < 0) return sendJson(res, 400, { ok: false, message: "lineNo 必须是合法行号" });
         try {
-          rollbackLedger(runDir, join(root, "projects", slug, "repo"), lineNo);
+          await rollbackLedger(runDir, join(root, "projects", slug, "repo"), lineNo);
         } catch (e) { return sendJson(res, 400, { ok: false, message: "回滚失败: " + String((e && e.message) || e) }); }
         return sendJson(res, 200, { ok: true });
+      }
+
+      // —— 在系统文件管理器中打开 run 产物目录 ——
+      if (action === "open" && m === "POST") {
+        if (!existsSync(runDir)) return sendJson(res, 404, { ok: false, message: "run 不存在" });
+        const opener = process.platform === "win32" ? "explorer" : process.platform === "darwin" ? "open" : "xdg-open";
+        execFile(opener, [runDir], { timeout: 10000 }, (err) => {
+          // explorer 常返回非 0 成功码，不据此报错
+          if (err && process.platform !== "win32") ctx.logger?.warn?.("issue2pr: 打开目录失败: " + err.message);
+        });
+        return sendJson(res, 200, { ok: true, message: "已请求打开产物目录" });
       }
 
       if (action === "tree" && m === "GET") {
@@ -221,8 +404,13 @@ async function handleApi(ctx, root, req, res) {
   }
 }
 
-export function apply(ctx) {
-  const root = __testHooks?.dataRoot || ctx.getConfig?.("issue2pr")?.dataRoot || defaultDataRoot();
+export function apply(ctx, config = {}) {
+  const root = __testHooks?.dataRoot || config.dataRoot || defaultDataRoot();
+  // 启动恢复：把上次进程退出时遗留的 running Run 置为 stopped（仅测试钩子注入时跳过，交由用例自行构造）
+  if (!__testHooks?.dataRoot) {
+    try { recoverInterruptedRuns(root); }
+    catch (e) { ctx.logger?.warn?.("issue2pr: 启动恢复失败: " + String((e && e.message) || e)); }
+  }
   ctx.effect(() => ctx.webServer.register({
     kind: "prefix", path: "/issue2pr", handler: (req, res) => handleApi(ctx, root, req, res),
   }), "issue2pr: api routes");

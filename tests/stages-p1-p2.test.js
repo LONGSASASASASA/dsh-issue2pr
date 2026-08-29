@@ -65,3 +65,13 @@ test("P2：基于 P1 契约产出候选文件清单", async () => {
   const saved = JSON.parse(readFileSync(join(runDir, r.artifact), "utf8"));
   assert.equal(saved.candidates[0].path, "src/auth/session.ts");
 });
+test("helpers：GitHub issue API 失败时明确报错（不降级抓 HTML 页面）", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 404 });
+  try {
+    await assert.rejects(
+      () => readTriggerText({ trigger: { uri: "https://github.com/o/r/issues/1" } }),
+      /GitHub issue 获取失败 \(HTTP 404\)/,
+    );
+  } finally { globalThis.fetch = realFetch; }
+});

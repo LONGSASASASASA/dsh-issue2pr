@@ -1,7 +1,7 @@
 // tests/api.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -107,4 +107,185 @@ test("API：同秒同触发源重复 POST /runs → 第二次 409（Run 已存�
     }
   }
   assert.ok(seen409, "连续 POST 应能在同秒内观测到 409");
+});
+function handlerOf() {
+  const rs = []; const c2 = fakeCtx(); c2.webServer.register = (s) => rs.push(s); apply(c2); return rs[0].handler;
+}
+async function mkRun(h, slug, file, body) {
+  writeFileSync(join(root, file), "stop/rerun/delete 测试触发文档");
+  const r = await call(h, "POST", `/issue2pr/api/projects/${slug}/runs`, { kind: "issue", uri: join(root, file) });
+  assert.equal(r.status, 200);
+  return r.body.runId;
+}
+
+test("API：stop 停止待复核 run；rerun 回退重跑；delete 删除目录", async () => {
+  __setTestHooks({ dataRoot: root, executors: {} }); // 全阶段立即 approved（key 门 awaiting_review）
+  const h = handlerOf();
+  let r = await call(h, "POST", "/issue2pr/api/projects", {
+    name: "控制", slug: "ctrl", repos: ["r"], triggers: [{ kind: "issue", uri: "c.md" }],
+    reviewMode: "key-only", p6Mode: "builtin",
+  });
+  assert.equal(r.status, 200);
+  const runId = await mkRun(h, "ctrl", "c.md");
+  await new Promise((res2) => setTimeout(res2, 200));
+  const runDir = join(root, "projects", "ctrl", "runs", runId);
+
+  // stop：非 running/awaiting_review 拒绝；待复核可停
+  r = await call(h, "GET", `/issue2pr/api/projects/ctrl/runs/${runId}`);
+  const st0 = r.body.status;
+  r = await call(h, "POST", `/issue2pr/api/projects/ctrl/runs/${runId}/stop`, {});
+  if (st0 === "awaiting_review" || st0 === "running") {
+    assert.equal(r.body.ok, true);
+    r = await call(h, "GET", `/issue2pr/api/projects/ctrl/runs/${runId}`);
+    assert.equal(r.body.status, "stopped");
+    // 已停止再 stop → 400
+    r = await call(h, "POST", `/issue2pr/api/projects/ctrl/runs/${runId}/stop`, {});
+    assert.equal(r.status, 400);
+    // rerun：非法阶段 400；合法阶段 → running 且该阶段 pending
+    r = await call(h, "POST", `/issue2pr/api/projects/ctrl/runs/${runId}/rerun`, { stage: "P1" });
+    assert.equal(r.body.ok, true);
+    r = await call(h, "GET", `/issue2pr/api/projects/ctrl/runs/${runId}`);
+    assert.equal(r.body.status, "running");
+    // running 中 rerun → 400（先停止）
+    r = await call(h, "POST", `/issue2pr/api/projects/ctrl/runs/${runId}/rerun`, { stage: "P1" });
+    assert.equal(r.status, 400);
+    await new Promise((res2) => setTimeout(res2, 200));
+    await call(h, "POST", `/issue2pr/api/projects/ctrl/runs/${runId}/stop`, {});
+    r = await call(h, "GET", `/issue2pr/api/projects/ctrl/runs/${runId}`);
+    assert.equal(r.body.status, "stopped");
+    r = await call(h, "POST", `/issue2pr/api/projects/ctrl/runs/${runId}/rerun`, { stage: "XX" });
+    assert.equal(r.status, 400);
+  }
+  // stop 未运行态（completed/failed）→ 400
+  r = await call(h, "POST", `/issue2pr/api/projects/ctrl/runs/${runId}/stop`, {});
+  if (st0 === "completed" || st0 === "stopped") assert.equal(r.status, 400);
+
+  // delete：目录移除，GET 404
+  r = await call(h, "DELETE", `/issue2pr/api/projects/ctrl/runs/${runId}`);
+  assert.equal(r.body.ok, true);
+  assert.equal(existsSync(runDir), false);
+  r = await call(h, "GET", `/issue2pr/api/projects/ctrl/runs/${runId}`);
+  assert.equal(r.status, 404);
+  rmSync(join(root, "projects", "ctrl"), { recursive: true, force: true });
+});
+
+test("API：DELETE /projects/:slug（confirm 校验 + 有活跃 run 拒绝）", async () => {
+  __setTestHooks({ dataRoot: root, executors: {} });
+  const h = handlerOf();
+  let r = await call(h, "POST", "/issue2pr/api/projects", {
+    name: "删我", slug: "delme", repos: ["r"], triggers: [{ kind: "issue", uri: "d.md" }],
+    reviewMode: "key-only", p6Mode: "builtin",
+  });
+  assert.equal(r.status, 200);
+  const runId = await mkRun(h, "delme", "d.md");
+  await new Promise((res2) => setTimeout(res2, 200));
+
+  // 缺 confirm → 400
+  r = await call(h, "DELETE", "/issue2pr/api/projects/delme");
+  assert.equal(r.status, 400);
+  // confirm 不匹配 → 400
+  r = await call(h, "DELETE", "/issue2pr/api/projects/delme?confirm=other");
+  assert.equal(r.status, 400);
+
+  // 停掉 run 后删除成功
+  await call(h, "POST", `/issue2pr/api/projects/delme/runs/${runId}/stop`, {});
+  r = await call(h, "DELETE", "/issue2pr/api/projects/delme?confirm=delme");
+  assert.equal(r.body.ok, true);
+  assert.equal(existsSync(join(root, "projects", "delme")), false);
+  r = await call(h, "GET", "/issue2pr/api/projects");
+  assert.equal(r.body.projects.find((x) => x.slug === "delme"), undefined);
+});
+
+test("API：open 目录端点返回 ok（不校验文件管理器是否真弹出）", async () => {
+  __setTestHooks({ dataRoot: root, executors: {} });
+  const h = handlerOf();
+  await call(h, "POST", "/issue2pr/api/projects", {
+    name: "开", slug: "opn", repos: ["r"], triggers: [{ kind: "issue", uri: "o.md" }],
+    reviewMode: "auto", p6Mode: "builtin",
+  });
+  const runId = await mkRun(h, "opn", "o.md");
+  const r = await call(h, "POST", `/issue2pr/api/projects/opn/runs/${runId}/open`, {});
+  assert.equal(r.body.ok, true);
+  rmSync(join(root, "projects", "opn"), { recursive: true, force: true });
+});
+
+test("API：rollback 在 run 运行中/待复核时拒绝；停止后放行校验", async () => {
+  __setTestHooks({ dataRoot: root, executors: {} });
+  const h = handlerOf();
+  let r = await call(h, "POST", "/issue2pr/api/projects", {
+    name: "回滚守卫", slug: "rb", repos: ["r"], triggers: [{ kind: "issue", uri: "rb.md" }],
+    reviewMode: "key-only", p6Mode: "builtin",
+  });
+  assert.equal(r.status, 200);
+  const runId = await mkRun(h, "rb", "rb.md");
+  await new Promise((res2) => setTimeout(res2, 200));
+
+  // 伪造 ledger：一行 applied 记录（run 处于 awaiting_review/running 时应拒绝回滚）
+  const runDir = join(root, "projects", "rb", "runs", runId);
+  writeFileSync(join(runDir, "ledger", "patch-ledger.jsonl"),
+    JSON.stringify({ patch: "06-implementation/patches/x.diff", appliedAt: new Date().toISOString() }) + "\n");
+  r = await call(h, "GET", `/issue2pr/api/projects/rb/runs/${runId}`);
+  const busy = r.body.status === "running" || r.body.status === "awaiting_review";
+  r = await call(h, "POST", `/issue2pr/api/projects/rb/runs/${runId}/rollback`, { lineNo: 0 });
+  if (busy) {
+    assert.equal(r.status, 400);
+    assert.match(r.body.message, /请先停止再回滚/);
+    // 停止后再回滚：不再被守卫拦截（patch 文件缺失走到回滚失败，同样 400 但信息不同）
+    await call(h, "POST", `/issue2pr/api/projects/rb/runs/${runId}/stop`, {});
+    r = await call(h, "POST", `/issue2pr/api/projects/rb/runs/${runId}/rollback`, { lineNo: 0 });
+    assert.notEqual(r.body.message, undefined);
+  }
+});
+
+test("recoverInterruptedRuns：遗留 running 的 run 置为 stopped 并标 interruptedAt", async () => {
+  const { recoverInterruptedRuns } = await import("../index.js");
+  const recRoot = mkdtempSync(join(tmpdir(), "i2p-rec-"));
+  const runDir = join(recRoot, "projects", "p1", "runs", "20260829-120000-x");
+  mkdirSync(runDir, { recursive: true });
+  const run = {
+    id: "20260829-120000-x", project: "p1", status: "running", current: "P3",
+    stages: { P3: { status: "running", attempts: 0 }, P4: { status: "pending", attempts: 0 } },
+  };
+  writeFileSync(join(runDir, "run.json"), JSON.stringify(run));
+  recoverInterruptedRuns(recRoot);
+  const after = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+  assert.equal(after.status, "stopped");
+  assert.equal(after.stages.P3.status, "stopped");
+  assert.ok(after.interruptedAt);
+  // 幂等：再次运行不改动
+  recoverInterruptedRuns(recRoot);
+  const again = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+  assert.equal(again.status, "stopped");
+});
+
+test("failRun：running 的 run 落盘 failed + 阶段 error；非 running 不动", async () => {
+  const { failRun } = await import("../index.js");
+  const frRoot = mkdtempSync(join(tmpdir(), "i2p-fail-"));
+  const runDir = join(frRoot, "projects", "px", "runs", "20260829-130000-y");
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, "run.json"), JSON.stringify({
+    id: "20260829-130000-y", project: "px", status: "running", current: "P1",
+    stages: { P1: { status: "running", attempts: 0 } },
+  }));
+  const run = failRun(runDir, "P1", "仓库克隆失败: git clone 失败");
+  assert.equal(run.status, "failed");
+  const onDisk = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+  assert.equal(onDisk.status, "failed");
+  assert.equal(onDisk.stages.P1.status, "failed");
+  assert.match(onDisk.stages.P1.error, /仓库克隆失败/);
+  // 已 stopped 的 run 再调 failRun 不改状态
+  const again = failRun(runDir, "P1", "再失败");
+  assert.equal(again.status, "failed");
+  assert.equal(again.stages.P1.error, onDisk.stages.P1.error);
+});
+
+test("saveProject：repos 字符串形态规范化为 { uri } 落盘", async () => {
+  const { saveProject, loadProject } = await import("../lib/store.js");
+  const spRoot = mkdtempSync(join(tmpdir(), "i2p-sp-"));
+  saveProject(spRoot, {
+    name: "规范化", slug: "norm", repos: ["https://x.git"], triggers: [],
+    reviewMode: "every", p6Mode: "builtin",
+  });
+  const p = loadProject(spRoot, "norm");
+  assert.deepEqual(p.repos, [{ uri: "https://x.git" }]);
 });

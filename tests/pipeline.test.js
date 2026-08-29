@@ -89,3 +89,21 @@ test("阶段失败 → failed + error，trace 有 span", async () => {
   assert.equal(run.stages.P1.status, "failed");
   assert.match(run.stages.P1.error, /无法解析/);
 });
+test("advance 写过程事件：阶段开始/完成落 trace/events.jsonl", async () => {
+  const { runDir, run } = freshRun("every");
+  const rcx = { runDir, run, executors: okExecutors, log() {} };
+  await advance(rcx);
+  const evs = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.ok(evs.some((e) => e.stage === "P1" && /开始/.test(e.name)), "阶段开始事件");
+  assert.ok(evs.some((e) => e.stage === "P1" && /完成/.test(e.name)), "阶段完成事件");
+  assert.ok(evs.every((e) => typeof e.ok === "boolean" && e.kind === "stage"));
+});
+
+test("advance 失败路径写失败事件（ok:false + 错误详情）", async () => {
+  const { runDir, run } = freshRun("every");
+  const bad = { ...okExecutors, P1: async () => { throw new Error("炸了"); } };
+  const rcx = { runDir, run, executors: bad, log() {} };
+  await advance(rcx);
+  const evs = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.ok(evs.some((e) => e.stage === "P1" && e.ok === false && /炸了/.test(e.detail)));
+});

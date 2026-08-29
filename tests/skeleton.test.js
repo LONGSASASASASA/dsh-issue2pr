@@ -1,7 +1,7 @@
 // tests/skeleton.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { apply, name, inject } from "../index.js";
+import { apply, name, inject, __setTestHooks } from "../index.js";
 
 function fakeCtx() {
   const routes = [];
@@ -15,7 +15,7 @@ function fakeCtx() {
 
 test("骨架：导出 name/inject，apply 注册 /issue2pr 前缀路由", () => {
   assert.equal(name, "dsh-issue2pr");
-  assert.deepEqual(inject, ["webServer"]);
+  assert.deepEqual(inject, ["webServer", "llm"]);
   const ctx = fakeCtx();
   apply(ctx);
   assert.equal(ctx.registrations.length, 1);
@@ -34,4 +34,20 @@ test("骨架：GET /issue2pr/api/ping 返回 ok", async () => {
   await handler(req, res);
   const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   assert.deepEqual(body, { ok: true, plugin: "dsh-issue2pr" });
+});
+
+test("启动：未注入 getConfig 时 apply 仍能注册路由", () => {
+  __setTestHooks(null);
+  const ctx = new Proxy(fakeCtx(), {
+    get(target, property, receiver) {
+      if (property === "getConfig") {
+        throw new Error('cannot get property "getConfig" without inject');
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+
+  apply(ctx);
+
+  assert.equal(ctx.registrations.length, 1);
 });

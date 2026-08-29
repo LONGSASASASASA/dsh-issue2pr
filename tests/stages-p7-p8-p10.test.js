@@ -33,7 +33,7 @@ test("P7：应用 diff 并写 ledger；rollback 只反应用该 patch", async ()
   const r = await p7({ runDir, repoDir, llm: null, reviewComment: "" });
   assert.match(readFileSync(join(repoDir, "a.txt"), "utf8"), /patched/);
   assert.ok(existsSync(join(runDir, "ledger", "patch-ledger.jsonl")));
-  rollbackLedger(runDir, repoDir, 0);
+  await rollbackLedger(runDir, repoDir, 0);
   assert.equal(readFileSync(join(repoDir, "a.txt"), "utf8"), "line1\n");
 });
 
@@ -65,4 +65,51 @@ test("P10：run.status 非 failed 时跳过，不写产物", async () => {
   const r = await p10({ runDir, repoDir: root, llm, failure: { stage: "P8", error: "测试失败" }, run: { status: "running" } });
   assert.equal(r.artifact, null);
   assert.equal(existsSync(join(runDir, "09-failure-analysis.json")), false);
+});
+test("P7：session 模式回退——无 coder-report.json 时扫 patches/ 目录按序应用", async () => {
+  const repoDir = gitRepo();
+  const runDir = mkdtempSync(join(root, "run-"));
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  mkdirSync(join(runDir, "ledger"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-a.diff"),
+    "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1\n+line1-session\n");
+  const r = await p7({ runDir, repoDir, llm: null, reviewComment: "" });
+  assert.match(r.summary, /1 份 patch/);
+  assert.match(readFileSync(join(repoDir, "a.txt"), "utf8"), /session/);
+  const ledger = readFileSync(join(runDir, "ledger", "patch-ledger.jsonl"), "utf8").trim().split("\n");
+  assert.equal(JSON.parse(ledger[0]).patch, "06-implementation/patches/0001-a.diff");
+});
+
+test("P7：无任何 patch 时明确报错", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  await assert.rejects(() => p7({ runDir, repoDir: root, llm: null }), /无 patch 可应用/);
+});
+
+test("P8：过程事件落 trace/events.jsonl（开始 + 结束，含耗时与 ok）", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  await p8({ runDir, repoDir: root, project: { testCommand: "node -e \"\"" }, llm: null });
+  const lines = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.equal(lines[0].kind, "test");
+  assert.match(lines[0].name, /node -e/);
+  assert.equal(lines.at(-1).ok, true);
+  assert.ok(typeof lines.at(-1).ms === "number");
+});
+
+test("P7：git apply 成功/失败都记过程事件", async () => {
+  const repoDir = gitRepo();
+  const runDir = mkdtempSync(join(root, "run-"));
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-ok.diff"),
+    "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1\n+line1-ok\n");
+  const rcx = { runDir, repoDir, llm: null, run: { current: "P7" } };
+  await p7(rcx);
+  writeFileSync(join(runDir, "06-implementation", "patches", "0002-bad.diff"),
+    "--- a/nope.txt\n+++ b/nope.txt\n@@ -1 +1 @@\n-x\n+y\n");
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"),
+    JSON.stringify({ patches: [{ patch: "06-implementation/patches/0002-bad.diff" }] }));
+  await assert.rejects(() => p7(rcx), /Patch 应用失败/);
+  const evs = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.ok(evs.some((e) => e.kind === "git" && e.ok === true), "成功 apply 记事件");
+  assert.ok(evs.some((e) => e.kind === "git" && e.ok === false), "失败 apply 记事件");
+  assert.ok(evs.every((e) => e.stage === "P7"), "事件携带阶段号");
 });

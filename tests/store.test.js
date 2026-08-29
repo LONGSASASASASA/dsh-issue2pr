@@ -1,10 +1,11 @@
 // tests/store.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as store from "../lib/store.js";
+import { rmTree, appendArtifactLine } from "../lib/store.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-store-"));
 
@@ -57,4 +58,22 @@ test("createRun 同秒冲突：同一 trigger 连续两次创建抛 Run 已存�
   store.saveProject(root, { name: "c", slug: "c", repos: ["r"], triggers: [], reviewMode: "every", p6Mode: "builtin" });
   store.createRun(root, "c", { kind: "issue", uri: "dup.md" });
   assert.throws(() => store.createRun(root, "c", { kind: "issue", uri: "dup.md" }), /Run 已存在/);
+});
+test("rmTree：删除含只读文件的目录树（Windows git objects 场景）", () => {
+  const dir = join(root, "proj-ro");
+  mkdirSync(join(dir, "repo", ".git", "objects", "ab"), { recursive: true });
+  writeFileSync(join(dir, "repo", ".git", "objects", "ab", "obj1"), "git object");
+  chmodSync(join(dir, "repo", ".git", "objects", "ab", "obj1"), 0o444); // 模拟 git 只读对象
+  writeFileSync(join(dir, "project.json"), "{}");
+  rmTree(dir);
+  assert.equal(existsSync(dir), false, "只读文件目录树应被完整删除");
+});
+
+test("appendArtifactLine：追加 JSONL 并自动建目录", () => {
+  const runDir = join(root, "run-ev");
+  appendArtifactLine(runDir, "trace/events.jsonl", { at: "t1", kind: "llm", name: "m1" });
+  appendArtifactLine(runDir, "trace/events.jsonl", { at: "t2", kind: "git", name: "g1" });
+  const lines = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.equal(lines.length, 2);
+  assert.equal(lines[1].name, "g1");
 });
