@@ -3001,28 +3001,35 @@ body.i2p-dragging{user-select:none}
 		 * 后端 /assistant/ask 流式 JSONL（{"delta"}… {"done"|"error"}），
 		 * 上下文（页面位置/项目/Run/最近事件）由后端每次现读
 		 * ================================================================ */
+		// 初始（重置）位置固定值：面板右上角锚定工作台右上角内侧——右偏 78px
+			// （避宿主右缘悬浮按钮排约 70px）、顶偏 60px（工作台头部下方）
+			const AI_ANCHOR = { right: 78, top: 60 };
 		const aiStore = {
 			open: false,
-			// 自由窗口矩形（x/y/w/h，相对工作台）：localStorage 快路径 + 服务端 ui-state 兜底；
-			// 兼容旧版字段（i2p.aiW/i2p.aiTop）：miss aiX/aiH 时按"右贴、底到页底"推导
-			rect: (function () {
-				const d = aiDefaultRect();
-				const x = clampInt(localStorage.getItem("i2p.aiX"), 0, 4000, null);
-				const y = clampInt(localStorage.getItem("i2p.aiY"), 44, 2000, null);
-				const w = clampInt(localStorage.getItem("i2p.aiW"), 240, 760, null);
-				const h = clampInt(localStorage.getItem("i2p.aiH"), 200, 1800, null);
-				const oldTop = clampInt(localStorage.getItem("i2p.aiTop"), 44, 2000, null);
-				if (x == null && y == null && w == null && h == null && oldTop == null) return d;
-				const p = aiPageRect();
-				const w2 = w != null ? w : d.w;
-				const y2 = y != null ? y : (oldTop != null ? oldTop : d.y);
-				return {
-					x: x != null ? x : Math.round(p.w - 78 - w2),
-					y: y2,
-					w: w2,
-					h: h != null ? h : Math.max(200, Math.round(p.h - 16 - y2)),
-				};
-			})(),
+			// 自由窗口矩形：运行时 x/y/w/h（相对工作台左上）；**持久化/恢复一律用右上角相对坐标**
+			// （aiR=面板右缘距工作台右缘、aiT=面板顶距工作台顶）——窗口尺寸变化后面板与
+			// 右缘的相对位置不漂移。兼容旧字段（aiX 绝对坐标/aiTop）按当前页宽换算迁移
+				rect: (function () {
+					const d = aiDefaultRect();
+					const r = clampInt(localStorage.getItem("i2p.aiR"), 0, 2000, null);
+					const t = clampInt(localStorage.getItem("i2p.aiT"), 44, 2000, null);
+					const oldT = t != null ? t : clampInt(localStorage.getItem("i2p.aiTop"), 44, 2000, null);
+					const w = clampInt(localStorage.getItem("i2p.aiW"), 240, 760, null);
+					const h = clampInt(localStorage.getItem("i2p.aiH"), 200, 1800, null);
+					const oldX = clampInt(localStorage.getItem("i2p.aiX"), 0, 4000, null);
+					if (r == null && oldT == null && w == null && h == null && oldX == null) return d;
+					const p = aiPageRect();
+					const w2 = w != null ? w : d.w;
+					const r2 = r != null ? r
+						: (oldX != null ? Math.max(4, Math.round(p.w - oldX - w2)) : AI_ANCHOR.right);
+					const t2 = oldT != null ? oldT : AI_ANCHOR.top;
+					return {
+						x: Math.round(p.w - r2 - w2),
+						y: t2,
+						w: w2,
+						h: h != null ? h : Math.max(200, Math.round(p.h - 16 - t2)),
+					};
+				})(),
 			listeners: new Set(),
 			set(v) { this.open = v; for (const fn of this.listeners) fn(); },
 			// setRect：先 clamp 尺寸再 clamp 位置（面板始终完整落在工作台内）；
@@ -3040,17 +3047,20 @@ body.i2p-dragging{user-select:none}
 				y = Math.max(44, Math.min(Math.max(44, p.h - h - 8), y));
 				this.rect = { x: x, y: y, w: w, h: h };
 				if (persist) {
+					// 右上角相对坐标落盘：aiR=右缘偏移、aiT=顶部偏移；旧绝对键清除防干扰
 					try {
-						localStorage.setItem("i2p.aiX", String(x));
-						localStorage.setItem("i2p.aiY", String(y));
+						localStorage.setItem("i2p.aiR", String(Math.round(p.w - x - w)));
+						localStorage.setItem("i2p.aiT", String(y));
 						localStorage.setItem("i2p.aiW", String(w));
 						localStorage.setItem("i2p.aiH", String(h));
+						localStorage.removeItem("i2p.aiX");
+						localStorage.removeItem("i2p.aiY");
 						localStorage.removeItem("i2p.aiTop");
 					} catch (e) { /* webview localStorage 可能被禁，服务端兜底仍在 */ }
 					fetch(API + "/ui-state", {
 						method: "POST",
 						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ aiX: x, aiY: y, aiW: w, aiH: h }),
+						body: JSON.stringify({ aiR: Math.round(p.w - x - w), aiT: y, aiW: w, aiH: h }),
 					}).catch(function () { /* 兜底失败静默 */ });
 				}
 				for (const fn of this.listeners) fn();
@@ -3076,10 +3086,14 @@ body.i2p-dragging{user-select:none}
 			const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
 			return r ? { w: r.width, h: r.height } : { w: window.innerWidth || 1280, h: window.innerHeight || 720 };
 		}
-		// 默认窗口：右贴（避宿主右缘悬浮按钮排约 70px）、头部下方、底到页底
+		// 默认窗口：右上角按 AI_ANCHOR 固定偏移锚定（窗口尺寸变化时相对位置不变）
 		function aiDefaultRect() {
 			const p = aiPageRect();
-			return { x: Math.max(4, Math.round(p.w - 78 - 400)), y: 60, w: 400, h: Math.max(200, Math.round(p.h - 76)) };
+			return {
+				x: Math.max(4, Math.round(p.w - AI_ANCHOR.right - 400)),
+				y: AI_ANCHOR.top, w: 400,
+				h: Math.max(200, Math.round(p.h - 76)),
+			};
 		}
 
 		function AssistantDock() {
@@ -3180,20 +3194,26 @@ body.i2p-dragging{user-select:none}
 			}, []);
 
 			// 面板窗口矩形兜底：宿主 webview 的 localStorage 不跨软件重启——本地无记忆时
-			// 从服务端 ui-state 恢复（兼容旧 aiW/aiTop）；本地有记忆时反向同步服务端（防旧值空窗）
+			// 从服务端 ui-state 恢复（右上角相对坐标 aiR/aiT；兼容旧 aiX/aiY/aiTop 按当前
+			// 页宽换算）；本地有记忆时反向同步服务端（防旧值空窗）
 			React.useEffect(function () {
 				apiGet("/ui-state").then(function (r) {
 					if (!r || !r.ok || !r.state) return;
-					const local = ["i2p.aiX", "i2p.aiY", "i2p.aiW", "i2p.aiH", "i2p.aiTop"].some(function (k) { return localStorage.getItem(k) != null; });
+					const local = ["i2p.aiR", "i2p.aiT", "i2p.aiW", "i2p.aiH", "i2p.aiX", "i2p.aiTop"].some(function (k) { return localStorage.getItem(k) != null; });
+					const p = aiPageRect();
 					if (local) {
 						fetch(API + "/ui-state", {
 							method: "POST",
 							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ aiX: aiStore.rect.x, aiY: aiStore.rect.y, aiW: aiStore.rect.w, aiH: aiStore.rect.h }),
+							body: JSON.stringify({ aiR: Math.round(p.w - aiStore.rect.x - aiStore.rect.w), aiT: aiStore.rect.y, aiW: aiStore.rect.w, aiH: aiStore.rect.h }),
 						}).catch(function () { /* 兜底失败静默 */ });
-					} else if (r.state.aiX != null || r.state.aiW != null || r.state.aiTop != null) {
+					} else if (r.state.aiR != null || r.state.aiX != null || r.state.aiW != null || r.state.aiTop != null) {
+						const w2 = r.state.aiW != null ? r.state.aiW : aiStore.rect.w;
+						const r2 = r.state.aiR != null ? r.state.aiR
+							: (r.state.aiX != null ? Math.max(4, Math.round(p.w - r.state.aiX - w2)) : AI_ANCHOR.right);
 						aiStore.setRect({
-							x: r.state.aiX, y: r.state.aiY != null ? r.state.aiY : r.state.aiTop,
+							x: Math.round(p.w - r2 - w2),
+							y: r.state.aiT != null ? r.state.aiT : r.state.aiTop,
 							w: r.state.aiW, h: r.state.aiH,
 						}, false);
 					}
