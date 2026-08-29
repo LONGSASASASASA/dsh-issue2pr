@@ -188,8 +188,17 @@ const artifacts = {
   "trace/events.jsonl": eventsText,
   "run.json": JSON.stringify(runDetail, null, 2),
 };
-window.fetch = (url) => {
+window.fetch = (url, opts) => {
   const u = String(url);
+  // 智能助手：伪流式 NDJSON（预览台演示流式渲染，真实验收看真实宿主）
+  if (/\\/assistant\\/ask/.test(u)) {
+    const answer = "**预览模式**：这里走的是 mock 流式回答（真实宿主由后端聚合项目/Run/事件上下文并调 LLM）。\\n\\n当前 mock 数据里的 Run 停在 P5 待复核。";
+    const lines = [JSON.stringify({ delta: answer.slice(0, 20) }) + "\\n", JSON.stringify({ delta: answer.slice(20) }) + "\\n", JSON.stringify({ done: true }) + "\\n"];
+    let i = 0;
+    return new Promise((resolve2) => setTimeout(() => resolve2({ ok: true, body: { getReader() {
+      return { read: () => new Promise((r2) => setTimeout(() => r2(i < lines.length ? { done: false, value: new TextEncoder().encode(lines[i++]) } : { done: true }), 120)) };
+    } } }), 200));
+  }
   let body = { ok: true };
   const m = u.match(/\\/runs\\/([^/]+)\\/artifact\\?path=(.+)$/);
   if (m) {

@@ -387,3 +387,115 @@ test("API：项目保存带 stageConfig 落盘并可回读；非法阶段被拒"
   assert.equal(r.status, 400);
   assert.match(r.body.message, /P99/);
 });
+
+/* ==================== 悬浮智能助手 /assistant/ask ==================== */
+
+// 流式端点专用 call：收集多次 res.write 的 NDJSON（或 sendJson 的单 JSON）
+async function callStream(handler, method, path, body) {
+  const writes = [];
+  const req = { method, url: path,
+    on(ev, fn) { if (ev === "data") fn(Buffer.from(JSON.stringify(body))); if (ev === "end") setImmediate(fn); } };
+  const res = { status: 0,
+    writeHead(c) { res.status = c; },
+    write(d) { writes.push(Buffer.from(d)); },
+    end(d) { if (d) writes.push(Buffer.from(d)); } };
+  await handler(req, res);
+  const text = Buffer.concat(writes).toString("utf8");
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* NDJSON 多行 */ }
+  const lines = json ? null : text.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+  return { status: res.status, text, json, lines };
+}
+
+function assistantHandlerOf(streamFn) {
+  const rs = [];
+  const c2 = {
+    effect(fn) { fn(); return () => {}; },
+    logger: { info() {} },
+    webServer: { register(s) { rs.push(s); } },
+    getConfig() { return { dataRoot: root }; },
+    llm: { stream: streamFn },
+  };
+  apply(c2);
+  return rs[0].handler;
+}
+
+test("助手 ask：流式 JSONL + 实时上下文注入 + history 透传", async () => {
+  // fixture：项目 aiq + 聚焦 run（P3 running）+ 两条事件
+  mkdirSync(join(root, "projects", "aiq"), { recursive: true });
+  writeFileSync(join(root, "projects", "aiq", "project.json"), JSON.stringify({
+    name: "助手演示", slug: "aiq", repos: [{ uri: "r" }], triggers: [{ kind: "issue", uri: "t.md" }],
+    reviewMode: "every", p6Mode: "claude",
+  }));
+  const runDir = join(root, "projects", "aiq", "runs", "20260829-120000-t");
+  mkdirSync(join(runDir, "trace"), { recursive: true });
+  writeFileSync(join(runDir, "run.json"), JSON.stringify({
+    id: "20260829-120000-t", project: "aiq", status: "running", current: "P3",
+    createdAt: "2026-08-29T12:00:00.000Z", reviewMode: "every", p6Mode: "claude",
+    trigger: { kind: "issue", uri: "t.md" },
+    stages: { P1: { status: "approved", attempts: 1 }, P2: { status: "approved", attempts: 1 }, P3: { status: "running", attempts: 1 } },
+  }));
+  writeFileSync(join(runDir, "trace", "events.jsonl"), [
+    { at: "2026-08-29T12:00:01Z", stage: "P1", kind: "stage", name: "P1 完成", ok: true },
+    { at: "2026-08-29T12:00:05Z", stage: "P3", kind: "llm", name: "模型 · 完成", detail: "分析完成", ok: true },
+  ].map((e) => JSON.stringify(e)).join("\n") + "\n");
+
+  const calls = [];
+  const h = assistantHandlerOf(async function* (options) {
+    calls.push(options);
+    yield { type: "text-delta", index: 0, text: "当前 Run " };
+    yield { type: "text-delta", index: 0, text: "在 P3。" };
+    yield { type: "finish", reason: "stop" };
+  });
+  const r = await callStream(h, "POST", "/issue2pr/api/assistant/ask", {
+    question: "现在跑到哪一步了？",
+    history: [{ role: "user", text: "之前问过" }, { role: "assistant", text: "之前答过" }],
+    focus: { nav: "runs", slug: "aiq", runId: "20260829-120000-t" },
+  });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.lines, [{ delta: "当前 Run " }, { delta: "在 P3。" }, { done: true }]);
+  // LLM 收到的 system 已聚合实时上下文
+  assert.match(calls[0].system, /实时上下文|用户当前位置/);
+  assert.match(calls[0].system, /aiq/);
+  assert.match(calls[0].system, /20260829-120000-t/);
+  assert.match(calls[0].system, /running/);
+  assert.match(calls[0].system, /P1 完成/);
+  // history + 当前问题按序透传，ContentBlock 形态
+  assert.deepEqual(calls[0].messages.map((m) => [m.role, m.content[0].text]), [
+    ["user", "之前问过"], ["assistant", "之前答过"], ["user", "现在跑到哪一步了？"],
+  ]);
+  assert.equal(calls[0].maxTokens, 8192);
+});
+
+test("助手 ask：空 question / 非法 focus → 400 或忽略", async () => {
+  const h = assistantHandlerOf(async function* () { yield { type: "finish", reason: "stop" }; });
+  let r = await callStream(h, "POST", "/issue2pr/api/assistant/ask", { question: "   " });
+  assert.equal(r.status, 400);
+  r = await callStream(h, "POST", "/issue2pr/api/assistant/ask", { question: "x".repeat(4001) });
+  assert.equal(r.status, 400);
+  // 非法 slug/runId 形态被置空（不报错，上下文里显示未选中）
+  const calls = [];
+  const h2 = assistantHandlerOf(async function* (o) { calls.push(o); yield { type: "text-delta", index: 0, text: "ok" }; yield { type: "finish", reason: "stop" }; });
+  r = await callStream(h2, "POST", "/issue2pr/api/assistant/ask", { question: "hi", focus: { slug: "../Evil", runId: "zzz" } });
+  assert.equal(r.status, 200);
+  assert.doesNotMatch(calls[0].system, /Evil/);
+  assert.match(calls[0].system, /（未选中）|未选中/);
+});
+
+test("助手 ask：LLM 流中失败 → 首个 delta 后补 error 行；前置失败 → 500 JSON", async () => {
+  const hMid = assistantHandlerOf(async function* () {
+    yield { type: "text-delta", index: 0, text: "部分回答" };
+    yield { type: "finish", reason: { kind: "error", failure: { message: "boom" } } };
+  });
+  const r1 = await callStream(hMid, "POST", "/issue2pr/api/assistant/ask", { question: "q" });
+  assert.equal(r1.status, 200);
+  assert.deepEqual(r1.lines[0], { delta: "部分回答" });
+  assert.match(r1.lines[r1.lines.length - 1].error, /LLM 调用失败: boom/);
+
+  const hEarly = assistantHandlerOf(async function* () {
+    yield { type: "finish", reason: { kind: "error", failure: { message: "early" } } };
+  });
+  const r2 = await callStream(hEarly, "POST", "/issue2pr/api/assistant/ask", { question: "q" });
+  assert.equal(r2.status, 500);
+  assert.equal(r2.json.ok, false);
+});

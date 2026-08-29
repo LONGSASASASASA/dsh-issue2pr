@@ -17,6 +17,7 @@ import { rollbackLedger } from "./lib/stages/p7-patch.js";
 import { killExternal } from "./lib/stages/p6-coder.js";
 import { readTriggerText, logEvent } from "./lib/stages/helpers.js";
 import { STAGE_DEFS, stageCfgOf, routeOverridesOf, DEFAULT_LLM_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS } from "./lib/stageConfig.js";
+import { ASSISTANT_SYSTEM_HEAD, buildAssistantContext } from "./lib/assistant.js";
 
 export const name = "dsh-issue2pr";
 export const inject = ["webServer", "llm"];
@@ -229,6 +230,55 @@ async function handleApi(ctx, root, req, res) {
         return sendJson(res, 200, { ok: true, state });
       }
       return sendJson(res, 404, { ok: false, message: "not found" });
+    }
+    // —— /issue2pr/api/assistant/ask：悬浮智能助手（LLM 走宿主 ctx.llm，流式 JSONL 响应） ——
+    // body {question, history:[{role,text}], focus:{nav,slug,runId}}；每行 {"delta"} … 末行 {"done":true} 或 {"error"}
+    // 上下文每次现读 buildAssistantContext（数据最新）；客户端断开（close）即 abort 生成
+    if (parts[2] === "assistant" && parts[3] === "ask" && m === "POST") {
+      const body = await readBody(req);
+      const question = typeof body?.question === "string" ? body.question.trim() : "";
+      if (!question || question.length > 4000) return sendJson(res, 400, { ok: false, message: "question 必填且不超过 4000 字" });
+      const history = (Array.isArray(body?.history) ? body.history : [])
+        .filter((x) => x && (x.role === "user" || x.role === "assistant") && typeof x.text === "string" && x.text.trim())
+        .slice(-12).map((x) => ({ role: x.role, text: x.text.slice(0, 4000) }));
+      const focus = body?.focus && typeof body.focus === "object" ? body.focus : {};
+      const fSlug = typeof focus.slug === "string" && /^[a-z0-9-]+$/.test(focus.slug) ? focus.slug : null;
+      const fRunId = typeof focus.runId === "string" && /^\d{8}-\d{6}-[a-z0-9-]+$/.test(focus.runId) ? focus.runId : null;
+
+      const system = ASSISTANT_SYSTEM_HEAD + "\n\n" + buildAssistantContext(root, { nav: focus.nav, slug: fSlug, runId: fRunId });
+      const messages = [...history, { role: "user", text: question }];
+
+      let finished = false;
+      const ac = new AbortController();
+      req.on("close", () => { if (!finished) ac.abort(); });
+      // 响应已开始流式写入后不能再走 sendJson（外层 catch 的 500 会二次 writeHead），
+      // 因此端点内部消化一切错误：已写头则补 {"error"} 行，未写头前出错仍可 sendJson
+      let headerSent = false;
+      try {
+        const llm = makeLlm(ctx, null, () => ({}));
+        await llm.streamText({
+          system, messages, maxTokens: 8192, signal: ac.signal,
+          onDelta: (d) => {
+            if (!headerSent) {
+              res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "Transfer-Encoding": "chunked" });
+              headerSent = true;
+            }
+            res.write(JSON.stringify({ delta: d }) + "\n");
+          },
+        });
+        if (!headerSent) {
+          res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "Transfer-Encoding": "chunked" });
+          headerSent = true;
+        }
+        res.write(JSON.stringify({ done: true }) + "\n");
+      } catch (e) {
+        if (!headerSent) return sendJson(res, 500, { ok: false, message: (e && e.message) || String(e) });
+        try { res.write(JSON.stringify({ error: String((e && e.message) || e) }) + "\n"); } catch { /* 连接已断 */ }
+      } finally {
+        finished = true;
+        res.end();
+      }
+      return;
     }
     if (parts[2] !== "projects") {
       return sendJson(res, 404, { ok: false, message: "not found" });

@@ -455,6 +455,69 @@ body.i2p-dragging{user-select:none}
 .i2p-close:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .i2p-page-body{flex:1;min-height:0;display:flex}
 
+/* ===== 悬浮智能助手（右上角悬浮球 + 右侧滑出对话栏；z-index 高于 toast） ===== */
+.i2p-ai{position:absolute;inset:0;pointer-events:none;z-index:2200}
+.i2p-ai-fab{pointer-events:auto;position:absolute;top:64px;right:88px;width:36px;height:36px;border-radius:50%;
+  border:1px solid var(--line-2);background:var(--panel);color:var(--accent);display:inline-flex;
+  align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(9,12,20,.10);
+  transition:transform .16s,box-shadow .16s,border-color .16s,color .16s}
+.i2p-ai-fab:hover{transform:translateY(-1px);border-color:var(--accent);box-shadow:0 4px 16px rgba(9,12,20,.16)}
+.i2p-ai-fab:active{transform:scale(.95)}
+.i2p-ai-fab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+@keyframes i2p-ai-in{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
+.i2p-ai-panel{pointer-events:auto;position:absolute;top:60px;right:78px;bottom:16px;width:min(400px,calc(100% - 120px));
+  display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line-2);border-radius:14px;
+  box-shadow:0 8px 32px rgba(9,12,20,.14);overflow:hidden;
+  animation:i2p-ai-in .22s cubic-bezier(.2,.8,.2,1)}
+.i2p-ai-head{flex:none;display:flex;align-items:center;gap:8px;padding:12px 14px 8px}
+.i2p-ai-title{display:inline-flex;align-items:center;gap:7px;color:var(--accent)}
+.i2p-ai-title b{font-size:15px;color:var(--ink)}
+.i2p-ai-close{margin-left:auto;width:26px;height:26px;border:none;border-radius:8px;background:none;
+  color:var(--muted);display:inline-flex;align-items:center;justify-content:center}
+.i2p-ai-close:hover{background:var(--hover);color:var(--ink)}
+.i2p-ai-hint{flex:none;margin:0 14px 10px;font-size:12.5px;color:var(--muted);line-height:1.55;
+  border-bottom:1px dashed var(--line);padding-bottom:10px}
+.i2p-ai-msgs{flex:1;min-height:0;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;
+  scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
+.i2p-ai-msgs::-webkit-scrollbar{width:6px}
+.i2p-ai-msgs::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
+.i2p-ai-chips{display:flex;flex-direction:column;gap:8px;padding-top:4px}
+.i2p-ai-chip{text-align:left;background:none;border:1px dashed var(--line-2);border-radius:10px;
+  padding:8px 12px;font-size:13.5px;color:var(--ink-2);transition:border-color .14s,color .14s}
+.i2p-ai-chip:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.i2p-ai-chip:disabled{opacity:.5;cursor:default}
+.i2p-ai-m{max-width:92%;border-radius:12px;padding:8px 12px;font-size:14px;line-height:1.65}
+.i2p-ai-m.user{align-self:flex-end;background:var(--accent);color:#fff;white-space:pre-wrap;word-break:break-word;
+  border-bottom-right-radius:4px}
+.i2p-ai-m.assistant{align-self:flex-start;background:var(--hover);border-bottom-left-radius:4px;overflow-wrap:break-word}
+.i2p-ai-m.assistant.err{background:var(--err-bg);color:var(--err)}
+.i2p-ai-m .i2p-ai-t{white-space:pre-wrap;word-break:break-word}
+.i2p-ai-md{font-size:13.5px}
+.i2p-ai-md :first-child{margin-top:0}
+.i2p-ai-md :last-child{margin-bottom:0}
+/* 流式等待：三点呼吸 */
+@keyframes i2p-ai-dot{50%{opacity:.25}}
+.i2p-ai-dots{display:inline-flex;gap:4px;padding:2px 0}
+.i2p-ai-dots i{width:6px;height:6px;border-radius:50%;background:var(--muted);
+  animation:i2p-ai-dot 1.2s ease-in-out infinite}
+.i2p-ai-dots i:nth-child(2){animation-delay:.2s}
+.i2p-ai-dots i:nth-child(3){animation-delay:.4s}
+.i2p-ai-input{flex:none;display:flex;gap:8px;align-items:flex-end;padding:10px 12px 12px;border-top:1px solid var(--line)}
+.i2p-ai-input textarea{flex:1;min-height:44px;max-height:120px;resize:none;background:var(--card);
+  border:1px solid var(--line-2);border-radius:10px;color:var(--ink);padding:8px 10px;font-size:13.5px;
+  line-height:1.55;font-family:inherit;transition:border-color .15s}
+.i2p-ai-input textarea:focus{border-color:var(--accent)}
+.i2p-ai-send{flex:none;display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 12px;
+  border:1px solid var(--line-2);border-radius:10px;background:var(--card);color:var(--accent);font-size:13px;
+  transition:border-color .14s,background .14s,transform .1s}
+.i2p-ai-send:hover:not(:disabled){border-color:var(--accent)}
+.i2p-ai-send:active:not(:disabled){transform:scale(.97)}
+.i2p-ai-send:disabled{opacity:.45;cursor:default}
+@media (max-width:880px){
+  .i2p-ai-fab{right:88px;top:60px}
+  .i2p-ai-panel{width:min(360px,calc(100% - 100px))}
+}
+
 /* ===== 动效与质感层（丰富但克制：150-300ms、语义化、可关） ===== */
 /* 整页进场：淡入 + 轻微上浮 */
 @keyframes i2p-in{from{opacity:0;transform:translateY(10px) scale(.997)}to{opacity:1;transform:none}}
@@ -496,6 +559,7 @@ body.i2p-dragging{user-select:none}
   .i2p-page,.i2p-nav-cell,.i2p-nav{animation:none!important;transition:none!important}
   .i2p .card,.i2p .btn,.i2p .proj-item,.i2p .tbl tbody tr,.i2p .tg.run,
   .i2p-nav-cell .cnt.alert,.i2p-nav-grip,.i2p-nav-collapse{animation:none!important;transition:none!important}
+  .i2p-ai-panel,.i2p-ai-fab,.i2p-ai-send,.i2p-ai-dots i{animation:none!important;transition:none!important}
 }
 `;
 
@@ -622,6 +686,8 @@ body.i2p-dragging{user-select:none}
 			sliders: '<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
 			upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
 			reset: '<path d="M3 2v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/>',
+			sparkle: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+			send: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
 		};
 		function Ic(name, size) {
 			return h("svg", {
@@ -657,6 +723,22 @@ body.i2p-dragging{user-select:none}
 			const [s, setS] = React.useState({ open: navStore.open, width: navStore.width });
 			React.useEffect(() => navStore.subscribe(() => setS({ open: navStore.open, width: navStore.width })), []);
 			return s;
+		}
+
+		/* ================================================================
+		 * 视图位置（当前页面 / 选中项目 / 选中 Run）：模块级 store，
+		 * Section 写入、悬浮智能助手读取（"聚焦现在的页面"）
+		 * ================================================================ */
+		const viewStore = {
+			nav: "projects", slug: null, runId: null,
+			listeners: new Set(),
+			set(patch) { Object.assign(this, patch); for (const fn of this.listeners) fn(); },
+			subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
+		};
+		function useViewState() {
+			const [v, setV] = React.useState({ nav: viewStore.nav, slug: viewStore.slug, runId: viewStore.runId });
+			React.useEffect(() => viewStore.subscribe(() => setV({ nav: viewStore.nav, slug: viewStore.slug, runId: viewStore.runId })), []);
+			return v;
 		}
 
 		/* ================================================================
@@ -2053,6 +2135,11 @@ body.i2p-dragging{user-select:none}
 			const [cfgStage, setCfgStage] = React.useState("P1");
 			const [stageDefaults, setStageDefaults] = React.useState(null);
 
+			// 视图位置同步进模块级 store（悬浮智能助手据此聚焦当前页面/项目/Run）
+			React.useEffect(function () {
+				viewStore.set({ nav: nav, slug: selSlug, runId: selRunId });
+			}, [nav, selSlug, selRunId]);
+
 			// 阶段默认值与能力表（配置页数据源；一次拉取）
 			React.useEffect(function () {
 				apiGet("/stage-defaults").then(function (r) {
@@ -2377,6 +2464,170 @@ body.i2p-dragging{user-select:none}
 			return open;
 		}
 
+		/* ================================================================
+		 * 悬浮智能助手（伴随工作台全部五个页面）：右上角悬浮球 + 右侧滑出对话栏。
+		 * 后端 /assistant/ask 流式 JSONL（{"delta"}… {"done"|"error"}），
+		 * 上下文（页面位置/项目/Run/最近事件）由后端每次现读
+		 * ================================================================ */
+		const aiStore = {
+			open: false,
+			listeners: new Set(),
+			set(v) { this.open = v; for (const fn of this.listeners) fn(); },
+			subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
+		};
+		function useAiOpen() {
+			const [open, setOpen] = React.useState(aiStore.open);
+			React.useEffect(() => aiStore.subscribe(() => setOpen(aiStore.open)), []);
+			return open;
+		}
+
+		const AI_CHIPS = ["现在的运行到哪一步了？", "P1-P11 各做什么？", "这个 Run 为什么会失败？"];
+
+		function AssistantDock() {
+			const open = useAiOpen();
+			const view = useViewState();
+			const [msgs, setMsgs] = React.useState([]); // {role:"user"|"assistant", text, err?}
+			const [input, setInput] = React.useState("");
+			const [busy, setBusy] = React.useState(false);
+			const acRef = React.useRef(null);
+			const scrollRef = React.useRef(null);
+			const taRef = React.useRef(null);
+
+			// Esc 只关助手面板：capture 阶段拦截，避免穿透到工作台的「Esc 关工作台」
+			React.useEffect(function () {
+				if (!open) return undefined;
+				const onKey = function (e) {
+					if (e.key === "Escape") { e.stopPropagation(); aiStore.set(false); }
+				};
+				window.addEventListener("keydown", onKey, true);
+				return function () { window.removeEventListener("keydown", onKey, true); };
+			}, [open]);
+
+			// 打开时聚焦输入框；新消息滚动到底
+			React.useEffect(function () {
+				if (open && taRef.current && taRef.current.focus) taRef.current.focus();
+			}, [open]);
+			React.useEffect(function () {
+				const el = scrollRef.current;
+				if (el) el.scrollTop = el.scrollHeight;
+			}, [msgs]);
+
+			const send = React.useCallback(async function (q) {
+				const question = String(q != null ? q : input).trim();
+				if (!question || busy) return;
+				setInput("");
+				const hist = msgs.slice(-6)
+					.filter(function (m) { return m.text && !m.err; })
+					.map(function (m) { return { role: m.role, text: m.text }; });
+				setMsgs(function (ms) { return ms.concat([{ role: "user", text: question }, { role: "assistant", text: "" }]); });
+				setBusy(true);
+				if (acRef.current) acRef.current.abort();
+				const ac = new AbortController();
+				acRef.current = ac;
+				const patchLast = function (fn) {
+					setMsgs(function (ms) {
+						if (!ms.length || ms[ms.length - 1].role !== "assistant") return ms;
+						const next = ms.slice();
+						next[next.length - 1] = fn(next[next.length - 1]);
+						return next;
+					});
+				};
+				try {
+					const r = await fetch(API + "/assistant/ask", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ question: question, history: hist, focus: { nav: view.nav, slug: view.slug, runId: view.runId } }),
+						signal: ac.signal,
+					});
+					if (!r.ok || !r.body) throw new Error("HTTP " + r.status);
+					const reader = r.body.getReader();
+					const dec = new TextDecoder();
+					let buf = "";
+					for (;;) {
+						const rd = await reader.read();
+						if (rd.done) break;
+						buf += dec.decode(rd.value, { stream: true });
+						const lines = buf.split("\n");
+						buf = lines.pop();
+						for (const line of lines) {
+							if (!line.trim()) continue;
+							let ev = null;
+							try { ev = JSON.parse(line); } catch (e) { continue; }
+							if (ev.error) throw new Error(ev.error);
+							if (ev.delta) {
+								const d = ev.delta;
+								patchLast(function (m) { return { role: "assistant", text: m.text + d }; });
+							}
+						}
+					}
+					patchLast(function (m) { return m.text ? m : { role: "assistant", text: "（空回答）", err: true }; });
+				} catch (e) {
+					if (ac.signal.aborted) {
+						// 被新请求或工作台关闭取代：消息列表归新请求/卸载流程管，这里不动
+					} else {
+						const msg = String((e && e.message) || e);
+						patchLast(function (m) { return { role: "assistant", text: m.text || msg, err: !m.text }; });
+					}
+				} finally {
+					setBusy(false);
+					if (acRef.current === ac) acRef.current = null;
+				}
+			}, [input, busy, msgs, view]);
+
+			// 工作台关闭（组件卸载）时中断进行中的生成
+			React.useEffect(function () {
+				return function () { if (acRef.current) acRef.current.abort(); };
+			}, []);
+
+			return h("div", { className: "i2p-ai" },
+				h("button", {
+					type: "button", className: "i2p-ai-fab" + (open ? " on" : ""),
+					onClick: function () { aiStore.set(!open); },
+					"aria-expanded": open ? "true" : "false",
+					"aria-label": open ? "关闭智能助手" : "智能助手（问答与运行状态）",
+					title: open ? "关闭智能助手" : "智能助手 · 问运行状态、阶段含义、失败原因",
+				}, Ic("sparkle", 17)),
+				open ? h("aside", { className: "i2p-ai-panel", role: "complementary", "aria-label": "智能助手" },
+					h("div", { className: "i2p-ai-head" },
+						h("span", { className: "i2p-ai-title" }, Ic("sparkle", 15), h("b", null, "智能助手")),
+						h("button", {
+							type: "button", className: "i2p-ai-close", onClick: function () { aiStore.set(false); },
+							"aria-label": "关闭（Esc）", title: "关闭（Esc）",
+						}, Ic("x", 14))),
+					h("p", { className: "i2p-ai-hint" },
+					"我能看到你的项目、Run 进度与最近事件——直接问。"),
+					h("div", { className: "i2p-ai-msgs", ref: scrollRef },
+						msgs.length === 0 ? h("div", { className: "i2p-ai-chips" },
+							AI_CHIPS.map(function (c) {
+								return h("button", {
+									key: c, type: "button", className: "i2p-ai-chip",
+									disabled: busy, onClick: function () { send(c); },
+								}, c);
+							})) : null,
+						msgs.map(function (m, i) {
+							const streaming = busy && i === msgs.length - 1 && m.role === "assistant" && !m.err;
+							return h("div", { key: i, className: "i2p-ai-m " + m.role + (m.err ? " err" : "") },
+								m.role === "assistant" && !m.err
+									? h("div", { className: "i2p-ai-md" },
+										!m.text && streaming ? h("span", { className: "i2p-ai-dots" }, h("i"), h("i"), h("i"))
+											: h(MarkdownText, { text: m.text, streaming: streaming }))
+									: h("span", { className: "i2p-ai-t" }, m.text));
+						})),
+					h("div", { className: "i2p-ai-input" },
+						h("textarea", {
+							ref: taRef, value: input, rows: 2,
+							placeholder: busy ? "回答生成中…" : "问运行状态、阶段含义、失败原因…（Enter 发送）",
+							onChange: function (e) { setInput(e.target.value); },
+							onKeyDown: function (e) {
+								if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+							},
+						}),
+						h("button", {
+							type: "button", className: "i2p-ai-send", disabled: busy || !input.trim(),
+							onClick: function () { send(); },
+						}, Ic("send", 15), h("span", null, busy ? "生成中" : "发送")))) : null);
+		}
+
 		// 入口图标：Issue→PR 分支（描边、currentColor，随宿主主题）
 		function EntryGlyph(props) {
 			return h("svg", Object.assign({
@@ -2456,7 +2707,8 @@ body.i2p-dragging{user-select:none}
 						type: "button", className: "i2p-close", ref: closeRef,
 						onClick: () => panelStore.set(false), "aria-label": "关闭（Esc）",
 					}, Ic("x", 15))),
-				h("div", { className: "i2p-page-body" }, h(Section)));
+					h("div", { className: "i2p-page-body" }, h(Section)),
+					h(AssistantDock));
 		}
 
 		/* ================================================================

@@ -60,6 +60,13 @@ globalThis.window = globalThis; // document 不定义：client 内有 typeof 守
 globalThis.fetch = (url, opts) => {
   const u = String(url);
   let body = { ok: true };
+  if (/\/assistant\/ask/.test(u)) { // 智能助手：伪流式 NDJSON（两段 delta + done）
+    const lines = [JSON.stringify({ delta: "当前 Run 停在 P5 " }) + "\n", JSON.stringify({ delta: "待复核。" }) + "\n", JSON.stringify({ done: true }) + "\n"];
+    let i = 0;
+    return Promise.resolve({ ok: true, body: { getReader() {
+      return { read: () => Promise.resolve(i < lines.length ? { done: false, value: Buffer.from(lines[i++]) } : { done: true }) };
+    } } });
+  }
   if (/\/ui-state/.test(u)) {
     if (opts && opts.body) { try { serverUiState = { lastProject: JSON.parse(opts.body).lastProject || null }; } catch { /* 忽略 */ } }
     body = { ok: true, state: serverUiState };
@@ -288,6 +295,31 @@ assert.ok(ov != null, "点击入口后悬浮层渲染");
 let ocls = []; classNames(ov, ocls);
 // 现行形态：整页工作台贴合 conversation 列（i2p-page + i2p-page-body），无遮罩非模态
 assert.ok(ocls.includes("i2p-page") && ocls.includes("i2p-page-body"), "悬浮层 = 贴合主区列的整页工作台");
+
+// ---------- 视图 7b：悬浮智能助手（悬浮球 → 面板 → 流式问答闭环） ----------
+// smoke 的 h() 对函数组件立即执行：AssistantDock 的渲染结果已在 ov 树内，
+// 交互后整树重渲染（h(Overlay)）即可读到新状态（hooks 按 type.__uid 独立）
+const hasCls = (tree, cls) => { const out = []; classNames(tree, out); return out.some((c) => String(c).split(/\s+/).includes(cls)); };
+assert.ok(hasCls(ov, "i2p-ai-fab"), "工作台右上角应有智能助手悬浮球");
+assert.ok(!hasCls(ov, "i2p-ai-panel"), "默认不展开面板");
+const ovEls = []; elements(ov, ovEls);
+const fab = ovEls.find((n) => String(n.props.className || "").split(/\s+/).includes("i2p-ai-fab"));
+assert.ok(fab, "悬浮球应为可点击按钮");
+fab.props.onClick(); // 点击悬浮球 → aiStore.set(true)
+ov = h(Overlay);
+assert.ok(hasCls(ov, "i2p-ai-panel"), "点击悬浮球后展开对话面板");
+let dtexts = flattenTexts(ov);
+assert.ok(dtexts.some((t) => t.includes("现在的运行到哪一步了？")), "空历史时应显示快捷问题");
+assert.ok(dtexts.some((t) => t.includes("我能看到你的项目")), "面板应带能力说明");
+const chipEls = []; elements(ov, chipEls);
+const chip = chipEls.find((n) => String(n.props.className || "").split(/\s+/).includes("i2p-ai-chip") && flattenTexts(n).includes("现在的运行到哪一步了？"));
+assert.ok(chip, "快捷问题应为可点击按钮");
+chip.props.onClick(); // send(chip 文本) → fetch 流式 mock
+await settle(); await settle();
+ov = h(Overlay);
+dtexts = flattenTexts(ov);
+assert.ok(dtexts.some((t) => t.includes("现在的运行到哪一步了？")), "消息区应出现用户问题");
+assert.ok(dtexts.some((t) => t.includes("待复核")), "消息区应出现流式助手回答");
 
 function flattenTexts(node, out = []) { flatten(node, out); return out; }
 
