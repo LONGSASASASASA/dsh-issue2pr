@@ -58,7 +58,9 @@ window.__ModuleLoader__.load({
 		 * 样式（全部选择器 .i2p 前缀；令牌取宿主 --dsw-alias-*，带回退值）
 		 * ================================================================ */
 		const css = `
-.i2p{
+/* 别名变量同时挂在 .i2p-page 上：AssistantDock（悬浮助手）挂在 .i2p-page 下、
+   在 Section 的 .i2p 容器外，变量只定义在 .i2p 会整体解析失败（深色主题下全透明） */
+.i2p,.i2p-page{
   --ink:var(--dsw-alias-label-primary,#17181f);
   --ink-2:var(--dsw-alias-label-secondary,#414351);
   --muted:var(--dsw-alias-label-tertiary,#82848f);
@@ -2605,12 +2607,12 @@ body.i2p-dragging{user-select:none}
 								}, c);
 							})) : null,
 						msgs.map(function (m, i) {
-							const streaming = busy && i === msgs.length - 1 && m.role === "assistant" && !m.err;
+							const waiting = busy && i === msgs.length - 1 && m.role === "assistant" && !m.err && !m.text;
 							return h("div", { key: i, className: "i2p-ai-m " + m.role + (m.err ? " err" : "") },
 								m.role === "assistant" && !m.err
 									? h("div", { className: "i2p-ai-md" },
-										!m.text && streaming ? h("span", { className: "i2p-ai-dots" }, h("i"), h("i"), h("i"))
-											: h(MarkdownText, { text: m.text, streaming: streaming }))
+										waiting ? h("span", { className: "i2p-ai-dots" }, h("i"), h("i"), h("i"))
+											: h(MarkdownText, { text: m.text }))
 									: h("span", { className: "i2p-ai-t" }, m.text));
 						})),
 					h("div", { className: "i2p-ai-input" },
