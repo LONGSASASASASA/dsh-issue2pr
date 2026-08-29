@@ -687,11 +687,19 @@ body.i2p-dragging{user-select:none}
 /* 面板底色：很轻的天蓝（浅色主题），深色主题自动转深蓝调——color-mix 混主题底色，
    保证官方 Markdown 文字（随主题变色）在两种主题下都正常可读 */
 .i2p-ai-panel{pointer-events:auto;position:absolute;top:60px;right:78px;bottom:16px;width:min(400px,calc(100% - 120px));
+  max-width:calc(100% - 100px);
   display:flex;flex-direction:column;
   background:color-mix(in srgb,#3aa0f5 8%,var(--panel,#fff));
   border:1px solid color-mix(in srgb,#3aa0f5 24%,var(--line-2,#d8dae3));border-radius:14px;
   box-shadow:0 8px 32px rgba(9,12,20,.14);overflow:hidden;
   animation:i2p-ai-in .22s cubic-bezier(.2,.8,.2,1)}
+/* 尺寸手柄：贴面板边内侧（外伸会被 overflow:hidden 裁剪点不到）；hover 显蓝 */
+.i2p-ai-grip-w,.i2p-ai-grip-h{position:absolute;z-index:3;touch-action:none}
+.i2p-ai-grip-w{left:0;top:0;bottom:0;width:8px;cursor:col-resize}
+.i2p-ai-grip-h{top:0;left:0;right:0;height:8px;cursor:row-resize}
+.i2p-ai-grip-w:hover,.i2p-ai-grip-h:hover{
+  background:color-mix(in srgb,#3aa0f5 32%,transparent)}
+body.i2p-dragging-r *{cursor:row-resize!important}
 .i2p-ai-head{flex:none;display:flex;align-items:center;gap:8px;padding:12px 14px 8px}
 .i2p-ai-title{display:inline-flex;align-items:center;gap:7px;color:var(--accent)}
 .i2p-ai-title b{font-size:15px;color:var(--ink)}
@@ -2694,20 +2702,47 @@ body.i2p-dragging{user-select:none}
 		 * ================================================================ */
 		const aiStore = {
 			open: false,
+			// 面板尺寸记忆（宽/面板顶）：localStorage 快路径，服务端 ui-state 兜底跨软件重启
+			w: clampInt(localStorage.getItem("i2p.aiW"), 180, 560, 400),
+			top: clampInt(localStorage.getItem("i2p.aiTop"), 44, aiMaxTop(), 60),
 			listeners: new Set(),
 			set(v) { this.open = v; for (const fn of this.listeners) fn(); },
+			setSize(patch, persist) {
+				if (patch && patch.w != null) this.w = Math.max(180, Math.min(560, Math.round(patch.w)));
+				if (patch && patch.top != null) this.top = Math.max(44, Math.min(aiMaxTop(), Math.round(patch.top)));
+				if (persist) {
+					try {
+						localStorage.setItem("i2p.aiW", String(this.w));
+						localStorage.setItem("i2p.aiTop", String(this.top));
+					} catch (e) { /* webview localStorage 可能被禁，服务端兜底仍在 */ }
+					fetch(API + "/ui-state", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ aiW: this.w, aiTop: this.top }),
+					}).catch(function () { /* 兜底失败静默 */ });
+				}
+				for (const fn of this.listeners) fn();
+			},
 			subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
 		};
-		function useAiOpen() {
-			const [open, setOpen] = React.useState(aiStore.open);
-			React.useEffect(() => aiStore.subscribe(() => setOpen(aiStore.open)), []);
-			return open;
+		function useAiState() {
+			const [s, setS] = React.useState({ open: aiStore.open, w: aiStore.w, top: aiStore.top });
+			React.useEffect(() => aiStore.subscribe(() => setS({ open: aiStore.open, w: aiStore.w, top: aiStore.top })), []);
+			return s;
 		}
 
 		const AI_CHIPS = ["现在的运行到哪一步了？", "P1-P11 各做什么？", "这个 Run 为什么会失败？"];
 
+		function clampInt(v, lo, hi, def) {
+			const n = parseInt(v, 10);
+			return Number.isFinite(n) && n >= lo && n <= hi ? n : def;
+		}
+		// 面板顶缘上限随视口高：保证面板至少约 200px 高（矮屏下 600 的静态上限会把面板挤成一条线）
+		function aiMaxTop() { return Math.max(150, Math.min(600, (window.innerHeight || 720) - 240)); }
+
 		function AssistantDock() {
-			const open = useAiOpen();
+			const ai = useAiState();
+			const open = ai.open;
 			const view = useViewState();
 			const [msgs, setMsgs] = React.useState([]); // {role:"user"|"assistant", text, err?}
 			const [input, setInput] = React.useState("");
@@ -2802,6 +2837,64 @@ body.i2p-dragging{user-select:none}
 				return function () { if (acRef.current) acRef.current.abort(); };
 			}, []);
 
+			// 面板尺寸兜底：宿主 webview 的 localStorage 不跨软件重启——本地无记忆时
+			// 从服务端 ui-state 恢复；本地有记忆时反向同步服务端（防旧值空窗）
+			React.useEffect(function () {
+				apiGet("/ui-state").then(function (r) {
+					if (!r || !r.ok || !r.state) return;
+					const local = localStorage.getItem("i2p.aiW") != null || localStorage.getItem("i2p.aiTop") != null;
+					if (local) {
+						fetch(API + "/ui-state", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ aiW: aiStore.w, aiTop: aiStore.top }),
+						}).catch(function () { /* 兜底失败静默 */ });
+					} else if (r.state.aiW || r.state.aiTop) {
+						aiStore.setSize({ w: r.state.aiW, top: r.state.aiTop }, false);
+					}
+				}).catch(function () { /* 兜底失败静默 */ });
+			}, []);
+
+			// 面板尺寸拖拽（仿目录列拖宽）：原生事件委托（宿主注入环境里 React 合成
+			// 事件对 pointer 不可靠）；左缘调宽、顶缘调高，双击任一手柄恢复默认
+			React.useEffect(function () {
+				const gripOf = function (t) { return t && t.closest ? t.closest(".i2p-ai-grip-w,.i2p-ai-grip-h") : null; };
+				const down = function (e) {
+					const grip = gripOf(e.target);
+					if (!grip || e.button !== 0) return;
+					const panel = grip.closest(".i2p-ai-panel");
+					const page = grip.closest(".i2p-page");
+					if (!panel || !page) return;
+					e.preventDefault();
+					const rect = panel.getBoundingClientRect();
+					const pr = page.getBoundingClientRect();
+					const isW = grip.classList.contains("i2p-ai-grip-w");
+					document.body.classList.add("i2p-dragging");
+					if (!isW) document.body.classList.add("i2p-dragging-r");
+					const move = function (ev) {
+						if (isW) aiStore.setSize({ w: rect.right - ev.clientX }, false);
+						else aiStore.setSize({ top: ev.clientY - pr.top }, false);
+					};
+					const up = function () {
+						window.removeEventListener("pointermove", move);
+						window.removeEventListener("pointerup", up);
+						document.body.classList.remove("i2p-dragging", "i2p-dragging-r");
+						aiStore.setSize({ w: aiStore.w, top: aiStore.top }, true); // 拖动结束落盘（双写）
+					};
+					window.addEventListener("pointermove", move);
+					window.addEventListener("pointerup", up);
+				};
+				const dbl = function (e) {
+					if (gripOf(e.target)) aiStore.setSize({ w: 400, top: 60 }, true);
+				};
+				document.addEventListener("pointerdown", down);
+				document.addEventListener("dblclick", dbl);
+				return function () {
+					document.removeEventListener("pointerdown", down);
+					document.removeEventListener("dblclick", dbl);
+				};
+			}, []);
+
 			return h("div", { className: "i2p-ai" },
 				h("button", {
 					type: "button", className: "i2p-ai-fab" + (open ? " on" : ""),
@@ -2810,7 +2903,12 @@ body.i2p-dragging{user-select:none}
 					"aria-label": open ? "关闭智能助手" : "智能助手（问答与运行状态）",
 					title: open ? "关闭智能助手" : "智能助手 · 问运行状态、阶段含义、失败原因",
 				}, Ic("sparkle", 17)),
-				open ? h("aside", { className: "i2p-ai-panel", role: "complementary", "aria-label": "智能助手" },
+				open ? h("aside", {
+					className: "i2p-ai-panel", role: "complementary", "aria-label": "智能助手",
+					style: { width: ai.w + "px", top: ai.top + "px" },
+				},
+					h("div", { className: "i2p-ai-grip-w", title: "拖动调整宽度 · 双击恢复默认" }),
+					h("div", { className: "i2p-ai-grip-h", title: "拖动调整高度 · 双击恢复默认" }),
 					h("div", { className: "i2p-ai-head" },
 						h("span", { className: "i2p-ai-title" }, Ic("sparkle", 15), h("b", null, "智能助手")),
 						h("button", {

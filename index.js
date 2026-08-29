@@ -11,11 +11,15 @@ import {
   createRun, runDirOf, readArtifact, listRunTree, rmTree, loadUiState, saveUiState,
 } from "./lib/store.js";
 import { initRun, saveRun, loadRun, advance, applyReview, STAGES } from "./lib/pipeline.js";
-import { makeLlm } from "./lib/llm.js";
+import { makeLlm, routeInfo } from "./lib/llm.js";
 import { buildExecutors } from "./lib/stages/index.js";
 import { rollbackLedger } from "./lib/stages/p7-patch.js";
-import { killExternal } from "./lib/stages/p6-coder.js";
+import { killExternal, resolveClaudeBin } from "./lib/stages/p6-coder.js";
 import { readTriggerText, logEvent } from "./lib/stages/helpers.js";
+import {
+  loadConnections, upsertConnection, deleteConnection, normalizeConnection,
+  matchConnection, injectGitCredentials, redactUrl, maskToken, hostOf, CONNECTION_KINDS,
+} from "./lib/connections.js";
 import { STAGE_DEFS, stageCfgOf, routeOverridesOf, DEFAULT_LLM_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS } from "./lib/stageConfig.js";
 import { ASSISTANT_SYSTEM_HEAD, buildAssistantContext } from "./lib/assistant.js";
 
@@ -67,6 +71,8 @@ function buildRcx(ctx, root, runDir, run) {
     executors: executorsOf(),
     log() {},
   };
+  // 连接配置用 getter 现读盘：Run 进行中新增/修改连接，下一阶段即生效（与 project 同策略）
+  Object.defineProperty(rcx, "connections", { get: () => loadConnections(root) });
   rcx.stageCfgOf = (stageId) => stageCfgOf(rcx.project, stageId || (rcx.run && rcx.run.current));
   rcx.llm = makeLlm(ctx, (ev) => logEvent(rcx, ev), () => routeOverridesOf(rcx));
   return rcx;
@@ -81,21 +87,31 @@ function sessionFor(runDir) {
 }
 
 // —— 仓库克隆：repo 目录不存在时 git clone --depth 1 主仓库（幂等） ——
+// https 地址若匹配到「Git 托管连接」则注入凭据（私有仓库可克隆）；ssh/scp 形态走本机密钥不注入。
+// 注入后的 URL 绝不落事件/错误信息（redactUrl 脱敏）。
 function ensureRepo(root, project, rcx) {
   const repoDir = join(root, "projects", project.slug, "repo");
   if (existsSync(join(repoDir, ".git"))) return Promise.resolve(repoDir);
   if (!project.repos || !project.repos.length) return Promise.reject(new Error("项目未配置仓库"));
   mkdirSync(repoDir, { recursive: true });
-  const uri = typeof project.repos[0] === "string" ? project.repos[0] : project.repos[0].uri;
+  const uri0 = typeof project.repos[0] === "string" ? project.repos[0] : project.repos[0].uri;
+  const conn = matchConnection(uri0, loadConnections(root));
+  const uri = injectGitCredentials(uri0, conn);
   const t0 = Date.now();
-  logEvent(rcx, { kind: "git", name: "git clone --depth 1 " + uri, detail: "克隆主仓库到本地 repo/" });
+  logEvent(rcx, {
+    kind: "git", name: "git clone --depth 1 " + redactUrl(uri0),
+    detail: "克隆主仓库到本地 repo/" + (conn ? `（已注入 ${CONNECTION_KINDS[conn.kind].label} 连接凭据）` : ""),
+  });
   return new Promise((resolve, reject) => {
     execFile("git", ["clone", "--depth", "1", uri, repoDir], { stdio: "pipe", timeout: 120000, windowsHide: true }, (err, stdout, stderr) => {
       if (err) {
-        logEvent(rcx, { kind: "git", name: "git clone 失败", detail: String(stderr || err.message), ms: Date.now() - t0, ok: false });
-        reject(new Error("git clone 失败: " + (stderr || err.message)));
+        const stderrS = redactUrl(String(stderr || err.message));
+        logEvent(rcx, { kind: "git", name: "git clone 失败", detail: stderrS, ms: Date.now() - t0, ok: false });
+        const host = hostOf(uri0);
+        const hint = !conn && host ? `（若为私有仓库，请在项目页「Git 托管连接」配置 ${host} 的凭据）` : "";
+        reject(new Error("git clone 失败" + hint + ": " + stderrS));
       } else {
-        logEvent(rcx, { kind: "git", name: "git clone 完成", detail: uri, ms: Date.now() - t0 });
+        logEvent(rcx, { kind: "git", name: "git clone 完成", detail: redactUrl(uri0), ms: Date.now() - t0 });
         resolve(repoDir);
       }
     });
@@ -220,16 +236,129 @@ async function handleApi(ctx, root, req, res) {
       if (m === "POST") {
         const body = await readBody(req);
         const prev = loadUiState(root);
-        // 只认 lastProject 字段；slug 走既有白名单形态，null/空 = 清除
+        // lastProject：只认本字段；slug 走既有白名单形态，null/空 = 清除
         const lp = body && Object.prototype.hasOwnProperty.call(body, "lastProject") ? body.lastProject : prev.lastProject;
+        // 智能助手面板尺寸（跨软件重启兜底）：整数且在合法范围才更新，非法值忽略保留旧值
+        const intIn = (v, lo, hi) => (Number.isInteger(v) && v >= lo && v <= hi) ? v : null;
         const state = {
           ...prev,
           lastProject: (typeof lp === "string" && /^[a-z0-9-]+$/.test(lp)) ? lp : null,
+          aiW: (body ? intIn(body.aiW, 180, 560) : null) ?? prev.aiW,
+          aiTop: (body ? intIn(body.aiTop, 44, 600) : null) ?? prev.aiTop,
         };
         saveUiState(root, state);
         return sendJson(res, 200, { ok: true, state });
       }
       return sendJson(res, 404, { ok: false, message: "not found" });
+    }
+    // —— /issue2pr/api/connections：Git 托管连接（GitHub/GitLab/CodeArts 凭据，全局共享，所有项目复用） ——
+    // token 明文存于 <dataRoot>/connections.json（与本机 GITHUB_TOKEN 环境变量同级安全）；返回给 UI 一律脱敏。
+    if (parts[2] === "connections") {
+      const masked = (c) => ({ ...c, token: maskToken(c.token) });
+      if (!parts[3] && m === "GET") {
+        return sendJson(res, 200, { ok: true, connections: loadConnections(root).map(masked) });
+      }
+      if (!parts[3] && m === "POST") {
+        const body = await readBody(req);
+        try { return sendJson(res, 200, { ok: true, connection: masked(upsertConnection(root, body)) }); }
+        catch (e) { return sendJson(res, 400, { ok: false, message: (e && e.message) || String(e) }); }
+      }
+      if (parts[3] && !parts[4] && m === "DELETE") {
+        const removed = deleteConnection(root, decodeURIComponent(parts[3]));
+        if (!removed) return sendJson(res, 404, { ok: false, message: "连接不存在" });
+        return sendJson(res, 200, { ok: true });
+      }
+      // —— 连接探活：github/gitlab 调 /user 回显账号名；支持未保存前直接测输入值（添加表单用） ——
+      if (parts[3] === "test" && m === "POST") {
+        const body = await readBody(req);
+        let conn = null;
+        if (body && body.token && body.kind) {
+          try { conn = normalizeConnection(body, loadConnections(root)); }
+          catch (e) { return sendJson(res, 400, { ok: false, message: (e && e.message) || String(e) }); }
+        } else {
+          conn = loadConnections(root).find((c) => c.id === (body && body.id)) || null;
+          if (!conn) return sendJson(res, 404, { ok: false, message: "连接不存在" });
+        }
+        if (conn.kind === "codearts") {
+          return sendJson(res, 200, { ok: false, message: "CodeArts 无账号探活 API，请在下方仓库地址行点「测试」用真实仓库验证连通" });
+        }
+        const api = conn.kind === "github" ? `https://api.${conn.host}/user` : `https://${conn.host}/api/v4/user`;
+        try {
+          const resp = await fetch(api, {
+            headers: { "User-Agent": "dsh-issue2pr", Authorization: "Bearer " + conn.token },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!resp.ok) return sendJson(res, 200, { ok: false, message: "凭据无效 (HTTP " + resp.status + ")" });
+          const data = await resp.json();
+          return sendJson(res, 200, { ok: true, account: data.login || data.username || "" });
+        } catch (e) { return sendJson(res, 200, { ok: false, message: "请求失败: " + String((e && e.message) || e) }); }
+      }
+      // —— 真实仓库连通性：匹配连接注入凭据后 git ls-remote（三类托管通用；CodeArts 的唯一探活手段） ——
+      if (parts[3] === "test-repo" && m === "POST") {
+        const body = await readBody(req);
+        const uri = typeof body?.uri === "string" ? body.uri.trim() : "";
+        if (!uri) return sendJson(res, 400, { ok: false, message: "uri 必填" });
+        const conn = matchConnection(uri, loadConnections(root));
+        const injected = injectGitCredentials(uri, conn);
+        const runGit = __testHooks?.runGit || ((args, opts, cb) => execFile("git", args, opts, cb));
+        const t0 = Date.now();
+        runGit(["ls-remote", "--heads", injected], { timeout: 15000, windowsHide: true }, (err, stdout, stderr) => {
+          if (err) {
+            return sendJson(res, 200, {
+              ok: false, matched: conn ? conn.id : null,
+              message: "不可达: " + redactUrl(String(stderr || err.message)).slice(0, 300),
+            });
+          }
+          const heads = String(stdout).trim().split("\n").filter(Boolean).length;
+          sendJson(res, 200, {
+            ok: true, matched: conn ? conn.id : null, ms: Date.now() - t0,
+            message: "可达（" + heads + " 个分支" + (conn ? "" : "，匿名访问，未匹配连接") + "）",
+          });
+        });
+        return;
+      }
+      return sendJson(res, 404, { ok: false, message: "not found" });
+    }
+    // —— /issue2pr/api/preflight：环境健康探测（git 二进制 / claude CLI / LLM 默认路由与来源） ——
+    // 纯只读探测：git --version、claudeBin 解析 + 存在性/PATH 校验、resolveRoute 现算；不发真实 LLM 请求。
+    if (parts[2] === "preflight" && !parts[3] && m === "GET") {
+      const runGit = __testHooks?.runGit || ((args, opts, cb) => execFile("git", args, opts, cb));
+      const runWhich = __testHooks?.runWhich
+        || ((args, opts, cb) => execFile(process.platform === "win32" ? "where" : "which", args, opts, cb));
+      const slugQ = url.searchParams.get("slug");
+      const project = (slugQ && /^[a-z0-9-]+$/.test(slugQ)) ? loadProject(root, slugQ) : null;
+      const claudeBin = resolveClaudeBin(project?.stageConfig?.P6?.params?.claudeBin || "");
+      const [git, claude] = await Promise.all([
+        new Promise((r) => runGit(["--version"], { timeout: 5000 }, (err, stdout) =>
+          r(err ? { ok: false, message: String(err.message || err) } : { ok: true, version: String(stdout).trim() }))),
+        new Promise((r) => {
+          if (existsSync(claudeBin)) return r({ ok: true, path: claudeBin });
+          if (/^claude(\.cmd|\.exe)?$/i.test(claudeBin)) {
+            // 兜底裸名"claude"：靠 where/which 验证是否在 PATH（显式配置的完整路径则不必，存在性即结论）
+            return runWhich([claudeBin], { timeout: 5000 }, (err, stdout) => {
+              const hit = !err && String(stdout).trim();
+              r(hit ? { ok: true, path: String(stdout).trim().split(/\r?\n/)[0] } : { ok: false, path: claudeBin });
+            });
+          }
+          r({ ok: false, path: claudeBin });
+        }),
+      ]);
+      const info = routeInfo(ctx, {});
+      const overrides = {};
+      if (project?.stageConfig) {
+        for (const id of Object.keys(STAGE_DEFS)) {
+          const cfg = project.stageConfig[id];
+          if (cfg && cfg.provider && cfg.model) overrides[id] = { provider: cfg.provider, model: cfg.model };
+        }
+      }
+      return sendJson(res, 200, { ok: true, preflight: { git, claude, llm: { ...info.route, source: info.source, overrides } } });
+    }
+    // —— /issue2pr/api/check-local：本地触发源存在性（项目页触发源行内即时提示） ——
+    if (parts[2] === "check-local" && !parts[3] && m === "POST") {
+      const body = await readBody(req);
+      const p = typeof body?.path === "string" ? body.path.trim() : "";
+      if (!p) return sendJson(res, 400, { ok: false, message: "path 必填" });
+      return sendJson(res, 200, { ok: true, exists: existsSync(p) });
     }
     // —— /issue2pr/api/assistant/ask：悬浮智能助手（LLM 走宿主 ctx.llm，流式 JSONL 响应） ——
     // body {question, history:[{role,text}], focus:{nav,slug,runId}}；每行 {"delta"} … 末行 {"done":true} 或 {"error"}
@@ -350,7 +479,7 @@ async function handleApi(ctx, root, req, res) {
         }
         const trigger = { kind, uri };
         let text;
-        try { text = await readTriggerText({ trigger }); } // 读触发文本
+        try { text = await readTriggerText({ trigger, connections: loadConnections(root) }); } // 读触发文本（连接凭据优先于环境变量）
         catch (e) { return sendJson(res, 400, { ok: false, message: (e && e.message) || String(e) }); }
         let created;
         try { created = createRun(root, slug, trigger); } // 同秒同触发源重复发起 → Run 已存在 → 409

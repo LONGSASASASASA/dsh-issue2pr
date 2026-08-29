@@ -364,6 +364,18 @@ test("API：ui-state 兜底存储 — POST 写入 / GET 回读 / 非法 slug 拒
   r = await call(handler, "POST", "/issue2pr/api/ui-state", { lastProject: null });
   assert.equal(r.body.state.lastProject, null);
   assert.equal(JSON.parse(readFileSync(join(root, "ui-state.json"), "utf8")).lastProject, null);
+  // 智能助手面板尺寸：合法整数保存回读；非法值（越界/非整数）忽略保留旧值
+  r = await call(handler, "POST", "/issue2pr/api/ui-state", { aiW: 480, aiTop: 120 });
+  assert.equal(r.body.state.aiW, 480);
+  assert.equal(r.body.state.aiTop, 120);
+  r = await call(handler, "GET", "/issue2pr/api/ui-state");
+  assert.equal(r.body.state.aiW, 480);
+  assert.equal(r.body.state.aiTop, 120);
+  r = await call(handler, "POST", "/issue2pr/api/ui-state", { aiW: 9999, aiTop: -5 });
+  assert.equal(r.body.state.aiW, 480);
+  assert.equal(r.body.state.aiTop, 120);
+  r = await call(handler, "POST", "/issue2pr/api/ui-state", { aiW: 300.5 });
+  assert.equal(r.body.state.aiW, 480); // 非整数忽略
 });
 
 test("API：项目保存带 stageConfig 落盘并可回读；非法阶段被拒", async () => {
@@ -498,4 +510,130 @@ test("助手 ask：LLM 流中失败 → 首个 delta 后补 error 行；前置�
   const r2 = await callStream(hEarly, "POST", "/issue2pr/api/assistant/ask", { question: "q" });
   assert.equal(r2.status, 500);
   assert.equal(r2.json.ok, false);
+});
+
+/* ==================== Git 托管连接 / preflight / check-local ==================== */
+
+test("API：connections CRUD — POST 保存 / GET 脱敏 / DELETE 删除 / 非法 kind 400", async () => {
+  __setTestHooks({ dataRoot: root, executors: {} });
+  const h = handlerOf();
+  let r = await call(h, "POST", "/issue2pr/api/connections", { kind: "github", host: "github.com", token: "ghp_secret1234" });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.connection.id, "github.com");
+  assert.equal(r.body.connection.token, "ghp_…1234", "token 返回 UI 必须脱敏");
+  r = await call(h, "POST", "/issue2pr/api/connections", { kind: "codearts", host: "codehub.example.com", token: "pw", username: "tenant/iam" });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.connection.username, "tenant/iam");
+  // CodeArts 缺用户名 → 400
+  r = await call(h, "POST", "/issue2pr/api/connections", { kind: "codearts", host: "x.example.com", token: "pw" });
+  assert.equal(r.status, 400);
+  r = await call(h, "GET", "/issue2pr/api/connections");
+  assert.equal(r.body.connections.length, 2);
+  assert.ok(r.body.connections.every((c) => !c.token.includes("secret")));
+  r = await call(h, "DELETE", "/issue2pr/api/connections/github.com");
+  assert.equal(r.body.ok, true);
+  r = await call(h, "DELETE", "/issue2pr/api/connections/github.com");
+  assert.equal(r.status, 404);
+});
+
+test("API：connections/test — GitHub /user 回显账号；凭据无效 401；CodeArts 引导仓库行测试", async () => {
+  __setTestHooks({ dataRoot: root, executors: {} });
+  const h = handlerOf();
+  await call(h, "POST", "/issue2pr/api/connections", { kind: "github", host: "github.com", token: "tok_ok" });
+  const realFetch = globalThis.fetch;
+  // 已保存连接按 id 测
+  globalThis.fetch = async (u, opts) => {
+    assert.equal(u, "https://api.github.com/user");
+    assert.equal(opts.headers.Authorization, "Bearer tok_ok");
+    return { ok: true, status: 200, json: async () => ({ login: "octocat" }) };
+  };
+  let r = await call(h, "POST", "/issue2pr/api/connections/test", { id: "github.com" });
+  assert.deepEqual([r.body.ok, r.body.account], [true, "octocat"]);
+  // 未保存前直接测输入值（添加表单）
+  globalThis.fetch = async () => ({ ok: false, status: 401 });
+  r = await call(h, "POST", "/issue2pr/api/connections/test", { kind: "github", host: "github.com", token: "tok_bad" });
+  assert.equal(r.body.ok, false);
+  assert.match(r.body.message, /凭据无效/);
+  globalThis.fetch = realFetch;
+  // CodeArts：无账号探活 API
+  await call(h, "POST", "/issue2pr/api/connections", { kind: "codearts", host: "codehub.example.com", token: "pw", username: "u" });
+  r = await call(h, "POST", "/issue2pr/api/connections/test", { id: "codehub.example.com" });
+  assert.equal(r.body.ok, false);
+  assert.match(r.body.message, /仓库地址行/);
+  await call(h, "DELETE", "/issue2pr/api/connections/codehub.example.com");
+  await call(h, "DELETE", "/issue2pr/api/connections/github.com");
+});
+
+test("API：connections/test-repo — 匹配连接注入凭据跑 ls-remote；错误信息脱敏", async () => {
+  const gitCalls = [];
+  __setTestHooks({
+    dataRoot: root, executors: {},
+    runGit: (args, opts, cb) => { gitCalls.push(args); cb(null, "ref1\nref2\n", ""); },
+  });
+  const h = handlerOf();
+  await call(h, "POST", "/issue2pr/api/connections", { kind: "github", host: "github.com", token: "ghp_secret" });
+  let r = await call(h, "POST", "/issue2pr/api/connections/test-repo", { uri: "https://github.com/org/repo.git" });
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.matched, "github.com");
+  assert.match(r.body.message, /2 个分支/);
+  assert.deepEqual(gitCalls[0].slice(0, 2), ["ls-remote", "--heads"]);
+  assert.equal(gitCalls[0][2], "https://x-access-token:ghp_secret@github.com/org/repo.git", "凭据注入后跑 ls-remote");
+  // 失败路径：stderr 带注入凭据也必须脱敏
+  __setTestHooks({
+    dataRoot: root, executors: {},
+    runGit: (args, opts, cb) => cb(new Error("fatal"), "", "Authentication failed for 'https://x-access-token:ghp_secret@github.com/org/repo.git/'"),
+  });
+  const h2 = handlerOf();
+  r = await call(h2, "POST", "/issue2pr/api/connections/test-repo", { uri: "https://github.com/org/repo.git" });
+  assert.equal(r.body.ok, false);
+  assert.doesNotMatch(r.body.message, /ghp_secret/, "错误信息不得泄露 token");
+  assert.match(r.body.message, /\*\*\*@github\.com/);
+  await call(h2, "DELETE", "/issue2pr/api/connections/github.com");
+});
+
+test("API：preflight — git/claude 探测 + LLM 路由来源 + 项目级覆盖清单", async () => {
+  const WHICH_HIT = "C:\\bin\\claude.cmd";
+  __setTestHooks({
+    dataRoot: root, executors: {},
+    runGit: (args, opts, cb) => cb(null, "git version 2.50.0", ""),
+    runWhich: (args, opts, cb) => cb(null, WHICH_HIT + "\n", ""),
+  });
+  const h = handlerOf();
+  // 项目一：P6 显式配了缺失的 claudeBin + P1 阶段级模型覆盖
+  await call(h, "POST", "/issue2pr/api/projects", {
+    name: "预检", slug: "pf", repos: ["r"], triggers: [], reviewMode: "every", p6Mode: "claude",
+    stageConfig: { P1: { provider: "prov-x", model: "model-x" }, P6: { params: { claudeBin: "C:\\nope\\claude.cmd" } } },
+  });
+  let r = await call(h, "GET", "/issue2pr/api/preflight?slug=pf");
+  assert.equal(r.body.preflight.git.ok, true);
+  assert.match(r.body.preflight.git.version, /git version/);
+  assert.equal(r.body.preflight.claude.ok, false, "显式配置的缺失路径应探测失败");
+  assert.equal(r.body.preflight.claude.path, "C:\\nope\\claude.cmd");
+  assert.equal(r.body.preflight.llm.source, "default", "无宿主默认/插件配置时兜底路由");
+  assert.equal(r.body.preflight.llm.provider, "deepseek-official");
+  assert.deepEqual(r.body.preflight.llm.overrides.P1, { provider: "prov-x", model: "model-x" });
+  // 项目二：claudeBin 配裸名"claude" → 走 where/which 兜底（注入 runWhich 命中）
+  await call(h, "POST", "/issue2pr/api/projects", {
+    name: "预检二", slug: "pf2", repos: ["r"], triggers: [], reviewMode: "every", p6Mode: "claude",
+    stageConfig: { P6: { params: { claudeBin: "claude" } } },
+  });
+  r = await call(h, "GET", "/issue2pr/api/preflight?slug=pf2");
+  assert.equal(r.body.preflight.claude.ok, true);
+  assert.equal(r.body.preflight.claude.path, WHICH_HIT);
+  assert.deepEqual(r.body.preflight.llm.overrides, {}, "未配阶段模型覆盖时为空");
+  rmSync(join(root, "projects", "pf"), { recursive: true, force: true });
+  rmSync(join(root, "projects", "pf2"), { recursive: true, force: true });
+});
+
+test("API：check-local — 本地触发源存在性", async () => {
+  __setTestHooks({ dataRoot: root, executors: {} });
+  const h = handlerOf();
+  const exists = join(root, "yes.md");
+  writeFileSync(exists, "x");
+  let r = await call(h, "POST", "/issue2pr/api/check-local", { path: exists });
+  assert.deepEqual(r.body, { ok: true, exists: true });
+  r = await call(h, "POST", "/issue2pr/api/check-local", { path: join(root, "nope.md") });
+  assert.equal(r.body.exists, false);
+  r = await call(h, "POST", "/issue2pr/api/check-local", { path: "  " });
+  assert.equal(r.status, 400);
 });
