@@ -4,7 +4,7 @@
  * 数据读写一律走 lib/store.js 与 lib/pipeline.js，不重复造轮子。
  */
 import { join } from "node:path";
-import { existsSync, readdirSync, mkdirSync } from "node:fs";
+import { existsSync, readdirSync, mkdirSync, readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import {
   defaultDataRoot, saveProject, loadProject, listProjects,
@@ -14,7 +14,9 @@ import { initRun, saveRun, loadRun, advance, applyReview, STAGES } from "./lib/p
 import { makeLlm } from "./lib/llm.js";
 import { buildExecutors } from "./lib/stages/index.js";
 import { rollbackLedger } from "./lib/stages/p7-patch.js";
+import { killExternal } from "./lib/stages/p6-coder.js";
 import { readTriggerText, logEvent } from "./lib/stages/helpers.js";
+import { STAGE_DEFS, stageCfgOf, routeOverridesOf, DEFAULT_LLM_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS } from "./lib/stageConfig.js";
 
 export const name = "dsh-issue2pr";
 export const inject = ["webServer", "llm"];
@@ -51,6 +53,8 @@ function executorsOf() {
 
 // —— rcx 组装（简报指定形态）；project 每次刷新，保证读取最新配置 ——
 // llm 的事件钩子绑定到 rcx 本身（读 run.current 得到当前阶段），LLM 调用自动进 trace/events.jsonl
+// stageCfgOf：按阶段取合并后的配置（阶段执行器读提示词/委托；llm 读路由覆盖），
+// 每次调用现读 project 与 run.current，配置修改在下一阶段即时生效
 function buildRcx(ctx, root, runDir, run) {
   const rcx = {
     runDir, run,
@@ -62,7 +66,8 @@ function buildRcx(ctx, root, runDir, run) {
     executors: executorsOf(),
     log() {},
   };
-  rcx.llm = makeLlm(ctx, (ev) => logEvent(rcx, ev));
+  rcx.stageCfgOf = (stageId) => stageCfgOf(rcx.project, stageId || (rcx.run && rcx.run.current));
+  rcx.llm = makeLlm(ctx, (ev) => logEvent(rcx, ev), () => routeOverridesOf(rcx));
   return rcx;
 }
 
@@ -147,6 +152,7 @@ function drive(ctx, root, runDir) {
       if (run.status !== "running") return;
       const rcx = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, run));
       rcx.run = run; // 刷新为最新落盘状态（reviewComment 保留在 rcx 上）
+      rcx.project = loadProject(root, run.project) || rcx.project; // 配置页改动下一阶段生效
       await advance(rcx);
       if (run.status === "failed") {
         try {
@@ -189,6 +195,20 @@ async function handleApi(ctx, root, req, res) {
     if (m === "GET" && parts.join("/") === "issue2pr/api/ping") {
       return sendJson(res, 200, { ok: true, plugin: "dsh-issue2pr" });
     }
+    // —— 阶段默认值与能力表（配置页数据源：默认提示词 / 可配能力 / 默认超时） ——
+    if (m === "GET" && parts.join("/") === "issue2pr/api/stage-defaults") {
+      return sendJson(res, 200, {
+        ok: true,
+        defaults: {
+          llmTimeoutMs: DEFAULT_LLM_TIMEOUT_MS, testTimeoutMs: DEFAULT_TEST_TIMEOUT_MS,
+          maxTokens: 8192,
+          stages: Object.fromEntries(Object.entries(STAGE_DEFS).map(([id, def]) => [id, {
+            name: def.name, desc: def.desc, caps: def.caps, prompts: def.prompts,
+            delegateSpec: def.caps.delegate ? def.delegateSpec : undefined,
+          }])),
+        },
+      });
+    }
     if (parts[0] !== "issue2pr" || parts[1] !== "api" || parts[2] !== "projects") {
       return sendJson(res, 404, { ok: false, message: "not found" });
     }
@@ -225,6 +245,7 @@ async function handleApi(ctx, root, req, res) {
             if (r.stages[r.current] && r.stages[r.current].status === "running") r.stages[r.current].status = "stopped";
             saveRun(rd, r);
             runSessions.delete(rd);
+            killExternal(rd);
             stopped += 1;
           }
         }
@@ -285,7 +306,8 @@ async function handleApi(ctx, root, req, res) {
       if (!action && m === "GET") {
         const run = loadRun(runDir);
         if (!run) return sendJson(res, 404, { ok: false, message: "run 不存在" });
-        return sendJson(res, 200, run); // 直接吐 run.json
+        if (run.p6Mode === "session" || run.p6Mode === "claude") run.externalProgress = externalProgress(runDir);
+        return sendJson(res, 200, run); // 直接吐 run.json（session/claude 模式附带外部执行进度）
       }
 
       // —— 停止：不再推进（当前正在执行的阶段跑完即停；异步执行器不阻塞本请求） ——
@@ -300,6 +322,7 @@ async function handleApi(ctx, root, req, res) {
           run.stages[run.current].status = "stopped";
         }
         saveRun(runDir, run);
+        killExternal(runDir); // claude 委托在跑时一并终止进程树，避免孤儿进程继续写仓库
         return sendJson(res, 200, { ok: true, message: "已停止（当前阶段执行完即停）" });
       }
 
@@ -335,6 +358,7 @@ async function handleApi(ctx, root, req, res) {
           saveRun(runDir, run); // 推进循环下一圈 loadRun 读到 stopped 即退出
         }
         runSessions.delete(runDir); // 丢弃共享 rcx（reviewComment 等），防复活
+        killExternal(runDir);
         try { rmTree(runDir); }
         catch (e) { return sendJson(res, 500, { ok: false, message: "删除失败: " + String((e && e.message) || e) }); }
         return sendJson(res, 200, { ok: true, message: "已删除" });
@@ -372,8 +396,10 @@ async function handleApi(ctx, root, req, res) {
       // —— 在系统文件管理器中打开 run 产物目录 ——
       if (action === "open" && m === "POST") {
         if (!existsSync(runDir)) return sendJson(res, 404, { ok: false, message: "run 不存在" });
+        // opener 可注入（测试传空函数，避免 npm test 真弹资源管理器）
+        const openerFn = __testHooks?.opener || execFile;
         const opener = process.platform === "win32" ? "explorer" : process.platform === "darwin" ? "open" : "xdg-open";
-        execFile(opener, [runDir], { timeout: 10000 }, (err) => {
+        openerFn(opener, [runDir], { timeout: 10000 }, (err) => {
           // explorer 常返回非 0 成功码，不据此报错
           if (err && process.platform !== "win32") ctx.logger?.warn?.("issue2pr: 打开目录失败: " + err.message);
         });
@@ -402,6 +428,17 @@ async function handleApi(ctx, root, req, res) {
   } catch (e) {
     sendJson(res, 500, { ok: false, message: "出错: " + String((e && e.message) || e) });
   }
+}
+
+// session 模式外部执行进度（每次现算不落盘；UI 3s 轮询本接口自动刷新）
+// tasks 取自 P5 任务图节点数，patches 为 06-implementation/patches/*.diff 计数，report 即 coder-report.json
+function externalProgress(runDir) {
+  const dir = join(runDir, "06-implementation", "patches");
+  let patches = 0;
+  if (existsSync(dir)) patches = readdirSync(dir).filter((f) => f.endsWith(".diff")).length;
+  let tasks = null;
+  try { tasks = JSON.parse(readFileSync(join(runDir, "05-task-graph.json"), "utf8")).nodes.length; } catch { /* 任务图缺失时只报 patch 数 */ }
+  return { patches, tasks, report: existsSync(join(runDir, "06-implementation", "coder-report.json")) };
 }
 
 export function apply(ctx, config = {}) {

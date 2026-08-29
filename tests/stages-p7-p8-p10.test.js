@@ -85,6 +85,29 @@ test("P7：无任何 patch 时明确报错", async () => {
   await assert.rejects(() => p7({ runDir, repoDir: root, llm: null }), /无 patch 可应用/);
 });
 
+// claude 委托产出的 report：tasks 字段 + patch 路径相对 06-implementation/（P7 需归一化后按序应用）
+test("P7：claude 委托 report（tasks 格式 · 短路径）→ 归一化按序应用", async () => {
+  const repoDir = gitRepo();
+  const runDir = mkdtempSync(join(root, "run-"));
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  mkdirSync(join(runDir, "ledger"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-a.diff"),
+    "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1\n+line1-step1\n");
+  writeFileSync(join(runDir, "06-implementation", "patches", "0002-a.diff"),
+    "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1-step1\n+line1-step2\n"); // 叠加式：基于 0001 已应用状态
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"),
+    JSON.stringify({ mode: "claude-code", tasks: [
+      { node: "T1", patch: "patches/0001-a.diff" },
+      { node: "T2", patch: "patches/0002-a.diff" },
+    ], summary: "叠加式两步" }));
+  const r = await p7({ runDir, repoDir, llm: null, reviewComment: "" });
+  assert.match(r.summary, /2 份 patch/);
+  assert.match(readFileSync(join(repoDir, "a.txt"), "utf8"), /line1-step2/);
+  const ledger = readFileSync(join(runDir, "ledger", "patch-ledger.jsonl"), "utf8").trim().split("\n");
+  assert.equal(JSON.parse(ledger[0]).patch, "06-implementation/patches/0001-a.diff");
+  assert.equal(JSON.parse(ledger[1]).patch, "06-implementation/patches/0002-a.diff");
+});
+
 test("P8：过程事件落 trace/events.jsonl（开始 + 结束，含耗时与 ok）", async () => {
   const runDir = mkdtempSync(join(root, "run-"));
   await p8({ runDir, repoDir: root, project: { testCommand: "node -e \"\"" }, llm: null });

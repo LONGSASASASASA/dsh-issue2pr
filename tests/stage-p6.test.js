@@ -60,5 +60,64 @@ test("session：写 session-task.md，不调 LLM", async () => {
   const llm = { completeJson: async () => { throw new Error("不应被调用"); }, complete: async () => { throw new Error("不应被调用"); } };
   const r = await p6({ runDir, repoDir, llm, reviewComment: "", p6Mode: "session" });
   assert.equal(r.artifact, "06-implementation/session-task.md");
+  assert.equal(r.external, true); // 外部执行标记：advance 据此显示"等外部执行"并拦截空 patches 的 approve
   assert.ok(existsSync(join(runDir, "06-implementation", "session-task.md")));
+});
+
+// —— claude 模式：生成任务包后委托 claude CLI，产物就绪进正常复核门，失败回退等人工 ——
+
+test("claude：执行成功产出 patches/report → externalExec=done（含 stats），过程面板记录进度事件", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
+  const llm = { completeJson: async () => { throw new Error("不应被调用"); }, complete: async () => { throw new Error("不应被调用"); } };
+  const run = { id: "r1", stages: {} };
+  const spawnExternal = async (opts) => {
+    const nap = (ms) => new Promise((res) => setTimeout(res, ms));
+    await nap(80); // 采样器先观察到 0 patch
+    mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+    writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
+    writeFileSync(join(runDir, "06-implementation", "coder-report.json"), '{"mode":"claude-code"}');
+    await nap(60); // 留时间给采样器捕捉 1/2
+    return { code: 0, stdout: '{"num_turns":5,"total_cost_usd":0.42,"duration_ms":63000,"result":"已全部完成"}', stderr: "" };
+  };
+  const r = await p6({ runDir, repoDir, run, llm, reviewComment: "", p6Mode: "claude", spawnExternal, externalProgressIntervalMs: 10 });
+  assert.equal(r.artifact, "06-implementation/");
+  assert.equal(r.external, undefined); // 实施已完成，走正常待复核（不再是"等外部执行"）
+  assert.match(r.summary, /1 份 patch/);
+  assert.equal(run.externalExec.status, "done");
+  assert.equal(run.externalExec.executor, "claude-code");
+  // claude headless 统计解析进 externalExec（UI 状态卡展示耗时/轮次/费用）
+  assert.equal(run.externalExec.stats.turns, 5);
+  assert.equal(run.externalExec.stats.costUsd, 0.42);
+  assert.match(r.summary, /耗时 1 分钟/);
+  assert.ok(existsSync(join(runDir, "06-implementation", "session-task.md"))); // 任务包仍生成（人工接管兜底）
+  assert.ok(existsSync(join(runDir, "06-implementation", "external-exec.log"))); // 执行输出留档
+  // 过程事件：进度采样 + 完成（UI 阶段详情"过程"面板数据源）
+  const ev = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8");
+  assert.match(ev, /Claude Code 进度 1\/2/);
+  assert.match(ev, /Claude Code 执行完成[^\n]*耗时 1 分钟[^\n]*5 轮[^\n]*\$0\.42/);
+});
+
+test("claude：执行失败无产物 → externalExec=failed，external=true 回退等人工", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
+  const run = { id: "r2", stages: {} };
+  const spawnExternal = async () => ({ code: 1, stdout: "", stderr: "boom: not logged in" });
+  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
+  assert.equal(r.artifact, "06-implementation/session-task.md");
+  assert.equal(r.external, true);
+  assert.equal(run.externalExec.status, "failed");
+  assert.match(run.externalExec.error, /boom/);
+  assert.ok(existsSync(join(runDir, "06-implementation", "external-exec.log")));
+});
+
+test("claude：spawn 报错（如未安装）→ externalExec=skipped，external=true", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
+  const run = { id: "r3", stages: {} };
+  const spawnExternal = async () => ({ code: -1, error: "spawn claude ENOENT" });
+  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
+  assert.equal(r.external, true);
+  assert.equal(run.externalExec.status, "skipped");
+  assert.match(run.externalExec.error, /ENOENT/);
 });

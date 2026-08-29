@@ -196,8 +196,8 @@ test("API：DELETE /projects/:slug（confirm 校验 + 有活跃 run 拒绝）", 
   assert.equal(r.body.projects.find((x) => x.slug === "delme"), undefined);
 });
 
-test("API：open 目录端点返回 ok（不校验文件管理器是否真弹出）", async () => {
-  __setTestHooks({ dataRoot: root, executors: {} });
+test("API：open 目录端点返回 ok（opener 注入为空函数，不真弹资源管理器）", async () => {
+  __setTestHooks({ dataRoot: root, executors: {}, opener: (cmd, args, opts, cb) => cb(null) });
   const h = handlerOf();
   await call(h, "POST", "/issue2pr/api/projects", {
     name: "开", slug: "opn", repos: ["r"], triggers: [{ kind: "issue", uri: "o.md" }],
@@ -288,4 +288,81 @@ test("saveProject：repos 字符串形态规范化为 { uri } 落盘", async () 
   });
   const p = loadProject(spRoot, "norm");
   assert.deepEqual(p.repos, [{ uri: "https://x.git" }]);
+});
+
+test("API：P6 session 模式 — GET 带 externalProgress，空 patches 拒绝 approve，产出后放行", async () => {
+  __setTestHooks({
+    dataRoot: root,
+    executors: { P6: async () => ({ artifact: "06-implementation/session-task.md", summary: "任务包已生成，等待外部 DSH 会话执行", external: true }) },
+  });
+  const handler2 = (function () { const rs = []; const c2 = fakeCtx(); c2.webServer.register = (s) => rs.push(s); apply(c2); return rs[0].handler; })();
+  let r = await call(handler2, "POST", "/issue2pr/api/projects", {
+    name: "会话", slug: "sess", repos: ["r1"], triggers: [{ kind: "issue", uri: "x.md" }],
+    reviewMode: "key-only", p6Mode: "session",
+  });
+  assert.equal(r.status, 200);
+  const issueFile = join(root, "sess-issue.md");
+  writeFileSync(issueFile, "会话模式验证");
+  r = await call(handler2, "POST", "/issue2pr/api/projects/sess/runs", { kind: "issue", uri: issueFile });
+  const runId = r.body.runId;
+  const runDir = join(root, "projects", "sess", "runs", runId);
+
+  await new Promise((res2) => setTimeout(res2, 300)); // P1-P4 直过，停 P5
+  r = await call(handler2, "POST", `/issue2pr/api/projects/sess/runs/${runId}/review`, { decision: "approve", comment: "" });
+  assert.equal(r.body.ok, true);
+  await new Promise((res2) => setTimeout(res2, 300)); // P6 external → awaiting_review
+  r = await call(handler2, "GET", `/issue2pr/api/projects/sess/runs/${runId}`);
+  assert.equal(r.body.stages.P6.status, "awaiting_review");
+  assert.equal(r.body.stages.P6.external, true);
+  assert.deepEqual(r.body.externalProgress, { patches: 0, tasks: null, report: false });
+
+  // 空 patches：通过被拦（放行会让 P7 无 patch 可用而失败）
+  r = await call(handler2, "POST", `/issue2pr/api/projects/sess/runs/${runId}/review`, { decision: "approve", comment: "" });
+  assert.equal(r.status, 400);
+  assert.match(r.body.message, /session 模式/);
+
+  // 外部会话产出任务图 + patch：进度更新，通过放行
+  writeFileSync(join(runDir, "05-task-graph.json"), JSON.stringify({ nodes: [{ id: "T1" }, { id: "T2" }, { id: "T3" }] }));
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
+  r = await call(handler2, "GET", `/issue2pr/api/projects/sess/runs/${runId}`);
+  assert.deepEqual(r.body.externalProgress, { patches: 1, tasks: 3, report: false });
+  r = await call(handler2, "POST", `/issue2pr/api/projects/sess/runs/${runId}/review`, { decision: "approve", comment: "" });
+  assert.equal(r.body.ok, true);
+});
+
+test("API：stage-defaults 返回能力表与默认提示词（配置页数据源）", async () => {
+  const handler = (function () { const rs = []; const c2 = fakeCtx(); c2.webServer.register = (s) => rs.push(s); apply(c2); return rs[0].handler; })();
+  const r = await call(handler, "GET", "/issue2pr/api/stage-defaults");
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.defaults.llmTimeoutMs, 300000);
+  assert.equal(Object.keys(r.body.defaults.stages).length, 11);
+  const p6 = r.body.defaults.stages.P6;
+  assert.equal(p6.caps.route, true);
+  assert.ok(p6.prompts.planner && p6.prompts.coder && p6.prompts.reviewer);
+  assert.deepEqual(r.body.defaults.stages.P7.caps, {});
+  assert.ok(r.body.defaults.stages.P8.caps.test);
+});
+
+test("API：项目保存带 stageConfig 落盘并可回读；非法阶段被拒", async () => {
+  const handler = (function () { const rs = []; const c2 = fakeCtx(); c2.webServer.register = (s) => rs.push(s); apply(c2); return rs[0].handler; })();
+  let r = await call(handler, "POST", "/issue2pr/api/projects", {
+    name: "带配置", slug: "cfg", repos: ["r1"], triggers: [{ kind: "issue", uri: "x.md" }],
+    reviewMode: "every", p6Mode: "claude",
+    stageConfig: { P1: { prompts: { "": "自定义 P1 提示词" }, model: "m1", provider: "p1", timeoutMs: 60000 }, P9: { delegate: { mode: "session", agent: "codex", brief: "x" } } },
+  });
+  assert.equal(r.status, 200);
+  r = await call(handler, "GET", "/issue2pr/api/projects");
+  const proj = r.body.projects.find((p2) => p2.slug === "cfg");
+  assert.equal(proj.p6Mode, "claude");
+  assert.equal(proj.stageConfig.P1.prompts[""], "自定义 P1 提示词");
+  assert.equal(proj.stageConfig.P9.delegate.mode, "session");
+
+  r = await call(handler, "POST", "/issue2pr/api/projects", {
+    name: "非法", slug: "bad", repos: ["r1"], triggers: [], reviewMode: "every", p6Mode: "builtin",
+    stageConfig: { P99: {} },
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.body.message, /P99/);
 });

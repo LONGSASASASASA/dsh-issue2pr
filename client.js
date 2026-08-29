@@ -2,13 +2,14 @@
 // 设计语言：原生 DSH 工具风——配色/交互令牌取宿主 --dsw-alias-*（自动适配明暗主题），
 // 数据（id/路径/产物/耗时）用 JetBrains Mono，图标全 SVG 描边（无 emoji），
 // 布局靠左、密度紧凑、每个区块自带一行中文说明。数据源 /issue2pr/api/*。
-// 零 npm 依赖：React 来自宿主（require("react")），样式注入单个 <style> 标签。
+// 零 npm 依赖：React 与官方 UI 原语（MarkdownText 等）均来自宿主模块表（require），样式注入单个 <style> 标签。
 window.__ModuleLoader__.load({
 	id: "dsh-issue2pr",
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
 		const React = require("react");
+		const { MarkdownText } = require("@deepseek-ai/dsh-client-ui-primitives");
 		const h = React.createElement;
 		const zh = { nav: "Issue2PR" };
 		const en = { nav: "Issue2PR" };
@@ -65,7 +66,7 @@ window.__ModuleLoader__.load({
   --err-bg:rgba(213,70,58,.10);
   --code-bg:#10141d; --code-line:#1d2330;
   --mono:'JetBrains Mono','IBM Plex Mono','Cascadia Code',Consolas,'Liberation Mono',monospace;
-  color:var(--ink); font-size:13.5px; line-height:1.65;
+  color:var(--ink); font-size:14.5px; line-height:1.7;
   flex:1; min-height:0; display:flex; flex-direction:column;
 }
 .i2p *{box-sizing:border-box}
@@ -77,22 +78,51 @@ window.__ModuleLoader__.load({
 
 /* ===== 主体：左侧导航列 + 内容区（一律靠左） ===== */
 .i2p-body{flex:1;min-height:0;display:flex;align-items:stretch}
-.i2p-nav{flex:none;width:204px;border-right:1px solid var(--line);padding:18px 12px 18px 14px;
-  display:flex;flex-direction:column;gap:16px}
-.i2p-nav-title{font-size:15px;font-weight:600;color:var(--ink);padding:0 12px}
+.i2p-nav{flex:none;width:var(--i2p-nav-w,240px);border-right:1px solid var(--line);padding:18px 14px 18px 14px;
+  display:flex;flex-direction:column;gap:16px;position:relative;overflow:hidden;
+  transition:width .2s cubic-bezier(.2,.8,.2,1)}
+.i2p-nav.no-anim{transition:none}
+.i2p-nav-title{display:flex;align-items:center;gap:8px;min-width:0;padding:0 12px}
+.i2p-nav-title .tt{flex:none;font-size:16px;font-weight:600;color:var(--ink)}
 .i2p-nav-list{display:flex;flex-direction:column;gap:2px;list-style:none;padding:0;margin:0}
 .i2p-nav-cell{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border:none;
-  background:none;border-radius:10px;font-size:13.5px;color:var(--ink-2);text-align:left;width:100%}
+  background:none;border-radius:10px;font-size:14.5px;color:var(--ink-2);text-align:left;width:100%;
+  position:relative;cursor:pointer;
+  animation:i2p-cell-in .3s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*45ms);
+  transition:background .14s,color .14s}
+.i2p-nav-cell svg{flex:none}
+.i2p-nav-cell::before{content:"";position:absolute;left:0;top:26%;bottom:26%;width:2.5px;border-radius:3px;
+  background:var(--accent);transform:scaleY(0);transform-origin:center;
+  transition:transform .18s cubic-bezier(.2,.8,.2,1)}
 .i2p-nav-cell:hover{background:var(--hover)}
 .i2p-nav-cell.on{background:var(--nav-on);color:var(--ink);font-weight:600}
-.i2p-nav-cell .cnt{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--muted)}
-.i2p-nav-cell .cnt.alert{color:var(--warn);font-weight:600}
-.i2p-nav-note{margin-top:auto;padding:0 12px;font-size:11.5px;color:var(--muted);line-height:1.6}
-.i2p-main{flex:1;min-width:0;overflow-y:auto;padding:20px 26px 40px}
+.i2p-nav-cell.on::before{transform:scaleY(1)}
+.i2p-nav-cell .cnt{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--muted);transition:color .14s}
+.i2p-nav-cell .cnt.alert{color:var(--warn);font-weight:600;animation:i2p-breathe 1.8s ease-in-out infinite}
+.i2p-nav-note{margin-top:auto;padding:0 12px;font-size:12.5px;color:var(--muted);line-height:1.6}
+/* 拖宽手柄：贴 nav 右缘内侧（勿伸出——nav overflow:hidden 会裁掉导致点不到），
+   hover 显色；双击恢复默认宽 */
+.i2p-nav-grip{position:absolute;top:0;bottom:0;right:0;width:8px;z-index:5;cursor:col-resize;
+  border-radius:5px;background:transparent;transition:background .15s}
+.i2p-nav-grip:hover,.i2p-nav-grip:focus-visible{background:color-mix(in srgb,var(--accent) 26%,transparent)}
+body.i2p-dragging{cursor:col-resize}
+body.i2p-dragging *{cursor:col-resize!important}
+body.i2p-dragging{user-select:none}
+/* 收起态（激活「收起侧边栏」）= 图标栏 rail：菜单项仅图标，标题文字/计数/说明/拖宽隐藏 */
+.i2p-nav.rail{width:52px;padding-left:8px;padding-right:8px}
+.i2p-nav.rail .i2p-nav-title{padding:0;justify-content:center}
+.i2p-nav.rail .i2p-nav-title .tt{display:none}
+.i2p-nav.rail .i2p-nav-cell{justify-content:center;padding:0;gap:0}
+.i2p-nav.rail .i2p-nav-cell .lb,.i2p-nav.rail .i2p-nav-cell .cnt{display:none}
+.i2p-nav.rail .i2p-nav-note{display:none}
+.i2p-nav.rail .i2p-nav-grip{display:none}
+.i2p-main{flex:1;min-width:0;overflow-y:auto;padding:24px 32px 48px}
 @media (max-width:880px){
   .i2p-body{flex-direction:column}
   .i2p-nav{width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px;
     border-right:none;border-bottom:1px solid var(--line);padding:10px 14px}
+  .i2p-nav-grip{display:none}
+  .i2p-nav.rail{width:auto;padding-left:14px;padding-right:14px}
   .i2p-nav-list{flex-direction:row;flex-wrap:wrap}
   .i2p-nav-note{display:none}
   .i2p-main{padding:16px 16px 32px}
@@ -100,16 +130,16 @@ window.__ModuleLoader__.load({
 
 /* ===== 区块标题（工具式：标题 + 一行说明） ===== */
 .i2p .sec{margin-bottom:6px}
-.i2p .sec h2{font-size:16px;font-weight:600;margin:0 0 2px;color:var(--ink)}
-.i2p .sec .sub{margin:0 0 16px;font-size:12.5px;color:var(--muted)}
+.i2p .sec h2{font-size:17px;font-weight:600;margin:0 0 2px;color:var(--ink)}
+.i2p .sec .sub{margin:0 0 16px;font-size:13.5px;color:var(--muted)}
 .i2p .sec .sub b{color:var(--ink-2);font-weight:600}
 
 /* ===== 卡片 / callout ===== */
 .i2p .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-.i2p .card h4{font-size:12px;text-transform:none;letter-spacing:0;color:var(--muted);
+.i2p .card h4{font-size:13px;text-transform:none;letter-spacing:0;color:var(--muted);
   margin:0 0 10px;font-weight:600}
-.i2p .card p{margin:0 0 8px;font-size:13px}
-.i2p .card ul{margin:6px 0 0;padding-left:18px;font-size:13px}
+.i2p .card p{margin:0 0 8px;font-size:14px}
+.i2p .card ul{margin:6px 0 0;padding-left:18px;font-size:14px}
 .i2p .card ul li{margin-bottom:4px}
 .i2p .callout{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--card);
   border-radius:0 10px 10px 0;padding:12px 14px}
@@ -123,16 +153,16 @@ window.__ModuleLoader__.load({
 .i2p .callout.err h4{color:var(--err)}
 
 /* ===== 表格 ===== */
-.i2p .tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin:12px 0}
-.i2p .tbl th{border-bottom:1px solid var(--line-2);font-size:11px;color:var(--muted);
+.i2p .tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin:12px 0}
+.i2p .tbl th{border-bottom:1px solid var(--line-2);font-size:12px;color:var(--muted);
   font-weight:600;text-align:left;padding:6px 10px}
 .i2p .tbl td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 .i2p .tbl tr:last-child td{border-bottom:none}
 .i2p .tbl code{font-family:var(--mono);background:var(--hover);padding:1px 6px;border-radius:4px;
-  font-size:11px;color:var(--ink-2)}
+  font-size:12px;color:var(--ink-2)}
 
 /* ===== 状态 tag ===== */
-.i2p .tg{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;
+.i2p .tg{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;
   padding:1px 8px;border-radius:5px;letter-spacing:.02em;border:1px solid;white-space:nowrap;vertical-align:middle}
 .i2p .tg.t-good{color:var(--good);border-color:transparent;background:var(--good-bg)}
 .i2p .tg.t-warn{color:var(--warn);border-color:transparent;background:var(--warn-bg)}
@@ -146,21 +176,21 @@ window.__ModuleLoader__.load({
 
 /* ===== 按钮 ===== */
 .i2p .btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;
-  border:1px solid var(--line-2);background:none;color:var(--ink-2);font-size:12.5px;transition:background .15s,border-color .15s}
+  border:1px solid var(--line-2);background:none;color:var(--ink-2);font-size:13.5px;transition:background .15s,border-color .15s}
 .i2p .btn:hover{background:var(--hover);color:var(--ink)}
 .i2p .btn.pri{background:var(--ink);border-color:var(--ink);color:var(--panel);font-weight:600}
 .i2p .btn.pri:hover{opacity:.88;background:var(--ink)}
 .i2p .btn.danger{border-color:transparent;color:var(--err)}
 .i2p .btn.danger:hover{background:var(--err-bg)}
 .i2p .btn:disabled{opacity:.45;cursor:not-allowed}
-.i2p .btn.sm{height:26px;padding:0 9px;font-size:11.5px;gap:5px}
+.i2p .btn.sm{height:26px;padding:0 9px;font-size:12.5px;gap:5px}
 
 /* ===== 表单 ===== */
-.i2p label.f-label,span.f-label{display:block;font-size:11px;color:var(--muted);margin:0 0 5px;font-weight:600}
+.i2p label.f-label,span.f-label{display:block;font-size:12px;color:var(--muted);margin:0 0 5px;font-weight:600}
 .i2p .f-input,.i2p .f-select{width:100%;background:var(--card);border:1px solid var(--line-2);
-  border-radius:8px;color:var(--ink);padding:6px 10px;font-size:13px;font-family:inherit;transition:border-color .15s}
+  border-radius:8px;color:var(--ink);padding:6px 10px;font-size:14px;font-family:inherit;transition:border-color .15s}
 .i2p textarea.f-input{resize:vertical}
-.i2p .f-input.mono,.i2p .f-select.mono{font-family:var(--mono);font-size:12px}
+.i2p .f-input.mono,.i2p .f-select.mono{font-family:var(--mono);font-size:13px}
 .i2p .f-input:focus,.i2p .f-select:focus{border-color:var(--accent)}
 .i2p .f-input::placeholder{color:var(--caption)}
 .i2p .field{margin-bottom:13px}
@@ -172,26 +202,26 @@ window.__ModuleLoader__.load({
   border:1px solid var(--line-2);background:none;border-radius:8px;width:30px;height:30px}
 .i2p .dyn-row .rm:hover{color:var(--err);border-color:var(--err)}
 .i2p .add-row{display:inline-flex;align-items:center;gap:5px;background:none;border:1px dashed var(--line-2);
-  color:var(--accent);border-radius:8px;padding:4px 11px;font-size:12px;margin-top:2px}
+  color:var(--accent);border-radius:8px;padding:4px 11px;font-size:13px;margin-top:2px}
 .i2p .add-row:hover{border-color:var(--accent)}
 .i2p .run-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
   border-radius:8px;border:1px solid var(--good);color:var(--good);background:none}
 .i2p .run-btn:hover{background:var(--good-bg)}
 .i2p fieldset.trig-src{border:1px solid var(--line);border-radius:10px;padding:12px 14px 14px;margin:0 0 13px}
-.i2p .trig-head{font-size:13px;font-weight:600;color:var(--ink-2);margin:10px 0 7px;
+.i2p .trig-head{font-size:14px;font-weight:600;color:var(--ink-2);margin:10px 0 7px;
   display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.i2p .trig-head .hint{font-weight:400;font-size:11.5px;color:var(--muted)}
-.i2p .trig-tag{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid var(--accent);
+.i2p .trig-head .hint{font-weight:400;font-size:12.5px;color:var(--muted)}
+.i2p .trig-tag{font-family:var(--mono);font-size:11px;color:var(--accent);border:1px solid var(--accent);
   border-radius:4px;padding:1px 6px;background:none}
 .i2p .trig-tag.issue{color:var(--warn);border-color:var(--warn)}
 
 /* 单选组（chip 式） */
 .i2p .radio-group{display:flex;gap:8px;flex-wrap:wrap}
 .i2p .radio-chip{display:flex;align-items:center;gap:7px;border:1px solid var(--line-2);border-radius:8px;
-  padding:5px 11px;font-size:12.5px;color:var(--ink-2);cursor:pointer;user-select:none;background:var(--card)}
+  padding:5px 11px;font-size:13.5px;color:var(--ink-2);cursor:pointer;user-select:none;background:var(--card)}
 .i2p .radio-chip input{accent-color:var(--accent);margin:0}
 .i2p .radio-chip.on{border-color:var(--accent);color:var(--accent)}
-.i2p .radio-chip .hint{font-size:11px;color:var(--muted)}
+.i2p .radio-chip .hint{font-size:12px;color:var(--muted)}
 
 /* ===== 项目列表 ===== */
 .i2p .proj-list{display:flex;flex-direction:column;gap:6px}
@@ -199,8 +229,8 @@ window.__ModuleLoader__.load({
   padding:9px 12px;color:var(--ink);transition:border-color .15s,background .15s}
 .i2p .proj-item:hover{border-color:var(--line-2);background:var(--hover)}
 .i2p .proj-item.on{border-color:var(--accent)}
-.i2p .proj-item .p-name{font-weight:600;font-size:13px}
-.i2p .proj-item .p-meta{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:2px}
+.i2p .proj-item .p-name{font-weight:600;font-size:14px}
+.i2p .proj-item .p-meta{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:2px}
 
 /* ===== 运行页布局 ===== */
 .i2p .run-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
@@ -208,7 +238,7 @@ window.__ModuleLoader__.load({
 .i2p .pipe-layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px;align-items:start;margin-top:14px}
 @media (max-width:960px){.i2p .pipe-layout{grid-template-columns:1fr}}
 
-.i2p .run-hint{font-size:12.5px;color:var(--muted);margin:0 0 4px}
+.i2p .run-hint{font-size:13.5px;color:var(--muted);margin:0 0 4px}
 .i2p .run-hint b{color:var(--ink-2);font-weight:600}
 
 /* ===== 阶段时间线（行式列表 + 状态点） ===== */
@@ -225,24 +255,24 @@ window.__ModuleLoader__.load({
 .i2p .step-row.bypass .sdot{border-style:dashed}
 @media (prefers-reduced-motion:reduce){.i2p .step-row.running .sdot{animation:none}}
 .i2p .s-main{min-width:0;display:flex;flex-direction:column;gap:1px}
-.i2p .s-name{font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.i2p .s-name{font-size:13.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .i2p .step-row.on .s-name{color:var(--accent)}
-.i2p .s-desc{font-family:var(--mono);font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.i2p .s-desc{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .i2p .s-side{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
-.i2p .s-dur{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.i2p .s-dur{font-family:var(--mono);font-size:11px;color:var(--muted)}
 
 /* ===== 阶段详情 ===== */
 .i2p .detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-.i2p .detail-head h3{font-size:14.5px;font-weight:600;margin:0}
-.i2p .detail-head .path{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:3px;word-break:break-all}
+.i2p .detail-head h3{font-size:15.5px;font-weight:600;margin:0}
+.i2p .detail-head .path{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:3px;word-break:break-all}
 .i2p .a-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
 .i2p .a-tab{background:none;border:1px solid var(--line);color:var(--ink-2);border-radius:6px;
-  padding:2px 9px;font-size:11.5px;font-family:var(--mono)}
+  padding:2px 9px;font-size:12.5px;font-family:var(--mono)}
 .i2p .a-tab.on{border-color:var(--accent);color:var(--accent)}
 
 /* ===== 代码 / 产物预览（固定深底，等价嵌入式终端） ===== */
 .i2p pre.view{background:var(--code-bg);color:#e8e6df;padding:13px 15px;border-radius:10px;overflow-x:auto;
-  margin:0;font-family:var(--mono);font-size:12px;line-height:1.6;max-height:300px;overflow-y:auto;
+  margin:0;font-family:var(--mono);font-size:13px;line-height:1.6;max-height:420px;overflow-y:auto;
   border:1px solid var(--code-line)}
 .i2p pre.view .k{color:#c2a26f}
 .i2p pre.view .s{color:#9bc28b}
@@ -251,73 +281,112 @@ window.__ModuleLoader__.load({
 .i2p pre.view .add{color:#9bc28b;background:rgba(155,194,139,.13);display:inline-block;width:100%}
 .i2p pre.view .del{color:#e0a49c;background:rgba(213,70,58,.18);display:inline-block;width:100%}
 
+/* .md 产物走宿主官方 MarkdownText（全套样式在宿主全局样式表，与聊天区 1:1）；此处只做滚动容器 */
+.i2p .md-view{max-height:420px;overflow-y:auto;padding:2px}
+
 /* ===== 复核门 / 复核历史 ===== */
 .i2p .review-actions{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:4px}
 .i2p .review-actions textarea{flex:1;min-width:220px;min-height:60px}
-.i2p .gate-note{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:10px}
+.i2p .gate-note{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:10px}
 .i2p .rev-item{display:grid;grid-template-columns:auto auto 1fr;gap:8px;align-items:baseline;
-  padding:6px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+  padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
 .i2p .rev-item:last-child{border-bottom:none}
-.i2p .rev-item .at{font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap}
+.i2p .rev-item .at{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
 .i2p .rev-item .cm{color:var(--ink-2)}
 
 /* ===== 过程事件（LLM / git / 测试 / 工具调用） ===== */
 .i2p .ev-head{display:flex;align-items:baseline;gap:8px;margin-top:14px;flex-wrap:wrap}
 .i2p .ev-head .f-label{margin:0}
-.i2p .ev-head .hint{font-size:11px;color:var(--muted)}
+.i2p .ev-head .hint{font-size:12px;color:var(--muted)}
 .i2p .ev-list{border:1px solid var(--line);border-radius:10px;margin-top:6px;max-height:280px;overflow-y:auto}
 .i2p .ev-row{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;gap:8px;align-items:center;
-  width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--line);padding:6px 10px;font-size:12px}
+  width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--line);padding:6px 10px;font-size:13px}
 .i2p .ev-row:hover{background:var(--hover)}
-.i2p .ev-time{font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap}
+.i2p .ev-time{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
 .i2p .ev-kind{font-family:var(--mono);font-size:9.5px;padding:1px 6px;border-radius:4px;border:1px solid;white-space:nowrap}
 .i2p .ev-kind.k-llm{color:var(--accent);border-color:var(--accent)}
 .i2p .ev-kind.k-git{color:var(--good);border-color:var(--good)}
 .i2p .ev-kind.k-test{color:var(--warn);border-color:var(--warn)}
 .i2p .ev-kind.k-tool,.i2p .ev-kind.k-stage,.i2p .ev-kind.k-info{color:var(--muted);border-color:var(--line-2)}
 .i2p .ev-name{color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  font-family:var(--mono);font-size:11.5px;text-align:left}
-.i2p .ev-ms{font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap}
+  font-family:var(--mono);font-size:12.5px;text-align:left}
+.i2p .ev-ms{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
 .i2p .ev-ok{width:7px;height:7px;border-radius:50%;background:var(--good)}
 .i2p .ev-row.bad .ev-ok{background:var(--err)}
-.i2p .ev-empty{padding:8px 12px;font-size:12px;color:var(--muted)}
+.i2p .ev-empty{padding:8px 12px;font-size:13px;color:var(--muted)}
 .i2p pre.ev-detail{margin:0;border-top:1px solid var(--line);border-radius:0;max-height:220px;
   white-space:pre-wrap;word-break:break-word}
 
 /* ===== P7 ledger ===== */
 .i2p .ledger-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;
-  padding:6px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+  padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
 .i2p .ledger-row:last-child{border-bottom:none}
-.i2p .ledger-row .no{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
-.i2p .ledger-row .pf{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);word-break:break-all}
-.i2p .ledger-row .at{font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap}
+.i2p .ledger-row .no{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.i2p .ledger-row .pf{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);word-break:break-all}
+.i2p .ledger-row .at{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
 
 /* ===== 产物 tab ===== */
 .i2p .art-layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start;margin-top:14px}
 @media (max-width:900px){.i2p .art-layout{grid-template-columns:1fr}}
-.i2p .tree{font-family:var(--mono);font-size:12px;color:var(--ink-2);overflow-x:auto}
-.i2p .tree .dir{color:var(--ink);font-weight:600;padding:2px 0}
+.i2p .tree{font-family:var(--mono);font-size:14.5px;color:var(--ink-2);overflow-x:auto}
+.i2p .tree .dir{display:flex;width:100%;text-align:left;background:var(--hover);border:none;color:var(--ink);font-weight:600;
+  font-family:inherit;font-size:inherit;padding:4px 8px;border-radius:6px;cursor:pointer}
+.i2p .tree .dir:hover{background:var(--nav-on)}
 .i2p .tree .file{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;
-  border:none;color:var(--ink-2);padding:2px 7px;border-radius:6px;font-family:inherit;font-size:inherit}
+  border:none;color:var(--ink-2);padding:4px 8px;border-radius:6px;font-family:inherit;font-size:inherit}
 .i2p .tree .file:hover{background:var(--hover)}
 .i2p .tree .file.on{background:var(--nav-on);color:var(--accent)}
-.i2p .tree .ts{color:var(--muted);font-size:10px;flex:none}
+.i2p .tree .ts{color:var(--muted);font-size:12px;flex:none}
 
 /* ===== 说明页 ===== */
-.i2p .guide .lede{font-size:13.5px;color:var(--ink-2);max-width:760px;line-height:1.7;margin:0 0 16px}
-.i2p ol.tight{padding-left:20px;margin:8px 0 16px;font-size:13px}
+.i2p .guide .lede{font-size:14.5px;color:var(--ink-2);max-width:760px;line-height:1.7;margin:0 0 16px}
+.i2p ol.tight{padding-left:20px;margin:8px 0 16px;font-size:14px}
 .i2p ol.tight li{margin-bottom:5px}
 .i2p ol.tight li b{color:var(--ink-2)}
 .i2p .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 12px}
 @media (max-width:760px){.i2p .grid-2{grid-template-columns:1fr}}
-.i2p .hint-line{font-size:12px;color:var(--muted);margin:12px 0 0}
-.i2p .hint-line code{font-family:var(--mono);background:var(--hover);padding:1px 6px;border-radius:4px;font-size:11px;color:var(--ink-2)}
-.i2p .empty-hint{color:var(--muted);font-size:13px;padding:14px 0}
+.i2p .hint-line{font-size:13px;color:var(--muted);margin:12px 0 0}
+.i2p .hint-line code{font-family:var(--mono);background:var(--hover);padding:1px 6px;border-radius:4px;font-size:12px;color:var(--ink-2)}
+.i2p .empty-hint{color:var(--muted);font-size:14px;padding:14px 0}
+
+/* ===== 配置页 ===== */
+.i2p .cfg-layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px;align-items:start;margin-top:14px}
+@media (max-width:960px){.i2p .cfg-layout{grid-template-columns:1fr}}
+/* 阶段选择行：已自定义 → 名字后跟一枚小蓝点；委托开启 → 右侧"委"标 */
+.i2p .cfg-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
+  width:100%;text-align:left;background:none;border:none;padding:7px 9px;border-radius:10px;transition:background .15s}
+.i2p .cfg-row:hover{background:var(--hover)}
+.i2p .cfg-row.on{background:var(--nav-on)}
+.i2p .cfg-row .cdot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--accent);
+  margin-left:6px;vertical-align:2px}
+.i2p .cfg-row .wtg{font-family:var(--mono);font-size:10px;color:var(--warn);border:1px solid var(--warn);
+  border-radius:4px;padding:0 4px;white-space:nowrap}
+/* 提示词编辑：等宽小字号 textarea + 角色头（角色名 + 默认值标记 + 恢复默认按钮） */
+.i2p .pr-head{display:flex;align-items:center;gap:8px;margin:12px 0 5px;flex-wrap:wrap}
+.i2p .pr-head:first-child{margin-top:0}
+.i2p .pr-head .f-label{margin:0}
+.i2p .pr-head .mark{font-family:var(--mono);font-size:10.5px;color:var(--accent);border:1px solid var(--accent);
+  border-radius:4px;padding:0 5px}
+.i2p textarea.pr-input{width:100%;min-height:88px;resize:vertical;background:var(--card);border:1px solid var(--line-2);
+  border-radius:8px;color:var(--ink);padding:7px 10px;font-size:12.5px;line-height:1.6;
+  font-family:var(--mono);transition:border-color .15s}
+.i2p textarea.pr-input:focus{border-color:var(--accent)}
+/* 委托开关行 */
+.i2p .dlg-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+.i2p .dlg-row input[type=checkbox]{accent-color:var(--accent);margin:3px 0 0;flex:none}
+.i2p .dlg-row .lbl{font-size:14px;color:var(--ink);font-weight:600}
+.i2p .dlg-row .sub{font-size:12.5px;color:var(--muted);line-height:1.55}
+/* 文件导入按钮（外部智能体简介导入） */
+.i2p .imp-label{display:inline-flex;align-items:center;gap:5px;background:none;border:1px dashed var(--line-2);
+  color:var(--accent);border-radius:8px;padding:4px 11px;font-size:13px;cursor:pointer}
+.i2p .imp-label:hover{border-color:var(--accent)}
+.i2p .imp-label input{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0)}
+.i2p .cfg-foot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px}
 
 /* ===== toast ===== */
 .i2p-toast{position:fixed;bottom:26px;left:36px;background:var(--dsw-alias-bg-layer-2,#fff);
   border:1px solid var(--dsw-alias-border-l1,#e5e6ec);border-left:3px solid var(--dsw-alias-state-success-primary,#1c7c43);
-  color:var(--dsw-alias-label-primary,#17181f);padding:9px 16px;border-radius:10px;font-size:13px;
+  color:var(--dsw-alias-label-primary,#17181f);padding:9px 16px;border-radius:10px;font-size:14px;
   z-index:2100;max-width:70%;box-shadow:0 4px 18px rgba(9,12,20,.14)}
 .i2p-toast.t-bad{border-left-color:var(--dsw-alias-state-error-primary,#d5463a)}
 
@@ -331,25 +400,66 @@ window.__ModuleLoader__.load({
 .i2p-entry.rail{border-radius:50%;justify-content:center;gap:0;width:36px;height:36px;margin:8px 0 10px;padding:0}
 .i2p-entry-label{white-space:nowrap;overflow:hidden}
 
-/* ---- 悬浮工作台（对齐宿主设置面板几何：遮罩 + 居中圆角面板） ---- */
-.i2p-overlay{position:fixed;inset:0;z-index:1000;display:flex;justify-content:center;align-items:center}
-.i2p-overlay-mask{position:absolute;inset:0;background:var(--dsw-alias-bg-mask-1,rgba(9,12,20,.45));
-  backdrop-filter:var(--dsw-mask-blur,blur(2px))}
-.i2p-panel{position:relative;z-index:1;background:var(--dsw-alias-bg-layer-2,#fff);
-  width:min(1180px,calc(100vw - 48px));height:min(840px,calc(100vh - 48px));
-  box-shadow:var(--dsw-shadow-lv3,0 18px 60px rgba(9,12,20,.3));border-radius:20px;
-  display:flex;flex-direction:column;overflow:hidden;color:var(--dsw-alias-label-primary)}
-.i2p-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:14px;
+/* ---- 主区整页工作台：贴合 conversation 列（JS 实时测量 rect 定位，随
+   sidebar 拖动/窗口缩放跟随），无遮罩非模态，视觉上即"右边的框" ---- */
+.i2p-page{position:fixed;display:flex;flex-direction:column;overflow:hidden;
+  background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary)}
+.i2p-head{flex:none;display:flex;align-items:center;justify-content:center;gap:14px;position:relative;
   height:52px;padding:0 10px 0 20px;border-bottom:1px solid var(--dsw-alias-border-l1,#e5e6ec)}
 .i2p-head .brand{display:flex;align-items:baseline;gap:10px;min-width:0}
-.i2p-head .brand b{font-size:15px;font-weight:600}
-.i2p-head .brand span{font-family:var(--mono);font-size:10.5px;color:var(--dsw-alias-label-tertiary,#82848f);letter-spacing:.08em}
-.i2p-head .om{font-family:var(--mono);font-size:10.5px;color:var(--dsw-alias-label-tertiary,#82848f)}
-.i2p-close{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;width:28px;height:28px;
+.i2p-head .brand b{font-size:16px;font-weight:600}
+.i2p-head .brand span{font-family:var(--mono);font-size:11.5px;color:var(--dsw-alias-label-tertiary,#82848f);letter-spacing:.08em}
+.i2p-head .om{font-family:var(--mono);font-size:11.5px;color:var(--dsw-alias-label-tertiary,#82848f)}
+/* right:78px 避开宿主右上角的悬浮按钮排（better-sidebar：底部面板/侧边栏展开钮占右缘约 70px） */
+.i2p-close{position:absolute;right:78px;top:50%;transform:translateY(-50%);
+  display:inline-flex;align-items:center;justify-content:center;cursor:pointer;width:28px;height:28px;
   color:var(--dsw-alias-label-primary);background:none;border:none;border-radius:28px}
 .i2p-close:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .i2p-close:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.i2p-overlay-body{flex:1;min-height:0;display:flex}
+.i2p-page-body{flex:1;min-height:0;display:flex}
+
+/* ===== 动效与质感层（丰富但克制：150-300ms、语义化、可关） ===== */
+/* 整页进场：淡入 + 轻微上浮 */
+@keyframes i2p-in{from{opacity:0;transform:translateY(10px) scale(.997)}to{opacity:1;transform:none}}
+.i2p-page{animation:i2p-in .22s cubic-bezier(.2,.8,.2,1)}
+/* 目录项逐个滑入（stagger，CSS 变量 --i 由 JSX 提供） */
+@keyframes i2p-cell-in{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+/* 待复核计数呼吸提醒 */
+@keyframes i2p-breathe{50%{opacity:.5}}
+/* 运行中状态徽章呼吸（与 .sdot 脉冲呼应） */
+.i2p .tg.run{animation:i2p-breathe 1.6s ease-in-out infinite}
+/* 卡片：hover 浮起一线 + 边框加重 */
+.i2p .card{transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
+.i2p .card:hover{border-color:var(--line-2);transform:translateY(-1px);box-shadow:0 2px 12px rgba(9,12,20,.05)}
+/* 按钮：按压回弹 */
+.i2p .btn{cursor:pointer;transition:background .15s,border-color .15s,color .15s,transform .1s}
+.i2p .btn:active{transform:scale(.97)}
+/* 表格行 hover 扫过 */
+.i2p .tbl tbody tr{transition:background .12s}
+.i2p .tbl tbody tr:hover{background:var(--hover)}
+/* 项目卡：hover 边框亮起 */
+.i2p .proj-item{cursor:pointer;transition:border-color .16s,background .16s,transform .16s}
+.i2p .proj-item:hover{border-color:var(--line-2);transform:translateY(-1px)}
+/* 收起/展开侧边栏按钮（标题行左侧，仅图标；文字含义交给 aria-label/title） */
+.i2p-nav-collapse{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;
+  border:none;border-radius:8px;background:none;color:var(--muted);cursor:pointer;
+  transition:background .14s,color .14s}
+.i2p-nav-collapse:hover{background:var(--hover);color:var(--ink)}
+.i2p-nav-collapse:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+/* 空状态：虚线卡片化，引导感 */
+.i2p .empty-hint{border:1.5px dashed var(--line-2);border-radius:12px;padding:22px 16px;text-align:center}
+/* 细滚动条 */
+.i2p-main::-webkit-scrollbar,.i2p-nav::-webkit-scrollbar{width:6px;height:6px}
+.i2p-main::-webkit-scrollbar-thumb,.i2p-nav::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
+.i2p-main::-webkit-scrollbar-thumb:hover,.i2p-nav::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+.i2p-main::-webkit-scrollbar-track,.i2p-nav::-webkit-scrollbar-track{background:transparent}
+.i2p-main{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
+/* 尊重系统减弱动效 */
+@media (prefers-reduced-motion:reduce){
+  .i2p-page,.i2p-nav-cell,.i2p-nav{animation:none!important;transition:none!important}
+  .i2p .card,.i2p .btn,.i2p .proj-item,.i2p .tbl tbody tr,.i2p .tg.run,
+  .i2p-nav-cell .cnt.alert,.i2p-nav-grip,.i2p-nav-collapse{animation:none!important;transition:none!important}
+}
 `;
 
 		const tagId = "dsh-issue2pr/styles";
@@ -410,7 +520,7 @@ window.__ModuleLoader__.load({
 			return ({ every: "每阶段都停", "key-only": "只停关键门", auto: "全自动" })[m] || String(m || "");
 		}
 		function p6ModeLabel(m) {
-			return ({ builtin: "插件内多智能体", session: "交给 DSH 会话" })[m] || String(m || "");
+			return ({ builtin: "插件内多智能体", session: "交给 DSH 会话", claude: "委托 Claude Code" })[m] || String(m || "");
 		}
 		function kindLabel(k) { return k === "issue" ? "Issue" : "需求"; }
 		function fmtClock(iso) {
@@ -468,6 +578,13 @@ window.__ModuleLoader__.load({
 			x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 			check: '<path d="M20 6 9 17l-5-5"/>',
 			plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+			collapse: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 9-3 3 3 3"/>',
+			expand: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m13 9 3 3-3 3"/>',
+			box: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+			book: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+			sliders: '<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
+			upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
+			reset: '<path d="M3 2v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/>',
 		};
 		function Ic(name, size) {
 			return h("svg", {
@@ -476,6 +593,33 @@ window.__ModuleLoader__.load({
 				strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true",
 				dangerouslySetInnerHTML: { __html: ICONS[name] || "" },
 			});
+		}
+
+		/* ================================================================
+		 * 工作台目录列几何（宽窄/显隐）：模块级 store，localStorage 记忆，
+		 * WorkbenchPage 头部按钮与 Section 目录列共享
+		 * ================================================================ */
+		const navStore = {
+			open: localStorage.getItem("i2p.navOpen") !== "0",
+			width: (function (v) { return v >= 180 && v <= 460 ? v : 240; })(parseInt(localStorage.getItem("i2p.navW") || "", 10)),
+			listeners: new Set(),
+			setOpen(v) {
+				this.open = v;
+				localStorage.setItem("i2p.navOpen", v ? "1" : "0");
+				this.emit();
+			},
+			setWidth(w, persist) {
+				this.width = Math.max(180, Math.min(460, Math.round(w)));
+				if (persist) localStorage.setItem("i2p.navW", String(this.width));
+				this.emit();
+			},
+			emit() { for (const fn of this.listeners) fn(); },
+			subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
+		};
+		function useNavState() {
+			const [s, setS] = React.useState({ open: navStore.open, width: navStore.width });
+			React.useEffect(() => navStore.subscribe(() => setS({ open: navStore.open, width: navStore.width })), []);
+			return s;
 		}
 
 		/* ================================================================
@@ -518,6 +662,8 @@ window.__ModuleLoader__.load({
 
 			const collect = function () {
 				const f = form;
+				// stageConfig（「配置」页维护）与项目表单互不感知：原样透传，避免保存项目时丢失阶段配置
+				const pr = p.projects ? p.projects.find(function (x) { return x.slug === p.slug; }) : null;
 				return {
 					name: (f.name || "").trim(),
 					slug: (f.slug || "").trim(),
@@ -528,6 +674,7 @@ window.__ModuleLoader__.load({
 					reviewMode: f.reviewMode,
 					p6Mode: f.p6Mode,
 					testCommand: (f.testCommand || "").trim(),
+					stageConfig: (pr && pr.stageConfig) || {},
 				};
 			};
 			const validate = function (o) {
@@ -687,6 +834,7 @@ window.__ModuleLoader__.load({
 								radioGroup("rg-exec-label", [
 									{ value: "builtin", label: "插件内多智能体", hint: "Planner/Coder/Reviewer" },
 									{ value: "session", label: "交给 DSH 会话", hint: "真 workflow" },
+									{ value: "claude", label: "委托 Claude Code", hint: "claude CLI 自动执行" },
 								], form.p6Mode, function (v) { setField("p6Mode", v); }, "exec"))),
 						h("div", { className: "field" },
 							h("label", { className: "f-label", htmlFor: "f-test" }, "测试命令（可选 · P8 使用）"),
@@ -907,6 +1055,13 @@ window.__ModuleLoader__.load({
 			const sDef = STAGES.find(function (x) { return x.id === selStage; });
 			const st = p.run && p.run.stages ? p.run.stages[selStage] : null;
 			const stStatus = st ? st.status : null;
+			// session/claude 模式的 P6 待复核 = 任务包等外部执行（按 p6Mode 推导，兼容旧 run）
+			// claude 委托成功（externalExec.status=done）后实施已完成，走正常"待复核"；执行中则显示"claude 执行中"
+			const ee = p.run ? p.run.externalExec : null;
+			const stExternal = selStage === "P6" && stStatus === "awaiting_review"
+				&& !!(p.run && (p.run.p6Mode === "session" || p.run.p6Mode === "claude"))
+				&& !(ee && ee.status === "done");
+			const stClaudeRun = selStage === "P6" && stStatus === "running" && !!(ee && ee.status === "running");
 
 			let viewHtml = '<span class="c">点击左侧任一阶段查看产物。</span>';
 			if (!sDef) viewHtml = '<span class="c">点击左侧任一阶段查看产物。</span>';
@@ -915,6 +1070,8 @@ window.__ModuleLoader__.load({
 			else if (!stStatus || stStatus === "pending") viewHtml = '<span class="c">该阶段尚未运行，暂无产物。</span>';
 			else if (stStatus === "failed") viewHtml = '<span class="c">该阶段执行失败：' + esc(st.error || "未知错误") + "</span>";
 			else viewHtml = '<span class="c">该阶段暂无文件产物（执行中或产物为目录）。</span>';
+			// .md 产物改走宿主官方 MarkdownText（替代源码文本）
+			const artMd = artText != null && /\.md$/i.test(selArt || "");
 
 			const showReview = stStatus === "awaiting_review";
 			const stageEvents = (events || []).filter(function (e) { return e.stage === selStage; });
@@ -954,9 +1111,20 @@ window.__ModuleLoader__.load({
 						STAGES.map(function (s) {
 							const cur = p.run && p.run.stages ? p.run.stages[s.id] : null;
 							const status = cur ? cur.status : "pending";
-							const c = tag(status);
+							// session/claude 模式的 P6 待复核 = 任务包等外部执行（claude 委托成功后显示正常"待复核"）
+							const eeRow = p.run ? p.run.externalExec : null;
+							const ext = s.id === "P6" && status === "awaiting_review"
+								&& !!(p.run && (p.run.p6Mode === "session" || p.run.p6Mode === "claude"))
+								&& !(eeRow && eeRow.status === "done");
+							// claude 委托执行中：P6 处于 running，徽标准明示由 claude 执行
+							const claudeRun = s.id === "P6" && status === "running" && !!(eeRow && eeRow.status === "running");
+							const c = claudeRun ? ["t-acc", "claude 执行中"] : ext ? ["t-warn", "等外部执行"] : tag(status);
 							const dur = cur ? fmtDur(cur.startedAt, cur.finishedAt) : "";
 							const extra = cur && cur.attempts ? " · 重试" + cur.attempts : "";
+							const xp = (ext || claudeRun) ? p.run.externalProgress : null;
+							const extMeta = (ext || claudeRun)
+								? "patch " + (xp ? xp.patches : 0) + "/" + (xp && xp.tasks != null ? xp.tasks : "?") + (xp && xp.report ? " · report 已写" : "")
+								: "";
 							return h("button", {
 								key: s.id, role: "listitem",
 								className: "step-row " + status + (s.bypass ? " bypass" : "") + (s.id === selStage ? " on" : ""),
@@ -968,7 +1136,7 @@ window.__ModuleLoader__.load({
 									h("span", { className: "s-desc" }, s.desc + " · " + s.art)),
 								h("span", { className: "s-side" },
 									h("span", { className: "tg " + c[0] + (status === "running" ? " run" : "") }, c[1]),
-									(dur || extra) ? h("span", { className: "s-dur" }, dur + extra) : null));
+									(extMeta || dur || extra) ? h("span", { className: "s-dur" }, extMeta || (dur + extra)) : null));
 						})),
 					h("div", { className: "card" },
 						h("div", { className: "detail-head" },
@@ -976,7 +1144,12 @@ window.__ModuleLoader__.load({
 								h("h3", null, sDef ? sDef.id + " · " + sDef.name : "阶段详情"),
 								h("div", { className: "path" },
 									"产物：" + (p.runId ? "runs\\" + p.runId + "\\" + (sDef ? sDef.art.replace(/\//g, "\\") : "") : ""))),
-							stStatus ? h("span", { className: "tg " + tag(stStatus)[0] }, tag(stStatus)[1]) : null),
+							h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
+								sDef ? h("button", {
+									type: "button", className: "btn sm", title: "在「配置」页调整本阶段提示词/模型/超时/委托",
+									onClick: function () { p.onOpenConfig(sDef.id); },
+								}, Ic("sliders", 12), " 配置本阶段") : null,
+								stStatus ? h("span", { className: "tg " + tag(stStatus)[0] + (stClaudeRun ? " run" : "") }, stClaudeRun ? "claude 执行中" : stExternal ? "等外部执行" : tag(stStatus)[1]) : null)),
 						files.length ? h("div", { className: "a-tabs" },
 							files.map(function (f) {
 								return h("button", {
@@ -985,7 +1158,9 @@ window.__ModuleLoader__.load({
 									onClick: function () { setSelArt(f.path); fetchArt(f.path); },
 								}, f.path.split("/").pop());
 							})) : null,
-						h("pre", { className: "view", tabIndex: 0, dangerouslySetInnerHTML: { __html: viewHtml } }),
+						artMd
+							? h("div", { className: "md-view", tabIndex: 0 }, h(MarkdownText, { text: artText }))
+							: h("pre", { className: "view", tabIndex: 0, dangerouslySetInnerHTML: { __html: viewHtml } }),
 						// 过程事件：本阶段的 LLM 调用 / git / 测试 / 工具调用（点击行展开详情）
 						events != null && sDef ? h("div", { style: { marginTop: 14 } },
 							h("div", { className: "ev-head" },
@@ -1014,7 +1189,7 @@ window.__ModuleLoader__.load({
 						// P7 专属：patch ledger 逐条回滚
 						(selStage === "P7" && ledger && ledger.length) ? h("div", { className: "callout acc", style: { marginTop: 14 } },
 							h("h4", null, "Patch Ledger · 逐条回滚"),
-							h("p", { style: { margin: "0 0 6px", fontSize: 12.5 } },
+							h("p", { style: { margin: "0 0 6px", fontSize: 13.5 } },
 								"回滚只反向撤销该条 Agent patch，不动你的其他修改；回滚会追加记录到 ledger。"),
 							ledger.map(function (row) {
 								if (row.rollbackOf != null) {
@@ -1030,20 +1205,78 @@ window.__ModuleLoader__.load({
 									h("span", { className: "at" }, fmtTime(row.appliedAt)),
 									h("button", { type: "button", className: "btn sm danger", onClick: function () { rollback(row.no); } }, "回滚"));
 							})) : null,
-						// 复核门
-						showReview ? h("div", { className: "callout warn", style: { marginTop: 14 } },
-							h("h4", null, "人工复核门"),
-							h("p", { style: { margin: "0 0 8px", fontSize: 12.5 } },
-								"该阶段产物已生成。通过后进入下一阶段；打回将把意见注入本阶段重跑（决定写入 ",
-								h("span", { style: { fontFamily: "var(--mono)" } }, "reviews\\"), "）。"),
-							h("div", { className: "review-actions" },
-								h("textarea", {
-									className: "f-input", ref: commentRef, value: comment,
-									placeholder: "复核意见（打回必填，通过可选）…", "aria-label": "复核意见",
-									onChange: function (e) { setComment(e.target.value); },
-								}),
-								h("button", { className: "btn pri", onClick: function () { review("approve"); } }, Ic("check"), " 通过，继续"),
-								h("button", { className: "btn danger", onClick: function () { review("reject"); } }, Ic("x"), " 打回重跑"))) : null,
+						// P6 专属：外部执行（claude 委托）状态卡——执行中实时进度 / 完成统计（耗时·轮次·费用·总结）/ 失败原因
+						(selStage === "P6" && ee) ? (function () {
+							const running = ee.status === "running";
+							const xpRow = p.run ? p.run.externalProgress : null;
+							const stats = ee.stats || null;
+							const elapsed = running && ee.startedAt ? fmtDur(ee.startedAt, new Date().toISOString())
+								: fmtDur(ee.startedAt, ee.finishedAt);
+							const statLine = stats && (stats.turns != null || stats.costUsd != null || stats.durationMs != null)
+								? (stats.durationMs != null ? Math.round(stats.durationMs / 60000) + " 分钟" : "")
+									+ (stats.turns != null ? " · " + stats.turns + " 轮" : "")
+									+ (stats.costUsd != null ? " · $" + Number(stats.costUsd).toFixed(2) : "")
+								: (elapsed ? elapsed : "");
+							return h("div", { className: "callout acc", style: { marginTop: 14 } },
+								h("h4", null, "外部执行 · Claude Code"),
+								h("p", { style: { margin: "0 0 6px", fontSize: 13.5 } },
+									h("span", { className: "tg " + (running ? "t-acc run" : ee.status === "done" ? "t-good" : "t-err") },
+										running ? "执行中" : ee.status === "done" ? "已完成" : ee.status === "failed" ? "失败" : "未启动"),
+									" · " + (running ? "已用 " + (elapsed || "—") : (statLine ? "耗时 " + statLine : "—")),
+									running && xpRow ? h("span", null, " · patch ", h("b", null, String(xpRow.patches) + "/" + (xpRow.tasks != null ? xpRow.tasks : "?")) + (xpRow.report ? " · report 已写" : "")) : null),
+								h("p", { style: { margin: 0, fontSize: 12.5, wordBreak: "break-all" } },
+									"bin ", h("span", { style: { fontFamily: "var(--mono)" } }, String(ee.bin || "")),
+									ee.startedAt ? " · 开始 " + fmtClock(ee.startedAt) : "",
+									ee.finishedAt ? " · 结束 " + fmtClock(ee.finishedAt) : ""),
+								stats && stats.result
+									? h("p", { style: { margin: "6px 0 0", fontSize: 13 } },
+										h("span", { className: "f-label" }, "claude 总结"), h("br", null),
+										h("span", { style: { fontFamily: "var(--mono)", fontSize: 12.5 } }, stats.result))
+									: null);
+						})() : null,
+						// 复核门（session 模式的 P6：先外部执行任务包，未就绪不能通过）
+						showReview ? (function () {
+							const xp = p.run ? p.run.externalProgress : null;
+							const extReady = !stExternal || !!(xp && (xp.patches > 0 || xp.report));
+							return h("div", { className: "callout warn", style: { marginTop: 14 } },
+								stExternal
+									? h("div", null,
+										h("h4", null, ee && (ee.status === "failed" || ee.status === "skipped")
+											? "P6 · Claude Code 执行未成功，待人工接管"
+											: "P6 session 模式 · 任务包待外部执行"),
+										h("p", { style: { margin: "0 0 6px", fontSize: 13.5 } },
+											"本阶段只生成了任务包，代码修改还没有发生。流程：把 ",
+											h("span", { style: { fontFamily: "var(--mono)" } }, "runs\\…\\06-implementation\\session-task.md"),
+											" 交给 DSH 会话执行 → 会话产出 ",
+											h("span", { style: { fontFamily: "var(--mono)" } }, "patches\\*.diff"),
+											" 与 ", h("span", { style: { fontFamily: "var(--mono)" } }, "coder-report.json"),
+											" → 回到这里通过复核。"),
+										h("p", { style: { margin: "0 0 8px", fontSize: 13.5 } },
+											"当前进度：patch ", h("b", null, String(xp ? xp.patches : 0) + "/" + (xp && xp.tasks != null ? xp.tasks : "?")),
+											" · report ", h("b", null, xp && xp.report ? "已写" : "未写"),
+											extReady ? "" : "（未就绪，不能通过）"),
+										(ee && (ee.status === "failed" || ee.status === "skipped"))
+											? h("p", { style: { margin: "0 0 8px", fontSize: 13 } },
+												"Claude Code 未产出补丁：",
+												h("span", { style: { fontFamily: "var(--mono)" } }, String(ee.error || "无详情")),
+												"（详见 06-implementation\\external-exec.log）")
+											: null)
+									: h("p", { style: { margin: "0 0 8px", fontSize: 13.5 } },
+										"该阶段产物已生成。通过后进入下一阶段；打回将把意见注入本阶段重跑（决定写入 ",
+										h("span", { style: { fontFamily: "var(--mono)" } }, "reviews\\"), "）。"),
+								h("div", { className: "review-actions" },
+									h("textarea", {
+										className: "f-input", ref: commentRef, value: comment,
+										placeholder: "复核意见（打回必填，通过可选）…", "aria-label": "复核意见",
+										onChange: function (e) { setComment(e.target.value); },
+									}),
+									h("button", {
+										className: "btn pri", disabled: !extReady,
+										title: extReady ? "" : "patches/ 为空且无 coder-report.json：先在外部 DSH 会话执行任务包",
+										onClick: function () { review("approve"); },
+									}, Ic("check"), " 通过，继续"),
+									h("button", { className: "btn danger", onClick: function () { review("reject"); } }, Ic("x"), " 打回重跑")));
+						})() : null,
 						// 复核历史
 						(reviews && reviews.length) ? h("div", { style: { marginTop: 14 } },
 							h("span", { className: "f-label" }, "复核历史"),
@@ -1063,11 +1296,13 @@ window.__ModuleLoader__.load({
 			const p = props;
 			const [selFile, setSelFile] = React.useState(null);
 			const [fileText, setFileText] = React.useState(null);
+			// 目录折叠态：键为目录相对路径（如 "ledger"），存在即折叠
+			const [collapsed, setCollapsed] = React.useState({});
 			const fileRef = React.useRef(null);
 			React.useEffect(function () { fileRef.current = selFile; }, [selFile]);
 
 			React.useEffect(function () {
-				setSelFile(null); setFileText(null);
+				setSelFile(null); setFileText(null); setCollapsed({});
 			}, [p.runId]);
 
 			if (!p.runId) {
@@ -1098,11 +1333,25 @@ window.__ModuleLoader__.load({
 
 			const indentStyle = function (depth) { return depth ? { paddingLeft: 8 + 16 * depth } : null; };
 
-			const renderNode = function (node, depth, out) {
+			const renderNode = function (node, depth, prefix, out) {
 				Object.keys(node.children).sort().forEach(function (k) {
 					const c = node.children[k];
-					out.push(h("div", { key: "d-" + depth + "-" + k, className: "dir", style: indentStyle(depth) }, "▸ " + k + "/"));
-					renderNode(c, depth + 1, out);
+					const dirPath = prefix ? prefix + "/" + k : k;
+					const open = !collapsed[dirPath];
+					out.push(h("button", {
+						key: dirPath,
+						className: "dir",
+						style: indentStyle(depth),
+						"aria-expanded": String(open),
+						onClick: function () {
+							setCollapsed(function (prev) {
+								const next = { ...prev };
+								if (next[dirPath]) delete next[dirPath]; else next[dirPath] = true;
+								return next;
+							});
+						},
+					}, (open ? "▾ " : "▸ ") + k + "/"));
+					if (open) renderNode(c, depth + 1, dirPath, out);
 				});
 				node.files.sort(function (a, b) { return a.path.localeCompare(b.path); }).forEach(function (f) {
 					const on = selFile === f.path;
@@ -1127,16 +1376,17 @@ window.__ModuleLoader__.load({
 				node.files.push(f);
 			});
 			const treeItems = [];
-			renderNode(root, 0, treeItems);
+			renderNode(root, 0, "", treeItems);
 
 			const viewHtml = fileText != null
 				? renderView(fileText, selFile)
 				: (selFile ? '<span class="c">读取中…</span>' : '<span class="c">点击左侧文件预览内容。</span>');
+			const fileMd = fileText != null && /\.md$/i.test(selFile || "");
 
 			return h("div", null,
 				h("p", { className: "run-hint" },
-					"当前 Run：", h("b", { style: { fontFamily: "var(--mono)", fontSize: 12 } }, p.runId),
-					"（在「02 运行」切换；以下为该 Run 的完整产物目录，含 trace / reviews / ledger）"),
+					"当前 Run：", h("b", { style: { fontFamily: "var(--mono)", fontSize: 13 } }, p.runId),
+					"（在「02 运行」切换；.md 产物按 Markdown 排版渲染；以下为该 Run 的完整产物目录，含 trace / reviews / ledger）"),
 				h("div", { className: "art-layout" },
 					h("div", { className: "card" },
 						p.tree && p.tree.length
@@ -1145,15 +1395,342 @@ window.__ModuleLoader__.load({
 					h("div", { className: "card" },
 						h("div", { className: "detail-head" },
 							h("div", null,
-								h("h3", { style: { fontSize: 15 } }, selFile ? selFile.split("/").pop() : "产物预览"),
+								h("h3", { style: { fontSize: 16 } }, selFile ? selFile.split("/").pop() : "产物预览"),
 								h("div", { className: "path" },
 									"~/.dsh/issue2pr/projects\\" + p.slug + "\\runs\\" + p.runId + (selFile ? "\\" + selFile.replace(/\//g, "\\") : ""))),
 							h("button", { type: "button", className: "btn sm", onClick: openDir }, Ic("folder", 13), " 打开所在目录")),
-						h("pre", { className: "view", tabIndex: 0, style: { maxHeight: 520 }, dangerouslySetInnerHTML: { __html: viewHtml } }))));
+							fileMd
+								? h("div", { className: "md-view", tabIndex: 0, style: { maxHeight: 520 } }, h(MarkdownText, { text: fileText }))
+								: h("pre", { className: "view", tabIndex: 0, style: { maxHeight: 520 }, dangerouslySetInnerHTML: { __html: viewHtml } }))));
 		}
 
 		/* ================================================================
-		 * 04 说明
+		 * 04 配置 · 每阶段参数（提示词 / 模型 / 思考深度 / 超时 / 委托外部智能体）
+		 * 数据流：默认值来自 GET /stage-defaults（node 半 STAGE_DEFS）；
+		 * 用户覆盖存 project.json 的 stageConfig 字段；P6 执行模式与项目页 p6Mode 同源。
+		 * ================================================================ */
+		function StageConfigPanel(props) {
+			const p = props;
+			const [edit, setEdit] = React.useState(null);
+			const [saving, setSaving] = React.useState(false);
+
+			// defaults / 项目变化 → 重建编辑态（生效值 = 用户覆盖 ?? 默认）
+			React.useEffect(function () {
+				if (!p.defaults || !p.projects) return;
+				const pr = p.projects.find(function (x) { return x.slug === p.slug; }) || null;
+				const sc = (pr && pr.stageConfig) || {};
+				const next = {};
+				STAGES.forEach(function (s) {
+					const def = p.defaults.stages[s.id];
+					const user = sc[s.id] || {};
+					const prompts = {};
+					Object.keys((def && def.prompts) || {}).forEach(function (k) {
+						prompts[k] = (user.prompts && user.prompts[k] != null) ? user.prompts[k] : def.prompts[k];
+					});
+					next[s.id] = {
+						prompts,
+						provider: user.provider || "",
+						model: user.model || "",
+						reasoningEffort: user.reasoningEffort || "",
+						timeoutMin: user.timeoutMs ? String(Math.round(user.timeoutMs / 60000)) : "",
+						maxTokens: user.maxTokens ? String(user.maxTokens) : "",
+						delegate: {
+							mode: s.id === "P6" ? (pr ? (pr.p6Mode || "builtin") : "builtin") : ((user.delegate && user.delegate.mode) || "off"),
+							agent: (user.delegate && user.delegate.agent) || "",
+							brief: (user.delegate && user.delegate.brief) || "",
+						},
+						testCommand: (pr && pr.testCommand) || "",
+					};
+				});
+				setEdit(next);
+				// eslint-disable-next-line react-hooks/exhaustive-deps
+			}, [p.defaults, p.projects, p.slug]);
+
+			if (!p.defaults || !p.projects) return h("p", { className: "empty-hint" }, "加载中…");
+			if (!p.slug) {
+				return h("p", { className: "empty-hint" },
+					"请先在「项目」保存一个项目，再为它的 11 个阶段分别配置参数。");
+			}
+			if (!edit) return h("p", { className: "empty-hint" }, "加载中…");
+
+			const stageId = p.selStage || "P1";
+			const sDef = STAGES.find(function (x) { return x.id === stageId; });
+			const dDef = p.defaults.stages[stageId];
+			const caps = (dDef && dDef.caps) || {};
+			const e = edit[stageId];
+
+			const setSt = function (patch) {
+				setEdit(function (prev) {
+					const next = Object.assign({}, prev);
+					next[stageId] = Object.assign({}, prev[stageId], patch);
+					return next;
+				});
+			};
+			const setPrompt = function (key, val) {
+				setSt({ prompts: Object.assign({}, e.prompts, { [key || ""]: val }) });
+			};
+			const setDelegate = function (patch) {
+				setSt({ delegate: Object.assign({}, e.delegate, patch) });
+			};
+
+			const radioGroup = function (labelId, opts, value, onChange, name) {
+				return h("div", { className: "radio-group", role: "radiogroup", "aria-labelledby": labelId },
+					opts.map(function (o) {
+						const on = value === o.value;
+						return h("label", { key: o.value, className: "radio-chip" + (on ? " on" : "") },
+							h("input", { type: "radio", name: name + "-" + stageId, value: o.value, checked: on, onChange: function () { onChange(o.value); } }),
+							o.label,
+							h("span", { className: "hint" }, o.hint));
+					}));
+			};
+
+			// —— 收集保存：与默认相同的项不落盘，保持 project.json 干净 ——
+			const collect = function () {
+				const pr = p.projects.find(function (x) { return x.slug === p.slug; }) || {};
+				const stageConfig = {};
+				STAGES.forEach(function (s) {
+					const def = p.defaults.stages[s.id];
+					const st = edit[s.id];
+					const out = {};
+					const prompts = {};
+					let prDirty = false;
+					Object.keys((def && def.prompts) || {}).forEach(function (k) {
+						if (st.prompts[k] !== def.prompts[k]) { prompts[k] = st.prompts[k]; prDirty = true; }
+					});
+					if (prDirty) out.prompts = prompts;
+					if (st.provider.trim()) out.provider = st.provider.trim();
+					if (st.model.trim()) out.model = st.model.trim();
+					if (st.reasoningEffort) out.reasoningEffort = st.reasoningEffort;
+					const tmin = parseInt(st.timeoutMin, 10);
+					if (tmin > 0) out.timeoutMs = tmin * 60000;
+					const mt = parseInt(st.maxTokens, 10);
+					if (mt > 0) out.maxTokens = mt;
+					if (s.id !== "P6" && st.delegate.mode === "session") {
+						const d = { mode: "session" };
+						if (st.delegate.agent.trim()) d.agent = st.delegate.agent.trim();
+						if (st.delegate.brief.trim()) d.brief = st.delegate.brief.trim();
+						out.delegate = d;
+					}
+					if (Object.keys(out).length) stageConfig[s.id] = out;
+				});
+				return {
+					name: pr.name || "",
+					slug: pr.slug || "",
+					repos: pr.repos || [],
+					triggers: pr.triggers || [],
+					reviewMode: pr.reviewMode || "every",
+					p6Mode: edit.P6.delegate.mode, // P6 执行模式与项目页同源（builtin/session/claude）
+					testCommand: (edit.P8.testCommand || "").trim(),
+					stageConfig,
+				};
+			};
+
+			const save = function () {
+				setSaving(true);
+				apiPost("/projects", collect()).then(function (r) {
+					setSaving(false);
+					if (r && r.ok) { p.toast("阶段配置已保存（下一阶段起生效）"); p.onSaved(p.slug); }
+					else p.toast((r && r.message) || "保存失败", "bad");
+				}).catch(function (err) { setSaving(false); p.toast("请求失败: " + err, "bad"); });
+			};
+
+			// 阶段是否已自定义（左列蓝点）：提示词偏离默认 / 路由覆盖 / 超时或 maxTokens 覆盖 / 委托开启
+			const isCustomized = function (sid) {
+				const def = p.defaults.stages[sid];
+				const st = edit[sid];
+				if (!def || !st) return false;
+				if (sid === "P6" && st.delegate.mode !== "builtin") return true;
+				if (sid !== "P6" && st.delegate.mode === "session") return true;
+				if (st.provider.trim() || st.model.trim() || st.reasoningEffort) return true;
+				if (parseInt(st.timeoutMin, 10) > 0 || parseInt(st.maxTokens, 10) > 0) return true;
+				return Object.keys((def.prompts) || {}).some(function (k) { return st.prompts[k] !== def.prompts[k]; });
+			};
+
+			const promptKeys = Object.keys((dDef && dDef.prompts) || {});
+			const roleLabel = { planner: "派单 Planner", coder: "编码 Coder", reviewer: "门控 Reviewer", desc: "PR 说明", gate: "Gate 评测" };
+			const effortOpts = [
+				{ value: "", label: "跟随全局", hint: "默认" },
+				{ value: "low", label: "浅", hint: "low" },
+				{ value: "medium", label: "中", hint: "medium" },
+				{ value: "high", label: "深", hint: "high" },
+			];
+
+			// 导入外部智能体简介（.md/.txt 文件 → brief）
+			const importBrief = function (file) {
+				if (!file) return;
+				const rd = new FileReader();
+				rd.onload = function () {
+					setDelegate({ brief: String(rd.result || "") });
+					p.toast("已导入 " + file.name + " 到附加要求");
+				};
+				rd.onerror = function () { p.toast("文件读取失败", "bad"); };
+				rd.readAsText(file, "utf8");
+			};
+
+			return h("div", null,
+				h("p", { className: "run-hint" },
+					"按阶段覆盖 ", h("b", null, "提示词 / 模型 / 思考深度 / 超时 / 委托外部智能体"),
+					"；留空 = 用默认值。保存写入 project.json，对进行中的 Run 从下一阶段起生效。"),
+				h("div", { className: "cfg-layout" },
+					h("div", { className: "steps", role: "list", "aria-label": "阶段列表" },
+						STAGES.map(function (s) {
+							const customized = isCustomized(s.id);
+							const dlg = edit[s.id] && edit[s.id].delegate.mode !== "off"
+								&& (s.id !== "P6" ? true : edit.P6.delegate.mode !== "builtin");
+							return h("button", {
+								key: s.id, role: "listitem",
+								className: "cfg-row" + (s.id === stageId ? " on" : "") + (s.bypass ? "" : ""),
+								onClick: function () { p.onSelectStage(s.id); },
+							},
+								h("span", { className: "sdot" }),
+								h("span", { className: "s-main" },
+									h("span", { className: "s-name" }, s.id + " · " + s.name,
+										customized ? h("span", { className: "cdot", title: "已自定义" }) : null),
+									h("span", { className: "s-desc" }, s.desc)),
+								h("span", { className: "s-side" },
+									dlg ? h("span", { className: "wtg" }, "委托") : null));
+						})),
+					h("div", { className: "card" },
+						h("div", { className: "detail-head" },
+							h("div", null,
+								h("h3", null, sDef.id + " · " + sDef.name),
+								h("div", { className: "path" },
+									sDef.desc + " · 产物 " + sDef.art + (dDef && dDef.delegateSpec ? " · 委托产出就绪判定：" + dDef.delegateSpec.output : "")))),
+						// —— 提示词（P7 无；P6 三角色 / P11 双角色） ——
+						promptKeys.length ? h("div", { className: "field" },
+							h("span", { className: "f-label" }, "提示词（system）"),
+							promptKeys.map(function (k) {
+								const isDefault = e.prompts[k] === dDef.prompts[k];
+								return h("div", { key: k || "_" },
+									h("div", { className: "pr-head" },
+										promptKeys.length > 1 ? h("span", { className: "f-label" }, roleLabel[k] || k) : null,
+										h("span", { className: "mark" }, isDefault ? "默认" : "已自定义"),
+										!isDefault ? h("button", {
+											type: "button", className: "btn sm", title: "恢复内置默认提示词",
+											onClick: function () { setPrompt(k, dDef.prompts[k]); },
+										}, Ic("reset", 12), " 恢复默认") : null),
+									h("textarea", {
+										className: "pr-input", value: e.prompts[k], spellCheck: false,
+										"aria-label": "提示词" + (promptKeys.length > 1 ? " · " + (roleLabel[k] || k) : ""),
+										onChange: function (ev) { setPrompt(k, ev.target.value); },
+									}));
+							})) : null,
+						// —— 模型 · 思考深度 ——
+						caps.route ? h("div", { className: "field" },
+							h("span", { className: "f-label" }, "模型 · 思考深度（留空 = 跟随全局宿主默认模型）"),
+							h("div", { className: "field-row" },
+								h("div", { className: "field", style: { marginBottom: 0 } },
+									h("label", { className: "f-label", htmlFor: "cfg-prov" }, "Provider"),
+									h("input", {
+										className: "f-input mono", id: "cfg-prov", value: e.provider,
+										placeholder: "跟随全局（如 deepseek-official）",
+										onChange: function (ev) { setSt({ provider: ev.target.value }); },
+									})),
+								h("div", { className: "field", style: { marginBottom: 0 } },
+									h("label", { className: "f-label", htmlFor: "cfg-model" }, "模型 ID"),
+									h("input", {
+										className: "f-input mono", id: "cfg-model", value: e.model,
+										placeholder: "跟随全局（如 deepseek-v4-pro）",
+										onChange: function (ev) { setSt({ model: ev.target.value }); },
+									}))),
+							h("div", { style: { marginTop: 10 } },
+								h("span", { className: "f-label", id: "cfg-eff-label" }, "思考深度（reasoningEffort）"),
+								radioGroup("cfg-eff-label", effortOpts, e.reasoningEffort,
+									function (v) { setSt({ reasoningEffort: v }); }, "eff"))) : null,
+						// —— 执行参数（超时 / maxTokens；P8 = 测试超时 + 测试命令） ——
+						caps.exec ? h("div", { className: "field" },
+							h("span", { className: "f-label" }, "执行参数（留空 = 默认）"),
+							h("div", { className: "field-row" },
+								h("div", { className: "field", style: { marginBottom: 0 } },
+									h("label", { className: "f-label", htmlFor: "cfg-timeout" },
+										stageId === "P8" ? "测试超时（分钟）" : "LLM 调用超时（分钟）"),
+									h("input", {
+										className: "f-input mono", id: "cfg-timeout", type: "number", min: 1,
+										value: e.timeoutMin, placeholder: "默认 " + (stageId === "P8"
+											? Math.round(p.defaults.testTimeoutMs / 60000)
+											: Math.round(p.defaults.llmTimeoutMs / 60000)) + " 分钟",
+										onChange: function (ev) { setSt({ timeoutMin: ev.target.value }); },
+									})),
+								stageId !== "P8" ? h("div", { className: "field", style: { marginBottom: 0 } },
+									h("label", { className: "f-label", htmlFor: "cfg-maxtok" }, "maxTokens"),
+									h("input", {
+										className: "f-input mono", id: "cfg-maxtok", type: "number", min: 1024,
+										value: e.maxTokens, placeholder: "默认 " + p.defaults.maxTokens,
+										onChange: function (ev) { setSt({ maxTokens: ev.target.value }); },
+									})) : null),
+							caps.test ? h("div", { style: { marginTop: 10 } },
+								h("label", { className: "f-label", htmlFor: "cfg-test" }, "测试命令（留空 = 自动探测 npm test）"),
+								h("input", {
+									className: "f-input mono", id: "cfg-test", value: e.testCommand,
+									placeholder: "如 npm test / python -m pytest …",
+									onChange: function (ev) { setSt({ testCommand: ev.target.value }); },
+								})) : null) : null,
+						// —— 委托外部智能体 ——
+						caps.delegate ? (function () {
+							if (stageId === "P6") {
+								// P6：执行模式与项目页同源（builtin/session/claude）
+								return h("div", { className: "field" },
+									h("span", { className: "f-label", id: "cfg-p6-label" }, "执行模式 · 委托外部智能体"),
+									radioGroup("cfg-p6-label", [
+										{ value: "builtin", label: "插件内多智能体", hint: "Planner/Coder/Reviewer" },
+										{ value: "session", label: "交给外部会话", hint: "生成任务包，人工交接" },
+										{ value: "claude", label: "委托 Claude Code", hint: "claude CLI 自动执行" },
+									], e.delegate.mode, function (v) { setDelegate({ mode: v }); }, "p6mode"),
+									h("p", { className: "hint-line", style: { margin: "8px 0 0" } },
+										"与「项目」页 P6 执行模式为同一配置（p6Mode）；claude 模式任务包自动执行，产出补丁后回复核门。"));
+							}
+							const on = e.delegate.mode === "session";
+							return h("div", { className: "field" },
+								h("span", { className: "f-label" }, "委托外部智能体（ACP）"),
+								h("div", { className: "dlg-row" },
+									h("input", {
+										type: "checkbox", id: "cfg-dlg-on", checked: on,
+										onChange: function (ev) { setDelegate({ mode: ev.target.checked ? "session" : "off" }); },
+									}),
+									h("label", { htmlFor: "cfg-dlg-on", style: { flex: 1 } },
+										h("span", { className: "lbl" }, "本阶段不调用插件内 LLM，生成任务包交外部智能体执行"),
+										h("div", { className: "sub" },
+											"开启后产出 ", h("span", { style: { fontFamily: "var(--mono)" } }, "delegate/" + stageId + "-task.md"),
+											"（含上游输入、输出契约" + (dDef && dDef.delegateSpec ? "，产出 " + dDef.delegateSpec.output + " 落盘后复核门可放行" : "") + "）。"))),
+								on ? h("div", null,
+									h("div", { className: "field" },
+										h("label", { className: "f-label", htmlFor: "cfg-agent" }, "外部智能体（名称/型号，写入任务包抬头）"),
+										h("input", {
+											className: "f-input mono", id: "cfg-agent", value: e.delegate.agent,
+											placeholder: "如 claude-code / codex-cli / 自定义智能体名",
+											onChange: function (ev) { setDelegate({ agent: ev.target.value }); },
+										})),
+									h("div", { className: "field" },
+										h("label", { className: "f-label", htmlFor: "cfg-brief" }, "附加要求（随任务包下发给智能体）"),
+										h("textarea", {
+											className: "f-input", id: "cfg-brief", value: e.delegate.brief,
+											placeholder: "对该智能体的额外要求、产出格式、注意事项…（也可从下方导入）",
+											onChange: function (ev) { setDelegate({ brief: ev.target.value }); },
+										}),
+										h("label", { className: "imp-label", style: { marginTop: 6 } },
+											Ic("upload", 12), " 导入外部智能体简介（.md / .txt）",
+											h("input", {
+												type: "file", accept: ".md,.txt,.markdown",
+												onChange: function (ev) { importBrief(ev.target.files && ev.target.files[0]); ev.target.value = ""; },
+											})))) : null);
+						})() : null,
+						// —— P7：确定性执行，无参数 ——
+						!promptKeys.length && !caps.route && !caps.exec && !caps.delegate
+							? h("div", { className: "callout", style: { marginTop: 0 } },
+								h("h4", null, "本阶段无可配置参数"),
+								h("p", { style: { margin: 0, fontSize: 13.5 } },
+									"P7 是确定性 patch 应用管线（版本校验 → 逐条落盘 → 写 ledger），不调用大模型；",
+									"每条 patch 可在「运行」页 P7 详情中逐条回滚。"))
+							: null,
+						h("div", { className: "cfg-foot" },
+							h("button", { type: "button", className: "btn pri", disabled: saving, onClick: save },
+								Ic("check"), saving ? " 保存中…" : " 保存阶段配置"),
+							h("span", { className: "hint-line", style: { margin: 0 } },
+								"写入 …\\issue2pr\\projects\\" + p.slug + "\\project.json 的 stageConfig 字段")))));
+		}
+
+		/* ================================================================
+		 * 05 说明
 		 * ================================================================ */
 		function GuidePanel() {
 			return h("div", { className: "guide" },
@@ -1182,16 +1759,22 @@ window.__ModuleLoader__.load({
 				h("div", { className: "grid-2" },
 					h("div", { className: "callout acc" },
 						h("h4", null, "复核模式"),
-						h("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 12.5 } },
+						h("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 13.5 } },
 							h("li", null, h("b", null, "每阶段都停"), " — 每阶段产物都等人工通过（默认）"),
 							h("li", null, h("b", null, "只停关键门"), " — P5 规划 / P6 代码 / P9 审查 / P11 PR"),
 							h("li", null, h("b", null, "全自动"), " — 不停顿，事后仍可打回重跑"))),
 					h("div", { className: "callout warn" },
 						h("h4", null, "失败怎么办"),
-						h("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 12.5 } },
+						h("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 13.5 } },
 							h("li", null, "阶段失败 → 自动经 P10 写失败分类，然后停住"),
 							h("li", null, "「重跑」从任一已到达阶段回退重跑"),
-							h("li", null, "P7 ledger 支持逐条回滚单个 patch")))),
+							h("li", null, "P7 ledger 支持逐条回滚单个 patch"))),
+					h("div", { className: "callout acc" },
+						h("h4", null, "按阶段调参"),
+						h("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 13.5 } },
+							h("li", null, "「配置」页逐阶段覆盖提示词 / 模型 / 思考深度 / 超时 / maxTokens"),
+							h("li", null, "可把任一 LLM 阶段委托外部智能体（生成任务包，产出落盘后回复核门）"),
+							h("li", null, "留空一律回落内置默认；保存后对进行中的 Run 下一阶段起生效")))),
 				h("div", { className: "card" },
 					h("h4", null, "数据落盘位置"),
 					h("p", { style: { margin: 0 } },
@@ -1214,6 +1797,15 @@ window.__ModuleLoader__.load({
 			const [selRunId, setSelRunId] = React.useState(null);
 			const [run, setRun] = React.useState(null);
 			const [tree, setTree] = React.useState(null);
+			const [cfgStage, setCfgStage] = React.useState("P1");
+			const [stageDefaults, setStageDefaults] = React.useState(null);
+
+			// 阶段默认值与能力表（配置页数据源；一次拉取）
+			React.useEffect(function () {
+				apiGet("/stage-defaults").then(function (r) {
+					if (r && r.ok) setStageDefaults(r.defaults);
+				}).catch(function () { /* 配置页会显示加载中 */ });
+			}, []);
 
 			// 竞态守卫键：始终反映最新的 slug/runId，异步响应到达时比对，
 			// 不匹配则丢弃（防止旧项目的 runs/run/tree 响应覆盖新选择）
@@ -1339,10 +1931,11 @@ window.__ModuleLoader__.load({
 			const awaitingCount = (runs || []).filter(function (r) { return r.status === "awaiting_review"; }).length;
 
 			const navDefs = [
-				{ id: "projects", label: "项目", meta: projects != null ? String(projects.length) : "", alert: false },
-				{ id: "runs", label: "运行", meta: runs != null ? (awaitingCount > 0 ? awaitingCount + " 待复核" : String(runs.length)) : "", alert: awaitingCount > 0 },
-				{ id: "artifacts", label: "产物", meta: "", alert: false },
-				{ id: "guide", label: "说明", meta: "", alert: false },
+				{ id: "projects", label: "项目", icon: "folder", meta: projects != null ? String(projects.length) : "", alert: false },
+				{ id: "runs", label: "运行", icon: "play", meta: runs != null ? (awaitingCount > 0 ? awaitingCount + " 待复核" : String(runs.length)) : "", alert: awaitingCount > 0 },
+				{ id: "artifacts", label: "产物", icon: "box", meta: "", alert: false },
+				{ id: "config", label: "配置", icon: "sliders", meta: "", alert: false },
+				{ id: "guide", label: "说明", icon: "book", meta: "", alert: false },
 			];
 
 			const navKey = function (e, i) {
@@ -1352,33 +1945,88 @@ window.__ModuleLoader__.load({
 				navDefs[next] && setNav(navDefs[next].id);
 			};
 
+			const navState = useNavState();
+
 			const navEls = navDefs.map(function (t, i) {
 				return h("li", { key: t.id },
 					h("button", {
 						className: "i2p-nav-cell" + (nav === t.id ? " on" : ""), role: "tab",
 						"aria-selected": nav === t.id ? "true" : "false",
+						style: { "--i": i }, title: t.label,
 						onClick: function () { setNav(t.id); },
 						onKeyDown: function (e) { navKey(e, i); },
-					}, t.label, t.meta ? h("span", { className: "cnt" + (t.alert ? " alert" : "") }, t.meta) : null));
+					}, Ic(t.icon, 15), h("span", { className: "lb" }, t.label),
+					t.meta ? h("span", { className: "cnt" + (t.alert ? " alert" : "") }, t.meta) : null));
 			});
+
+			// 目录列拖宽：原生事件委托（React 合成事件在宿主注入环境下不可靠），
+			// pointer 拖动 + 双击手柄恢复默认宽（拖动的单指针替代路径）
+			React.useEffect(function () {
+				const gripOf = function (t) { return t && t.closest ? t.closest(".i2p-nav-grip") : null; };
+				const down = function (e) {
+					const grip = gripOf(e.target);
+					if (!grip || e.button !== 0) return;
+					const navEl = grip.parentElement;
+					if (!navEl) return;
+					e.preventDefault();
+					const rect = navEl.getBoundingClientRect();
+					document.body.classList.add("i2p-dragging");
+					navEl.classList.add("no-anim");
+					const move = function (ev) { navStore.setWidth(ev.clientX - rect.left, false); };
+					const up = function () {
+						window.removeEventListener("pointermove", move);
+						window.removeEventListener("pointerup", up);
+						document.body.classList.remove("i2p-dragging");
+						navEl.classList.remove("no-anim");
+						navStore.setWidth(navStore.width, true);
+					};
+					window.addEventListener("pointermove", move);
+					window.addEventListener("pointerup", up);
+				};
+				const dbl = function (e) {
+					if (gripOf(e.target)) navStore.setWidth(240, true);
+				};
+				document.addEventListener("pointerdown", down);
+				document.addEventListener("dblclick", dbl);
+				return function () {
+					document.removeEventListener("pointerdown", down);
+					document.removeEventListener("dblclick", dbl);
+				};
+			}, []);
 
 			const secSub = {
 				projects: "配置仓库与触发源——所有 Run 从这里发起。",
 				runs: "11 阶段流水线——逐段查看产物、逐段推进。",
 				artifacts: "Run 的完整产物目录——证据链都在这里。",
+				config: "逐阶段覆盖提示词、模型、思考深度、超时与委托外部智能体。",
 				guide: "工作原理与阶段速查。",
 			}[nav];
 
-			return h("div", { className: "i2p" },
+				return h("div", { className: "i2p" },
 				h("div", { className: "i2p-body" },
-					h("nav", { className: "i2p-nav", "aria-label": "工作台目录" },
-						h("div", { className: "i2p-nav-title" }, "Issue2PR"),
+					h("nav", {
+						className: "i2p-nav" + (navState.open ? "" : " rail"), "aria-label": "工作台目录",
+						style: { "--i2p-nav-w": navState.width + "px" },
+					},
+						h("div", { className: "i2p-nav-title" },
+							h("button", {
+								type: "button", className: "i2p-nav-collapse",
+								onClick: function () { navStore.setOpen(!navState.open); },
+								"aria-expanded": navState.open ? "true" : "false",
+								"aria-label": navState.open ? "收起侧边栏" : "展开侧边栏",
+								title: navState.open ? "收起侧边栏" : "展开侧边栏",
+							}, Ic(navState.open ? "collapse" : "expand", 15)),
+							h("span", { className: "tt" }, "Issue2PR")),
 						h("ul", { className: "i2p-nav-list", role: "tablist" }, navEls),
 						h("p", { className: "i2p-nav-note" },
-							"状态每 3 秒自动刷新；产物目录可通过「打开目录」在文件管理器中查看。")),
+							"状态每 3 秒自动刷新；产物目录可通过「打开目录」在文件管理器中查看。"),
+						h("div", {
+							className: "i2p-nav-grip", role: "separator", "aria-orientation": "vertical",
+							"aria-label": "拖动调整目录列宽度（双击恢复默认）", title: "拖动调整宽度 · 双击恢复默认",
+						})),
 					h("main", { className: "i2p-main" },
 						h("div", { className: "sec" },
-							h("h2", null, nav === "projects" ? "项目" : nav === "runs" ? "运行" : nav === "artifacts" ? "产物" : "说明"),
+							h("h2", null, nav === "projects" ? "项目" : nav === "runs" ? "运行" : nav === "artifacts" ? "产物" : nav === "config" ? "配置" : "说明"),
 							h("p", { className: "sub" }, secSub)),
 						nav === "projects" ? h(ProjectsPanel, {
 							projects: projects,
@@ -1399,12 +2047,22 @@ window.__ModuleLoader__.load({
 							onPickRun: function (id) { setSelRunId(id); },
 							onChanged: refreshNow,
 							onDeleted: onRunDeleted,
+							onOpenConfig: function (sid) { setCfgStage(sid || "P1"); setNav("config"); },
 						}) : null,
 						nav === "artifacts" ? h(ArtifactsPanel, {
 							slug: selSlug,
 							runId: selRunId,
 							tree: tree,
 							toast: toastFn,
+						}) : null,
+						nav === "config" ? h(StageConfigPanel, {
+							defaults: stageDefaults,
+							projects: projects,
+							slug: selSlug,
+							selStage: cfgStage,
+							onSelectStage: setCfgStage,
+							toast: toastFn,
+							onSaved: onSaved,
 						}) : null,
 						nav === "guide" ? h(GuidePanel, null) : null)),
 				toast ? h("div", {
@@ -1414,17 +2072,17 @@ window.__ModuleLoader__.load({
 		}
 
 		/* ================================================================
-		 * 悬浮层开关（sidebar.footer.action 入口 ↔ shell.overlay 共享）
+		 * 工作台开关（sidebar.footer.action 入口 ↔ conversation.input.dock 面板共享）
 		 * ================================================================ */
-		const overlayStore = {
+		const panelStore = {
 			open: false,
 			listeners: new Set(),
 			set(v) { this.open = v; for (const fn of this.listeners) fn(); },
 			subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
 		};
-		function useOverlayOpen() {
-			const [open, setOpen] = React.useState(overlayStore.open);
-			React.useEffect(() => overlayStore.subscribe(() => setOpen(overlayStore.open)), []);
+		function usePanelOpen() {
+			const [open, setOpen] = React.useState(panelStore.open);
+			React.useEffect(() => panelStore.subscribe(() => setOpen(panelStore.open)), []);
 			return open;
 		}
 
@@ -1441,49 +2099,77 @@ window.__ModuleLoader__.load({
 		}
 
 		// 侧边栏底部入口按钮：1:1 复刻宿主设置按钮几何与交互
-		// （宽列 = 42px 整行·图标+文字靠左；收起列 = 36×36 圆形·仅图标）
+		// （宽列 = 42px 整行·图标+文字靠左；收起列 = 36×36 圆形·仅图标；点击开/关工作台）
 		function FooterEntry(props) {
 			const wide = !!(props && props.wide);
-			const open = useOverlayOpen();
+			const open = usePanelOpen();
 			return h("button", {
 				type: "button", className: "i2p-entry" + (wide ? "" : " rail"),
-				onClick: () => overlayStore.set(true),
-				"aria-haspopup": "dialog", "aria-expanded": open ? "true" : "false",
+				onClick: () => panelStore.set(!open),
+				"aria-expanded": open ? "true" : "false",
 			},
 				h(EntryGlyph, { width: wide ? 16 : 18, height: wide ? 16 : 18 }),
 				wide ? h("span", { className: "i2p-entry-label" }, "Issue2PR") : null);
 		}
 
-		// 悬浮全屏工作台（shell.overlay 槽位：未开启时渲染 null，天然点击穿透）
-		function OverlayEntry() {
-			const open = useOverlayOpen();
+		// 主区整页工作台（shell.overlay 槽位）：贴合 conversation 列 rect，
+		// 未开启时渲染 null；sidebar 拖动/窗口缩放实时跟随
+		function WorkbenchPage() {
+			const open = usePanelOpen();
 			const closeRef = React.useRef(null);
+			const [rect, setRect] = React.useState(null);
 			React.useEffect(() => {
 				if (!open) return undefined;
-				const onKey = (e) => { if (e.key === "Escape") overlayStore.set(false); };
+				const onKey = (e) => { if (e.key === "Escape") panelStore.set(false); };
 				window.addEventListener("keydown", onKey);
 				if (closeRef.current) closeRef.current.focus();
 				return () => window.removeEventListener("keydown", onKey);
 			}, [open]);
-			if (!open) return null;
-			return h("div", { className: "i2p-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Issue2PR 工作台" },
-				h("div", { className: "i2p-overlay-mask", onClick: () => overlayStore.set(false) }),
-				h("div", { className: "i2p-panel" },
-					h("div", { className: "i2p-head" },
-						h("span", { className: "brand" },
-							h(EntryGlyph, { width: 16, height: 16, style: { alignSelf: "center" } }),
-							h("b", null, "Issue2PR"),
-							h("span", null, "ISSUE → PR")),
-						h("span", { className: "om" }, "v0.3"),
-						h("button", {
-							type: "button", className: "i2p-close", ref: closeRef,
-							onClick: () => overlayStore.set(false), "aria-label": "关闭（Esc）",
-						}, Ic("x", 15))),
-					h("div", { className: "i2p-overlay-body" }, h(Section))));
+			React.useLayoutEffect(() => {
+				if (!open) { setRect(null); return undefined; }
+				// conversation 槽位 anchor 的父级即主内容列（CenterColumn）。
+				// 用轻量轮询贴合而非 resize/ResizeObserver：嵌入式 webview（IAB）
+				// 里两者都可能不触发；300ms 轮询一次 getBoundingClientRect 且值
+				// 不变不 setState，顺带覆盖 sidebar 拖动、details 开关等一切变化
+				const anchor = document.querySelector('[data-slot="conversation"]');
+				const host = anchor && anchor.parentElement;
+				if (!host) return undefined;
+				let last = "";
+				const tick = () => {
+					const r = host.getBoundingClientRect();
+					const key = r.left + "," + r.top + "," + r.width + "," + r.height;
+					if (key !== last) {
+						last = key;
+						setRect({ left: r.left, top: r.top, width: r.width, height: r.height });
+					}
+				};
+				tick();
+				const timer = setInterval(tick, 300);
+				return () => clearInterval(timer);
+			}, [open]);
+			if (!open || rect === null) return null;
+			return h("div", {
+				className: "i2p-page", role: "region", "aria-label": "Issue2PR 工作台",
+				style: {
+					left: rect.left + "px", top: rect.top + "px",
+					width: rect.width + "px", height: rect.height + "px",
+				},
+			},
+				h("div", { className: "i2p-head" },
+					h("span", { className: "brand" },
+						h(EntryGlyph, { width: 16, height: 16, style: { alignSelf: "center" } }),
+						h("b", null, "Issue2PR"),
+						h("span", null, "ISSUE → PR"),
+						h("span", { className: "om" }, "v0.3")),
+					h("button", {
+						type: "button", className: "i2p-close", ref: closeRef,
+						onClick: () => panelStore.set(false), "aria-label": "关闭（Esc）",
+					}, Ic("x", 15))),
+				h("div", { className: "i2p-page-body" }, h(Section)));
 		}
 
 		/* ================================================================
-		 * apply：主入口 = 侧边栏底部按钮 + 悬浮工作台；
+		 * apply：主入口 = 侧边栏底部按钮 + 主区整页工作台；
 		 *        settings.section 保留为次级入口
 		 * ================================================================ */
 		function apply(ctx) {
@@ -1494,7 +2180,7 @@ window.__ModuleLoader__.load({
 			ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register(
 				{ name: "sidebar.footer.action", id: "issue2pr", order: 30 }, FooterEntry), "issue2pr: sidebar entry");
 			ctx.slots.inject("shell.overlay", () => ctx.slots.register(
-				{ name: "shell.overlay", id: "issue2pr", order: 90 }, OverlayEntry), "issue2pr: overlay");
+				{ name: "shell.overlay", id: "issue2pr", order: 90 }, WorkbenchPage), "issue2pr: main-area page");
 		}
 		exports.apply = apply;
 		exports.inject = ["slots", "locale"];

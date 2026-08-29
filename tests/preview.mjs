@@ -203,8 +203,15 @@ window.fetch = (url) => {
 };
 
 // —— 宿主 ModuleLoader 模拟：载入真实 client.js ——
+// 宿主官方 MarkdownText 的排版与样式在宿主全局样式表里，预览台还原不了，退化为纯文本模拟（真实验收看真实宿主）。
 let modExports = null;
-window.__ModuleLoader__ = { load(def) { modExports = def.factory((id) => { if (id === "react") return React; throw new Error("unknown: " + id); }); } };
+window.__ModuleLoader__ = { load(def) { modExports = def.factory((id) => {
+  if (id === "react") return React;
+  if (id === "@deepseek-ai/dsh-client-ui-primitives") {
+    return { MarkdownText: ({ text }) => React.createElement("pre", { style: { whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" } }, text) };
+  }
+  throw new Error("unknown: " + id);
+}); } };
 </script>
 <script>
 ${client}

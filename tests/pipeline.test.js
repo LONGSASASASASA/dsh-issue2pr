@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { STAGES, MAIN_FLOW, initRun, saveRun, loadRun, isGate, advance, applyReview } from "../lib/pipeline.js";
@@ -106,4 +106,32 @@ test("advance 失败路径写失败事件（ok:false + 错误详情）", async (
   await advance(rcx);
   const evs = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   assert.ok(evs.some((e) => e.stage === "P1" && e.ok === false && /炸了/.test(e.detail)));
+});
+
+test("P6 external（session）：事件不说\"完成\"；空 patches 拒绝 approve，产出后放行", async () => {
+  const { runDir, run } = freshRun("key-only"); // P1-P4 直过，P5/P6 是门
+  run.p6Mode = "session";
+  const extExec = { ...okExecutors,
+    P6: async () => ({ artifact: "06-implementation/session-task.md", summary: "任务包已生成，等待外部 DSH 会话执行", external: true }) };
+  const rcx = { runDir, run, executors: extExec, log() {} };
+  await advance(rcx); // 停 P5
+  applyReview(rcx, { decision: "approve", comment: "" });
+  await advance(rcx); // 跑 P6 → external → awaiting_review
+  assert.equal(run.stages.P6.status, "awaiting_review");
+  assert.equal(run.stages.P6.external, true);
+  assert.equal(loadRun(runDir).stages.P6.external, true); // 已落盘
+  const evs = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.ok(evs.some((e) => e.stage === "P6" && /任务包已生成 · 等待外部会话执行/.test(e.name)), "事件应写明等待外部会话执行");
+  assert.ok(!evs.some((e) => e.stage === "P6" && /完成/.test(e.name)), "P6 未实施完成，事件不得出现\"完成\"");
+  // 空 patches：approve 被拦（否则 P7 必然无 patch 可用而失败）
+  const [ok1, msg1] = applyReview(rcx, { decision: "approve", comment: "" });
+  assert.equal(ok1, false);
+  assert.match(msg1, /session 模式/);
+  assert.equal(run.stages.P6.status, "awaiting_review");
+  // 外部会话产出 patch → 放行
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
+  const [ok2] = applyReview(rcx, { decision: "approve", comment: "" });
+  assert.ok(ok2);
+  assert.equal(run.stages.P6.status, "approved");
 });
