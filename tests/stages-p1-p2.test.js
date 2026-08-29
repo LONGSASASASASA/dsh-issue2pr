@@ -94,3 +94,61 @@ test("helpers：有 GITHUB_TOKEN 时 GitHub API 请求带 Authorization 头", as
     if (realToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = realToken;
   }
 });
+
+test("helpers：GitHub 连接 token 优先于环境变量（rcx.connections 注入）", async () => {
+  const realFetch = globalThis.fetch;
+  const realToken = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_TOKEN = "env-token";
+  let seen = null;
+  globalThis.fetch = async (_url, opts) => {
+    seen = opts.headers;
+    return { ok: true, status: 200, json: async () => ({ title: "T", body: "B" }) };
+  };
+  try {
+    const conns = [{ id: "github.com", kind: "github", host: "github.com", token: "conn-token" }];
+    await readTriggerText({ trigger: { uri: "https://github.com/o/r/issues/1" }, connections: conns });
+    assert.equal(seen.Authorization, "Bearer conn-token", "连接 token 应压过环境变量");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = realToken;
+  }
+});
+
+test("helpers：GitLab issue URL 解析为 /api/v4 调用，连接 token 走 Bearer", async () => {
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (u, opts) => {
+    seen.push([String(u), opts.headers.Authorization]);
+    return { ok: true, status: 200, json: async () => ({ title: "LT", description: "LB" }) };
+  };
+  try {
+    const conns = [{ id: "gitlab.example.com", kind: "gitlab", host: "gitlab.example.com", token: "glt" }];
+    const text = await readTriggerText({
+      trigger: { uri: "https://gitlab.example.com/group/proj/-/issues/42" } ,
+      connections: conns,
+    });
+    assert.match(text, /# LT/);
+    assert.match(text, /LB/, "GitLab issue 正文取 description 字段");
+    assert.deepEqual(seen[0], ["https://gitlab.example.com/api/v4/projects/group%2Fproj/issues/42", "Bearer glt"]);
+    // 无连接 → 匿名请求（公开仓库）
+    await readTriggerText({ trigger: { uri: "https://gitlab.com/group/proj/-/issues/42" } });
+    assert.equal(seen[1][0], "https://gitlab.com/api/v4/projects/group%2Fproj/issues/42");
+    assert.equal(seen[1][1], undefined);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test("helpers：GitLab 401/404 文案指向项目页连接配置", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 404 });
+  try {
+    await assert.rejects(
+      () => readTriggerText({ trigger: { uri: "https://gitlab.com/g/p/-/issues/1" } }),
+      /GitLab issue 获取失败 \(HTTP 404\).*Git 托管连接/,
+    );
+    globalThis.fetch = async () => ({ ok: false, status: 401 });
+    await assert.rejects(
+      () => readTriggerText({ trigger: { uri: "https://gitlab.com/g/p/-/issues/1" } }),
+      /凭据缺失或无效.*Git 托管连接/,
+    );
+  } finally { globalThis.fetch = realFetch; }
+});

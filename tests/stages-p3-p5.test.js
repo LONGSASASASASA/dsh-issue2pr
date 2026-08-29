@@ -37,6 +37,7 @@ test("P3：读真实候选文件内容产出 md 报告", async () => {
   const r = await p3({ runDir, repoDir, llm, reviewComment: "" });
   assert.equal(r.artifact, "03-code-understanding.md");
   assert.match(seenUser, /restoreSession/);           // 真实文件内容进了 prompt
+  assert.match(seenUser, /1\|export function routerGuard/); // 源码带真实行号前缀（供报告引用 路径:行号 锚点）
   assert.equal(readFileSync(join(runDir, r.artifact), "utf8"), "# 报告");
 });
 

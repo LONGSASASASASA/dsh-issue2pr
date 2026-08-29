@@ -428,6 +428,22 @@ body.i2p-dragging{user-select:none}
   color:var(--dsw-alias-label-primary,#17181f);padding:9px 16px;border-radius:10px;font-size:14px;
   z-index:2100;max-width:70%;box-shadow:0 4px 18px rgba(9,12,20,.14)}
 .i2p-toast.t-bad{border-left-color:var(--dsw-alias-state-error-primary,#d5463a)}
+.i2p-toast.t-warn{border-left-color:var(--dsw-alias-state-warn-label,#9a6700)}
+
+/* ===== Git 托管连接（项目页）：host 徽章 + 连接列表 ===== */
+.i2p .host-badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:1px 9px;
+  border-radius:999px;border:1px solid var(--line);color:var(--muted);max-width:100%}
+.i2p .host-badge.ok{color:var(--good);border-color:transparent;background:var(--good-bg)}
+.i2p .host-badge.warn{color:var(--warn);border-color:transparent;background:var(--warn-bg)}
+.i2p .host-badge .hb-host{font-family:var(--mono);font-size:11.5px}
+.i2p .repo-row-2{display:flex;gap:6px;margin:-2px 0 8px;align-items:center;flex-wrap:wrap}
+.i2p .conn-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 10px}
+.i2p .conn-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);
+  border-radius:10px;flex-wrap:wrap}
+.i2p .conn-row .cn-kind{flex:none;font-size:12px;font-weight:600;color:var(--accent)}
+.i2p .conn-row .cn-host{font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+.i2p .conn-row .cn-tok{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.i2p .conn-row .cn-act{margin-left:auto;display:flex;gap:6px}
 
 /* ---- 侧边栏入口按钮：1:1 复刻宿主设置按钮（settings-general VOzbGW_trigger 配方） ---- */
 .i2p-entry{box-sizing:border-box;cursor:pointer;width:calc(100% + 4px);height:42px;
@@ -457,26 +473,29 @@ body.i2p-dragging{user-select:none}
 .i2p-close:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .i2p-page-body{flex:1;min-height:0;display:flex}
 
-/* ===== 悬浮智能助手（右上角悬浮球 + 右侧滑出对话栏；渲染层压过一切插件/宿主内容层） ===== */
+/* ===== 悬浮智能助手（瑞士极简：去气泡、去 AI 符号，天蓝只做强调色系） ===== */
 .i2p-ai{position:absolute;inset:0;pointer-events:none;z-index:9999}
-.i2p-ai-fab{pointer-events:auto;position:absolute;top:64px;right:88px;width:36px;height:36px;border-radius:50%;
-  border:1px solid color-mix(in srgb,#3aa0f5 26%,var(--line-2,#d8dae3));
-  background:color-mix(in srgb,#3aa0f5 14%,var(--panel,#fff));color:var(--accent);display:inline-flex;
-  align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(9,12,20,.10);
-  transition:transform .16s,box-shadow .16s,border-color .16s,color .16s}
-.i2p-ai-fab:hover{transform:translateY(-1px);border-color:var(--accent);box-shadow:0 4px 16px rgba(9,12,20,.16)}
+.i2p-ai button{font-family:inherit;cursor:pointer;color:inherit}
+/* 入口 = 中性工具钮（非"AI 球"）：描边消息图标，hover 才显底；开启态反色 */
+.i2p-ai-fab{pointer-events:auto;position:absolute;top:64px;right:88px;width:30px;height:30px;border-radius:9px;
+  border:1px solid color-mix(in srgb,#3aa0f5 24%,var(--line-2,#d8dae3));
+  background:color-mix(in srgb,#3aa0f5 9%,var(--panel,#fff));color:var(--ink-2,#414351);
+  display:inline-flex;align-items:center;justify-content:center;
+  box-shadow:0 1px 4px rgba(9,12,20,.08);
+  transition:background .18s,color .18s,border-color .18s,transform .12s}
+.i2p-ai-fab:hover{background:color-mix(in srgb,#3aa0f5 16%,var(--panel,#fff));color:var(--ink);transform:translateY(-1px)}
 .i2p-ai-fab:active{transform:scale(.95)}
-.i2p-ai-fab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.i2p-ai-fab.on{background:var(--ink,#17181f);color:var(--card,#fff);border-color:var(--ink,#17181f)}
 @keyframes i2p-ai-in{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
-/* 面板底色：很轻的天蓝（浅色主题），深色主题自动转深蓝调——color-mix 混主题底色，
-   保证官方 Markdown 文字（随主题变色）在两种主题下都正常可读 */
+/* 面板：轻天蓝底（color-mix 混主题底色，浅色=淡天蓝/深色=深蓝调，官方 Markdown 文字两主题可读），
+   全部强调（边框/focus/hover/chip 圆点）统一同一天蓝色系，避免杂色 */
 .i2p-ai-panel{pointer-events:auto;position:absolute;top:60px;right:78px;bottom:16px;width:min(400px,calc(100% - 120px));
   max-width:calc(100% - 100px);
   display:flex;flex-direction:column;
-  background:color-mix(in srgb,#3aa0f5 8%,var(--panel,#fff));
-  border:1px solid color-mix(in srgb,#3aa0f5 24%,var(--line-2,#d8dae3));border-radius:14px;
-  box-shadow:0 8px 32px rgba(9,12,20,.14);overflow:hidden;
-  animation:i2p-ai-in .22s cubic-bezier(.2,.8,.2,1)}
+  background:color-mix(in srgb,#3aa0f5 7%,var(--panel,#fff));
+  border:1px solid color-mix(in srgb,#3aa0f5 20%,var(--line-2,#d8dae3));border-radius:12px;
+  box-shadow:0 6px 28px rgba(9,12,20,.12);overflow:hidden;
+  animation:i2p-ai-in .2s cubic-bezier(.2,.8,.2,1)}
 /* 尺寸手柄：贴面板边内侧（外伸会被 overflow:hidden 裁剪点不到）；hover 显蓝 */
 .i2p-ai-grip-w,.i2p-ai-grip-h{position:absolute;z-index:3;touch-action:none}
 .i2p-ai-grip-w{left:0;top:0;bottom:0;width:8px;cursor:col-resize}
@@ -484,30 +503,42 @@ body.i2p-dragging{user-select:none}
 .i2p-ai-grip-w:hover,.i2p-ai-grip-h:hover{
   background:color-mix(in srgb,#3aa0f5 32%,transparent)}
 body.i2p-dragging-r *{cursor:row-resize!important}
-.i2p-ai-head{flex:none;display:flex;align-items:center;gap:8px;padding:12px 14px 8px}
-.i2p-ai-title{display:inline-flex;align-items:center;gap:7px;color:var(--accent)}
-.i2p-ai-title b{font-size:15px;color:var(--ink)}
-.i2p-ai-close{margin-left:auto;width:26px;height:26px;border:none;border-radius:8px;background:none;
-  color:var(--muted);display:inline-flex;align-items:center;justify-content:center}
+/* 头部：标题 + 小字副题 + 关闭，细分割线（无图标） */
+.i2p-ai-head{flex:none;display:flex;align-items:baseline;gap:8px;padding:11px 14px;
+  border-bottom:1px solid color-mix(in srgb,#3aa0f5 14%,var(--line,#e5e6ec))}
+.i2p-ai-title{font-size:13.5px;font-weight:600;color:var(--ink);letter-spacing:.01em}
+.i2p-ai-sub{font-size:11.5px;color:var(--muted)}
+.i2p-ai-close{margin-left:auto;align-self:center;width:26px;height:26px;border:none;border-radius:7px;background:none;
+  color:var(--muted);display:inline-flex;align-items:center;justify-content:center;
+  transition:background .15s,color .15s}
 .i2p-ai-close:hover{background:var(--hover);color:var(--ink)}
-.i2p-ai-hint{flex:none;margin:0 14px 10px;font-size:12.5px;color:var(--muted);line-height:1.55;
-  border-bottom:1px dashed var(--line);padding-bottom:10px}
-.i2p-ai-msgs{flex:1;min-height:0;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;
+/* 消息区：助手回答平铺（与宿主聊天区同语言），用户问题轻底块 */
+.i2p-ai-msgs{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px;
   scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
 .i2p-ai-msgs::-webkit-scrollbar{width:6px}
 .i2p-ai-msgs::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
-.i2p-ai-chips{display:flex;flex-direction:column;gap:8px;padding-top:4px}
-.i2p-ai-chip{text-align:left;background:none;border:1px dashed var(--line-2);border-radius:10px;
-  padding:8px 12px;font-size:13.5px;color:var(--ink-2);transition:border-color .14s,color .14s}
-.i2p-ai-chip:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+/* 空态：一句能力说明 + 快捷问题（浅底单行钮，前缀天蓝圆点） */
+.i2p-ai-empty{display:flex;flex-direction:column;gap:10px;padding-top:2px}
+.i2p-ai-hint{margin:0;font-size:12.5px;color:var(--muted);line-height:1.6}
+.i2p-ai-chip{display:flex;align-items:center;gap:8px;text-align:left;
+  background:color-mix(in srgb,var(--card,#fff) 58%,transparent);
+  border:none;border-radius:8px;padding:7px 11px;font-size:13px;color:var(--ink-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:background .15s,color .15s}
+.i2p-ai-chip::before{content:"";flex:none;width:5px;height:5px;border-radius:50%;
+  background:color-mix(in srgb,#3aa0f5 70%,var(--muted,#82848f))}
+.i2p-ai-chip:hover:not(:disabled){background:color-mix(in srgb,#3aa0f5 12%,var(--panel,#fff));color:var(--ink)}
 .i2p-ai-chip:disabled{opacity:.5;cursor:default}
-.i2p-ai-m{max-width:92%;border-radius:12px;padding:8px 12px;font-size:14px;line-height:1.65}
-.i2p-ai-m.user{align-self:flex-end;background:var(--accent);color:#fff;white-space:pre-wrap;word-break:break-word;
-  border-bottom-right-radius:4px}
-.i2p-ai-m.assistant{align-self:flex-start;background:var(--hover);border-bottom-left-radius:4px;overflow-wrap:break-word}
-.i2p-ai-m.assistant.err{background:var(--err-bg);color:var(--err)}
+/* 用户问题：半透明卡色块（在蓝底上呈更浅的蓝白），全宽不挤字 */
+.i2p-ai-m{max-width:100%;font-size:13.5px;line-height:1.65}
+.i2p-ai-m.user .i2p-ai-t{background:color-mix(in srgb,var(--card,#fff) 62%,transparent);
+  border:1px solid color-mix(in srgb,#3aa0f5 12%,var(--line,#e5e6ec));
+  border-radius:10px;padding:8px 12px;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+.i2p-ai-m.assistant{overflow-wrap:break-word}
+.i2p-ai-m.assistant.err .i2p-ai-t{color:var(--err);font-size:12.5px;
+  background:var(--err-bg,rgba(213,70,58,.10));border-radius:8px;padding:7px 11px}
 .i2p-ai-m .i2p-ai-t{white-space:pre-wrap;word-break:break-word}
-.i2p-ai-md{font-size:13.5px}
+.i2p-ai-md{font-size:13.5px;color:var(--ink)}
 .i2p-ai-md :first-child{margin-top:0}
 .i2p-ai-md :last-child{margin-bottom:0}
 /* 流式等待：三点呼吸 */
@@ -517,17 +548,24 @@ body.i2p-dragging-r *{cursor:row-resize!important}
   animation:i2p-ai-dot 1.2s ease-in-out infinite}
 .i2p-ai-dots i:nth-child(2){animation-delay:.2s}
 .i2p-ai-dots i:nth-child(3){animation-delay:.4s}
-.i2p-ai-input{flex:none;display:flex;gap:8px;align-items:flex-end;padding:10px 12px 12px;border-top:1px solid var(--line)}
-.i2p-ai-input textarea{flex:1;min-height:44px;max-height:120px;resize:none;background:var(--card);
-  border:1px solid var(--line-2);border-radius:10px;color:var(--ink);padding:8px 10px;font-size:13.5px;
+/* 输入区：半透明卡色输入框 + 图标钮（生成中变停止，可中断） */
+.i2p-ai-input{flex:none;display:flex;gap:8px;align-items:flex-end;padding:10px 12px 12px;
+  border-top:1px solid color-mix(in srgb,#3aa0f5 14%,var(--line,#e5e6ec))}
+.i2p-ai-input textarea{flex:1;min-height:40px;max-height:120px;resize:none;
+  background:color-mix(in srgb,var(--card,#fff) 66%,transparent);
+  border:1px solid color-mix(in srgb,#3aa0f5 16%,var(--line-2,#d8dae3));
+  border-radius:9px;color:var(--ink);padding:8px 11px;font-size:13.5px;
   line-height:1.55;font-family:inherit;transition:border-color .15s}
-.i2p-ai-input textarea:focus{border-color:var(--accent)}
-.i2p-ai-send{flex:none;display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 12px;
-  border:1px solid var(--line-2);border-radius:10px;background:var(--card);color:var(--accent);font-size:13px;
-  transition:border-color .14s,background .14s,transform .1s}
-.i2p-ai-send:hover:not(:disabled){border-color:var(--accent)}
-.i2p-ai-send:active:not(:disabled){transform:scale(.97)}
-.i2p-ai-send:disabled{opacity:.45;cursor:default}
+.i2p-ai-input textarea:focus{border-color:color-mix(in srgb,#3aa0f5 55%,var(--line-2,#d8dae3))}
+.i2p-ai-input textarea::placeholder{color:var(--muted)}
+.i2p-ai-send{flex:none;width:38px;height:38px;border-radius:9px;
+  border:1px solid color-mix(in srgb,#3aa0f5 30%,var(--line-2,#d8dae3));
+  background:color-mix(in srgb,#3aa0f5 12%,var(--panel,#fff));color:var(--ink-2);
+  display:inline-flex;align-items:center;justify-content:center;
+  transition:background .15s,border-color .15s,color .15s,transform .1s}
+.i2p-ai-send:hover:not(:disabled){border-color:color-mix(in srgb,#3aa0f5 55%,var(--line-2,#d8dae3));color:var(--ink)}
+.i2p-ai-send:active:not(:disabled){transform:scale(.95)}
+.i2p-ai-send:disabled{opacity:.4;cursor:default}
 @media (max-width:880px){
   .i2p-ai-fab{right:88px;top:60px}
   .i2p-ai-panel{width:min(360px,calc(100% - 100px))}
@@ -703,6 +741,7 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 			reset: '<path d="M3 2v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/>',
 			sparkle: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
 			send: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
+			msg: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
 		};
 		function Ic(name, size) {
 			return h("svg", {
@@ -757,12 +796,156 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 		}
 
 		/* ================================================================
+		 * Git 托管连接辅助：host 解析（与服务端 lib/connections.js 对齐）。
+		 * 支持 https / ssh:// / scp（git@host:path）三种形态。
+		 * ================================================================ */
+		function hostOfUri(uri) {
+			const s = String(uri || "").trim();
+			const m = s.match(/^(?:https?|ssh|git):\/\/(?:[^@\/]+@)?([^\/:?#]+)/i);
+			if (m) return m[1].toLowerCase();
+			const scp = s.match(/^git@([^\/:?#]+):/);
+			return scp ? scp[1].toLowerCase() : null;
+		}
+		function isSshUri(uri) {
+			const s = String(uri || "").trim();
+			return /^(ssh|git):\/\//i.test(s) || /^git@[^\/:?#]+:/i.test(s);
+		}
+		// 本地绝对路径触发源（Windows 盘符 / POSIX / ~ 开头且非 URL）
+		function isLocalPath(uri) {
+			const s = String(uri || "").trim();
+			return !!s && !/^https?:\/\//i.test(s) && /^([a-zA-Z]:[\\/]|\/|~)/.test(s);
+		}
+		const LLM_SOURCE_LABEL = { host: "宿主默认模型", plugin: "插件配置", default: "插件内置兜底", stage: "阶段覆盖" };
+
+		/* ================================================================
 		 * 01 项目
 		 * ================================================================ */
+		// —— Git 托管连接卡（项目页内嵌，数据全局共享）：连接列表 + 添加/测试/删除 ——
+		// GitHub/GitLab 用 Access Token；CodeArts 用「个人设置 → HTTPS 密码」的 用户名+密码。
+		// token 明文存于 ~/.dsh/issue2pr/connections.json（与本机环境变量同级安全）。
+		const CONN_KIND_META = {
+			github: { label: "GitHub", host: "github.com", hostFixed: true, needsUser: false, tokenLabel: "Access Token", hint: "GitHub → Settings → Developer settings → Personal access tokens" },
+			gitlab: { label: "GitLab", host: "gitlab.com", hostFixed: false, needsUser: false, tokenLabel: "Access Token", hint: "自建实例请改 host；token 需 read_api + read_repository 权限" },
+			codearts: { label: "CodeArts", host: "", hostFixed: false, needsUser: true, tokenLabel: "HTTPS 密码", hint: "华为云 CodeArts 仓库页右上角 → 个人设置 → HTTPS 密码；用户名形如 租户名/IAM用户名" },
+		};
+		function ConnectionsCard(props) {
+			const p = props;
+			const [draft, setDraft] = React.useState({ kind: "github", host: "", token: "", username: "" });
+			const [adding, setAdding] = React.useState(false);
+			const [busy, setBusy] = React.useState(false);
+			const meta = CONN_KIND_META[draft.kind] || CONN_KIND_META.github;
+			const list = p.connections || [];
+
+			const setD = function (k, v) { setDraft(function (d) { return Object.assign({}, d, { [k]: v }); }); };
+			// 保存用的 host：github/gitlab 留空时由服务端补默认域名
+			const payload = function () {
+				const host = meta.hostFixed ? meta.host : (draft.host || "").trim() || meta.host;
+				return { kind: draft.kind, host: host, token: (draft.token || "").trim(), username: (draft.username || "").trim() };
+			};
+			const testDraft = function () {
+				const o = payload();
+				if (!o.token) { p.toast("请先填写" + meta.tokenLabel, "bad"); return; }
+				setBusy(true);
+				apiPost("/connections/test", o).then(function (r) {
+					setBusy(false);
+					if (r && r.ok) p.toast(meta.label + " 已连接" + (r.account ? "：@" + r.account : ""));
+					else p.toast((r && r.message) || "测试失败", "bad");
+				}).catch(function (e) { setBusy(false); p.toast("请求失败: " + e, "bad"); });
+			};
+			const save = function () {
+				const o = payload();
+				if (!o.token) { p.toast("请先填写" + meta.tokenLabel, "bad"); return; }
+				setBusy(true);
+				apiPost("/connections", o).then(function (r) {
+					setBusy(false);
+					if (!r || !r.ok) { p.toast((r && r.message) || "保存失败", "bad"); return; }
+					p.toast("已保存 " + (r.connection ? r.connection.host : o.host) + " 连接");
+					p.reloadConnections();
+					setAdding(false);
+					setDraft({ kind: "github", host: "", token: "", username: "" });
+				}).catch(function (e) { setBusy(false); p.toast("请求失败: " + e, "bad"); });
+			};
+			const testSaved = function (c) {
+				setBusy(true);
+				apiPost("/connections/test", { id: c.id }).then(function (r) {
+					setBusy(false);
+					if (r && r.ok) p.toast(c.host + " 已连接" + (r.account ? "：" + r.account : ""));
+					else p.toast((r && r.message) || "测试失败", "bad");
+				}).catch(function (e) { setBusy(false); p.toast("请求失败: " + e, "bad"); });
+			};
+			const remove = function (c) {
+				if (!window.confirm("删除 " + c.host + " 的连接？使用该域名的私有仓库将无法克隆。")) return;
+				apiDelete("/connections/" + encodeURIComponent(c.id)).then(function (r) {
+					if (r && r.ok) { p.toast("已删除 " + c.host + " 连接"); p.reloadConnections(); }
+					else p.toast((r && r.message) || "删除失败", "bad");
+				}).catch(function (e) { p.toast("请求失败: " + e, "bad"); });
+			};
+
+			return h("div", { className: "field" },
+				h("span", { className: "f-label" }, "Git 托管连接（全局 · 所有项目共用）"),
+				h("p", { className: "hint-line" },
+					"私有仓库克隆与 Issue 抓取（GitHub / GitLab / 华为云 CodeArts）用这里配置的凭据；",
+					"按仓库地址的域名自动匹配，SSH 地址则走本机密钥。凭据明文存于 ",
+					h("code", null, "…\\issue2pr\\connections.json"), "。"),
+				list.length ? h("div", { className: "conn-list" }, list.map(function (c) {
+					const km = CONN_KIND_META[c.kind] || {};
+					return h("div", { key: c.id, className: "conn-row" },
+						h("span", { className: "cn-kind" }, km.label || c.kind),
+						h("span", { className: "cn-host" }, c.host),
+						h("span", { className: "cn-tok" }, c.token + (c.username ? " · " + c.username : "")),
+						h("span", { className: "cn-act" },
+							c.kind !== "codearts" ? h("button", {
+								type: "button", className: "btn sm", disabled: busy,
+								onClick: function () { testSaved(c); },
+							}, "测试") : h("span", { className: "hint" }, "在上方仓库行点「测试」"),
+							h("button", {
+								type: "button", className: "btn sm danger", disabled: busy,
+								onClick: function () { remove(c); },
+							}, "删除")));
+				})) : h("p", { className: "hint-line" }, "尚无连接——只用公开仓库（或本机 SSH 密钥）时无需配置。"),
+				adding ? h("div", { style: { border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginTop: 6 } },
+					h("div", { className: "radio-group", role: "radiogroup", "aria-label": "托管类型" },
+						Object.keys(CONN_KIND_META).map(function (k) {
+							const on = draft.kind === k;
+							return h("label", { key: k, className: "radio-chip" + (on ? " on" : "") },
+								h("input", { type: "radio", name: "conn-kind", value: k, checked: on, onChange: function () { setD("kind", k); } }),
+								CONN_KIND_META[k].label);
+						})),
+					h("p", { className: "hint-line" }, meta.hint),
+					meta.hostFixed ? h("p", { className: "hint-line" }, "域名固定为 ", h("code", null, meta.host)) : h("div", { className: "field", style: { marginTop: 6 } },
+						h("label", { className: "f-label", htmlFor: "conn-host" }, meta.needsUser ? "域名（CodeArts 仓库 HTTPS 地址的域名，因区域/实例而异）" : "域名（自建实例请修改，公网默认 " + meta.host + "）"),
+						h("input", {
+							className: "f-input mono", id: "conn-host", value: draft.host,
+							placeholder: meta.host || "如 codehub.devcloud.cn-north-4.huaweicloud.com",
+							onChange: function (e) { setD("host", e.target.value); },
+						})),
+					h("div", { className: "field", style: { marginTop: 6 } },
+						h("label", { className: "f-label", htmlFor: "conn-user" }, meta.needsUser ? "HTTPS 用户名（租户名/IAM用户名）" : "HTTPS 用户名（可选）"),
+						h("input", {
+							className: "f-input mono", id: "conn-user", value: draft.username,
+							placeholder: meta.needsUser ? "如 mytenant/iamuser" : "通常留空即可",
+							onChange: function (e) { setD("username", e.target.value); },
+						})),
+					h("div", { className: "field", style: { marginTop: 6 } },
+						h("label", { className: "f-label", htmlFor: "conn-token" }, meta.tokenLabel),
+						h("input", {
+							className: "f-input mono", id: "conn-token", type: "password", value: draft.token,
+							placeholder: meta.tokenLabel, "aria-label": meta.tokenLabel,
+							onChange: function (e) { setD("token", e.target.value); },
+						})),
+					h("div", { style: { display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" } },
+						h("button", { type: "button", className: "btn sm", disabled: busy, onClick: testDraft }, "测试连接"),
+						h("button", { type: "button", className: "btn sm pri", disabled: busy, onClick: save }, "保存"),
+						h("button", { type: "button", className: "btn sm", disabled: busy, onClick: function () { setAdding(false); } }, "取消")))
+					: h("button", { type: "button", className: "add-row", onClick: function () { setAdding(true); } }, Ic("plus", 12), " 添加连接"));
+		}
+
 		function ProjectsPanel(props) {
 			const p = props;
 			const [form, setForm] = React.useState(null);
 			const [saving, setSaving] = React.useState(false);
+			// 本地触发源存在性检查结果：uri → true/false（check-local 端点；onBlur 与载入时触发）
+			const [trigCheck, setTrigCheck] = React.useState({});
 
 			const blankForm = function () {
 				return { name: "", slug: "", repos: [{ uri: "" }], triggers: [], reviewMode: "every", p6Mode: "builtin", testCommand: "" };
@@ -782,6 +965,8 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 					p6Mode: pr.p6Mode || "builtin",
 					testCommand: pr.testCommand || "",
 				});
+				setTrigCheck({});
+				(pr.triggers || []).forEach(function (t) { checkLocal(t.uri); }); // 载入即查本地触发源存在性
 			}, [p.slug, p.projects]);
 
 			if (!form) return h("p", { className: "empty-hint" }, "加载中…");
@@ -836,6 +1021,15 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 				if (!u) { p.toast("请先填写该触发源路径", "bad"); return; }
 				ensureSaved().then(function (slug) {
 					if (!slug) return;
+					// 轻预检（不阻断）：主仓库是 https 且无匹配连接 → 私有仓库会克隆失败，提前亮黄；
+					// 公开仓库匿名可克隆，不受影响，所以只提示不拦截
+					const o = collect();
+					const mainUri = o.repos.length ? o.repos[0].uri : "";
+					if (/^https?:\/\//i.test(mainUri)) {
+						const host = hostOfUri(mainUri);
+						const has = p.connections && p.connections.some(function (c) { return c.host === host; });
+						if (host && !has) p.toast("提示：" + host + " 未配置连接，私有仓库将无法克隆（公开仓库不受影响）", "warn");
+					}
 					apiPost("/projects/" + slug + "/runs", { kind: kind, uri: u }).then(function (r) {
 						if (!r || !r.ok) { p.toast((r && r.message) || "发起 Run 失败", "bad"); return; }
 						p.onRunStarted(slug, r.runId);
@@ -848,6 +1042,43 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 				if (o.triggers.length === 0) { p.toast("请先添加触发源（需求文档或 Issue）", "bad"); return; }
 				startRun(o.triggers[0].kind, o.triggers[0].uri);
 			};
+
+			// —— 仓库行 host 徽章：按域名匹配连接（匹配=已连接；https 未匹配=黄牌提示；SSH=本机密钥） ——
+			const connOf = function (uri) {
+				const host = hostOfUri(uri);
+				if (!host || !p.connections) return null;
+				return p.connections.find(function (c) { return c.host === host; }) || null;
+			};
+			const repoBadge = function (uri) {
+				const u = (uri || "").trim();
+				if (!u) return null;
+				if (isSshUri(u)) return h("span", { className: "host-badge", title: "SSH 地址使用本机密钥认证" }, "SSH · 本机密钥");
+				const host = hostOfUri(u);
+				if (!host) return null;
+				const c = connOf(u);
+				if (c) return h("span", { className: "host-badge ok", title: "已配置该域名的连接凭据" },
+					Ic("check", 11), h("span", { className: "hb-host" }, host), "已连接" + (c.username ? " · " + c.username : ""));
+				return h("span", { className: "host-badge warn", title: "私有仓库需要凭据才能克隆；在下方「Git 托管连接」添加后自动匹配" },
+					h("span", { className: "hb-host" }, host), "未配置连接");
+			};
+			const testRepo = function (uri) {
+				const u = (uri || "").trim();
+				if (!u) { p.toast("请先填写仓库地址", "bad"); return; }
+				p.toast("正在测试连通（git ls-remote）…");
+				apiPost("/connections/test-repo", { uri: u }).then(function (r) {
+					if (r && r.ok) p.toast("仓库可达：" + r.message);
+					else p.toast("仓库不可达：" + ((r && r.message) || "未知错误"), "bad");
+				}).catch(function (e) { p.toast("请求失败: " + e, "bad"); });
+			};
+			// —— 本地触发源存在性（check-local 端点）：失焦时检查，结果随 uri 键缓存 ——
+			// （函数声明：表单载入 effect 也要调它，且 smoke 的 mock effect 同步执行需提升）
+			function checkLocal(uri) {
+				const u = (uri || "").trim();
+				if (!u || !isLocalPath(u)) return;
+				apiPost("/check-local", { path: u }).then(function (r) {
+					if (r && r.ok) setTrigCheck(function (m) { return Object.assign({}, m, { [u]: !!r.exists }); });
+				}).catch(function () { /* 检查失败静默：发起 Run 时服务端仍会硬校验 */ });
+			}
 
 			const deleteProject = function () {
 				const slug = form.slug;
@@ -876,13 +1107,20 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 				const rows = [];
 				form.triggers.forEach(function (t, i) {
 					if (t.kind !== kind) return;
+					const checked = isLocalPath(t.uri) && trigCheck[(t.uri || "").trim()] !== undefined
+						? trigCheck[(t.uri || "").trim()] : null;
 					rows.push(h("div", { key: "tr" + i, className: "dyn-row" },
 						h("input", {
 							className: "f-input mono", value: t.uri,
 							placeholder: kind === "requirement" ? "D:\\path\\to\\spec.md 或 https://…" : "D:\\issues\\xxx.md 或 issue 链接，格式不限",
 							"aria-label": title + " " + (i + 1),
 							onChange: function (e) { setTrig(i, e.target.value); },
+							onBlur: function (e) { checkLocal(e.target.value); },
 						}),
+						checked !== null ? h("span", {
+							className: "host-badge " + (checked ? "ok" : "warn"),
+							title: checked ? "发起 Run 前会重新读取该文件" : "文件不存在：发起 Run 时将报「触发文档不存在」",
+						}, checked ? "文件存在" : "不存在") : null,
 						h("button", {
 							type: "button", className: "run-btn",
 							title: "用此" + title + "发起 Run", "aria-label": "用此" + title + "发起 Run",
@@ -917,12 +1155,36 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 			listItems.push(h("button", { key: "__new__", className: "add-row", onClick: function () { p.onSelectProject(null); } },
 				Ic("plus", 12), " 新建项目"));
 
+			// —— 环境健康横幅（preflight 只读探测）：git 缺失 / claude CLI 未就绪（仅 p6Mode=claude 时才相关） ——
+			const pf = p.preflight;
+			const banners = [];
+			if (pf && pf.git && !pf.git.ok) banners.push(h("div", { key: "git", className: "callout err", style: { marginBottom: 12 } },
+				h("h4", null, "未检测到 git"),
+				h("p", { style: { margin: 0 } }, "克隆仓库（P2 前）与应用补丁（P7）都依赖 git 命令。请安装 git 并加入 PATH 后刷新本页。")));
+			if (pf && pf.claude && !pf.claude.ok && form.p6Mode === "claude") banners.push(h("div", { key: "claude", className: "callout warn", style: { marginBottom: 12 } },
+				h("h4", null, "未探测到 claude CLI"),
+				h("p", { style: { margin: 0 } },
+					"尝试路径 ", h("code", null, pf.claude.path || "claude"), " 不存在——P6「委托 Claude Code」发起后将回退为等待人工。",
+					"可在「配置」页 P6 阶段指定 claude 可执行文件。")));
+			// —— LLM 路由行：默认模型从哪来 + 几个阶段已覆盖（key 由 DSH 宿主管理，插件无法预检其有效性） ——
+			const llmRoute = pf && pf.llm
+				? (function () {
+					const ovN = pf.llm.overrides ? Object.keys(pf.llm.overrides).length : 0;
+					return h("p", { className: "hint-line", style: { margin: "0 0 14px" } },
+						"LLM 默认 ", h("code", null, (pf.llm.provider || "?") + " / " + (pf.llm.model || "?")),
+						"（来源：" + (LLM_SOURCE_LABEL[pf.llm.source] || pf.llm.source) + (ovN > 0 ? " · 本项目 " + ovN + " 个阶段已覆盖模型" : "") + "）；",
+						ovN > 0 ? "覆盖清单见「配置」页。" : "各阶段可在「配置」页按阶段覆盖。", "模型凭据由 DSH 宿主管理。");
+				})()
+				: null;
+
 			return h("div", null,
+				banners,
 				h("div", { className: "callout acc", style: { marginBottom: 16 } },
 					h("h4", null, "三步上手"),
 					h("p", { style: { margin: 0 } },
 						h("b", null, "① 填项目名与仓库"), " → ", h("b", null, "② 添加触发源（需求文档 / Issue）"),
 						" → ", h("b", null, "③ 点 ▶ 发起 Run"), "，随后到「运行」跟进 11 阶段流水线。")),
+				llmRoute,
 				h("div", { style: { display: "grid", gridTemplateColumns: "240px minmax(0,1fr)", gap: 16, alignItems: "start" } },
 					h("div", { className: "proj-list", role: "listbox", "aria-label": "项目列表" }, listItems),
 					h("form", {
@@ -939,16 +1201,25 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 						h("div", { className: "field" },
 							h("label", { className: "f-label" }, "Git 仓库链接（可多个 · 第一个为主仓库，发起 Run 时自动 clone）"),
 							form.repos.map(function (r, i) {
-								return h("div", { key: i, className: "dyn-row" },
-									h("input", {
-										className: "f-input mono", value: r.uri, placeholder: "https://github.com/org/repo.git",
-										"aria-label": "仓库链接 " + (i + 1),
-										onChange: function (e) { setRepo(i, e.target.value); },
-									}),
-									h("button", {
-										type: "button", className: "rm", "aria-label": "删除该行",
-										onClick: function () { rmRepo(i); },
-									}, Ic("x", 12)));
+								const badge = repoBadge(r.uri);
+								return h("div", { key: i },
+									h("div", { className: "dyn-row" },
+										h("input", {
+											className: "f-input mono", value: r.uri, placeholder: "https://github.com/org/repo.git",
+											"aria-label": "仓库链接 " + (i + 1),
+											onChange: function (e) { setRepo(i, e.target.value); },
+										}),
+										h("button", {
+											type: "button", className: "btn sm",
+											title: "测试连通（git ls-remote，私有仓库验证已配置的连接凭据）",
+											"aria-label": "测试仓库 " + (i + 1) + " 连通",
+											onClick: function () { testRepo(r.uri); },
+										}, "测试"),
+										h("button", {
+											type: "button", className: "rm", "aria-label": "删除该行",
+											onClick: function () { rmRepo(i); },
+										}, Ic("x", 12))),
+									badge ? h("div", { className: "repo-row-2" }, badge) : null);
 							}),
 							h("button", { type: "button", className: "add-row", onClick: addRepo }, Ic("plus", 12), " 添加仓库")),
 						h("fieldset", { className: "trig-src" },
@@ -977,6 +1248,7 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 								placeholder: "如 npm test / python -m pytest …",
 								onChange: function (e) { setField("testCommand", e.target.value); },
 							})),
+						h(ConnectionsCard, { connections: p.connections, toast: p.toast, reloadConnections: p.reloadConnections }),
 						h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
 							h("button", { type: "submit", className: "btn pri", disabled: saving }, "保存配置"),
 							h("button", { type: "button", className: "btn", onClick: runFirst }, Ic("play"), " 用该项目发起 Run"),
@@ -2149,6 +2421,9 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 			const [tree, setTree] = React.useState(null);
 			const [cfgStage, setCfgStage] = React.useState("P1");
 			const [stageDefaults, setStageDefaults] = React.useState(null);
+			// Git 托管连接（全局）+ 环境预检（git/claude/LLM 路由）：项目页台面化数据源
+			const [connections, setConnections] = React.useState(null);
+			const [preflight, setPreflight] = React.useState(null);
 
 			// 视图位置同步进模块级 store（悬浮智能助手据此聚焦当前页面/项目/Run）
 			React.useEffect(function () {
@@ -2161,6 +2436,23 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 					if (r && r.ok) setStageDefaults(r.defaults);
 				}).catch(function () { /* 配置页会显示加载中 */ });
 			}, []);
+
+			// Git 托管连接（全局共享；增删改后由 loadConnections 刷新）
+			const loadConnections = React.useCallback(function () {
+				apiGet("/connections").then(function (r) {
+					if (r && r.ok) setConnections(r.connections || []);
+				}).catch(function () { /* 静默：徽章显示未配置 */ });
+			}, []);
+			React.useEffect(function () { loadConnections(); }, [loadConnections]);
+
+			// 环境预检（只读）：随选中项目刷新（覆盖清单/claudeBin 与项目配置相关），保存后也刷新
+			const loadPreflight = React.useCallback(function () {
+				const q = selSlug ? "?slug=" + encodeURIComponent(selSlug) : "";
+				apiGet("/preflight" + q).then(function (r) {
+					if (r && r.ok) setPreflight(r.preflight);
+				}).catch(function () { /* 静默：无横幅即视为健康 */ });
+			}, [selSlug]);
+			React.useEffect(function () { loadPreflight(); }, [loadPreflight]);
 
 			// 竞态守卫键：始终反映最新的 slug/runId，异步响应到达时比对，
 			// 不匹配则丢弃（防止旧项目的 runs/run/tree 响应覆盖新选择）
@@ -2293,7 +2585,8 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 			const onSaved = React.useCallback(function (slug) {
 				selectSlug(slug);
 				loadProjects();
-			}, [loadProjects, selectSlug]);
+				loadPreflight(); // 阶段模型覆盖 / claudeBin 配置变化 → 预检行与横幅即时更新
+			}, [loadProjects, selectSlug, loadPreflight]);
 
 			const onRunDeleted = React.useCallback(function () {
 				setSelRunId(null); setRun(null); setTree(null);
@@ -2426,6 +2719,9 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 							onSaved: onSaved,
 							onRunStarted: onRunStarted,
 							onDeletedProject: onProjectDeleted,
+							connections: connections,
+							preflight: preflight,
+							reloadConnections: loadConnections,
 						}) : null,
 						nav === "runs" ? h(RunsPanel, {
 							slug: selSlug,
@@ -2459,7 +2755,7 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 						}) : null,
 						nav === "guide" ? h(GuidePanel, null) : null)),
 				toast ? h("div", {
-					className: "i2p-toast" + (toast.kind === "bad" ? " t-bad" : ""),
+					className: "i2p-toast" + (toast.kind === "bad" ? " t-bad" : toast.kind === "warn" ? " t-warn" : ""),
 					role: "status", "aria-live": "polite",
 				}, toast.msg) : null);
 		}
@@ -2686,7 +2982,7 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 					"aria-expanded": open ? "true" : "false",
 					"aria-label": open ? "关闭智能助手" : "智能助手（问答与运行状态）",
 					title: open ? "关闭智能助手" : "智能助手 · 问运行状态、阶段含义、失败原因",
-				}, Ic("sparkle", 17)),
+				}, Ic("msg", 15)),
 				open ? h("aside", {
 					className: "i2p-ai-panel", role: "complementary", "aria-label": "智能助手",
 					style: { width: ai.w + "px", top: ai.top + "px" },
@@ -2694,21 +2990,22 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 					h("div", { className: "i2p-ai-grip-w", title: "拖动调整宽度 · 双击恢复默认" }),
 					h("div", { className: "i2p-ai-grip-h", title: "拖动调整高度 · 双击恢复默认" }),
 					h("div", { className: "i2p-ai-head" },
-						h("span", { className: "i2p-ai-title" }, Ic("sparkle", 15), h("b", null, "智能助手")),
+						h("span", { className: "i2p-ai-title" }, "智能助手"),
+						h("span", { className: "i2p-ai-sub" }, "问答 · 运行状态"),
 						h("button", {
 							type: "button", className: "i2p-ai-close", onClick: function () { aiStore.set(false); },
 							"aria-label": "关闭（Esc）", title: "关闭（Esc）",
 						}, Ic("x", 14))),
-					h("p", { className: "i2p-ai-hint" },
-					"我能看到你的项目、Run 进度与最近事件——直接问。"),
 					h("div", { className: "i2p-ai-msgs", ref: scrollRef },
-						msgs.length === 0 ? h("div", { className: "i2p-ai-chips" },
-							AI_CHIPS.map(function (c) {
-								return h("button", {
-									key: c, type: "button", className: "i2p-ai-chip",
-									disabled: busy, onClick: function () { send(c); },
-								}, c);
-							})) : null,
+						msgs.length === 0 ? h("div", { className: "i2p-ai-empty" },
+							h("p", { className: "i2p-ai-hint" }, "我能看到你的项目、Run 进度与最近事件——直接问。"),
+							h("div", { className: "i2p-ai-chips" },
+								AI_CHIPS.map(function (c) {
+									return h("button", {
+										key: c, type: "button", className: "i2p-ai-chip", title: c,
+										disabled: busy, onClick: function () { send(c); },
+									}, c);
+								}))) : null,
 						msgs.map(function (m, i) {
 							const waiting = busy && i === msgs.length - 1 && m.role === "assistant" && !m.err && !m.text;
 							return h("div", { key: i, className: "i2p-ai-m " + m.role + (m.err ? " err" : "") },
@@ -2728,9 +3025,10 @@ body.i2p-dragging-r *{cursor:row-resize!important}
 							},
 						}),
 						h("button", {
-							type: "button", className: "i2p-ai-send", disabled: busy || !input.trim(),
-							onClick: function () { send(); },
-						}, Ic("send", 15), h("span", null, busy ? "生成中" : "发送")))) : null);
+							type: "button", className: "i2p-ai-send", disabled: !busy && !input.trim(),
+							onClick: function () { if (busy) { if (acRef.current) acRef.current.abort(); return; } send(); },
+							"aria-label": busy ? "中断生成" : "发送（Enter）", title: busy ? "中断生成" : "发送（Enter）",
+						}, Ic(busy ? "stop" : "send", 15)))) : null);
 		}
 
 		// 入口图标：Issue→PR 分支（描边、currentColor，随宿主主题）

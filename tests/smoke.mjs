@@ -45,6 +45,11 @@ const primitives = { MarkdownText: (props) => ({ type: "div", props: { "data-md"
 const iso = (s) => new Date(Date.parse("2026-08-28T04:00:00Z") + s * 1000).toISOString();
 // ui-state 服务端兜底记忆（视图 8b 用；POST 会更新它，模拟宿主端文件）
 let serverUiState = { lastProject: null };
+// Git 托管连接 + 环境预检 stub（视图 9 用；preflight 可变以测横幅）
+let serverConnections = [
+  { id: "gitlab.example.com", kind: "gitlab", host: "gitlab.example.com", token: "glt_…9f2e" },
+];
+let serverPreflight = { git: { ok: true, version: "git version 2.50.0" }, claude: { ok: true, path: "C:\\bin\\claude.cmd" }, llm: { provider: "glm", model: "glm-5.2", source: "host", overrides: {} } };
 const fakeRun = {
   id: "r1", project: "p", status: "awaiting_review", current: "P5",
   trigger: { kind: "issue", uri: "D:\\x.md" }, reviewMode: "key-only", p6Mode: "builtin",
@@ -97,6 +102,18 @@ globalThis.fetch = (url, opts) => {
     body = fakeRun;
   } else if (/\/runs$/.test(u)) {
     body = { ok: true, runs: [{ id: "r1", status: "awaiting_review", current: "P5", trigger: fakeRun.trigger }] };
+  } else if (/\/connections\/test-repo/.test(u)) {
+    body = { ok: true, matched: null, message: "可达（3 个分支，匿名访问，未匹配连接）" };
+  } else if (/\/connections\/test/.test(u)) {
+    body = { ok: true, account: "octocat" };
+  } else if (/\/connections/.test(u)) {
+    body = (opts && opts.method === "DELETE") ? { ok: true } : { ok: true, connections: serverConnections };
+  } else if (/\/preflight/.test(u)) {
+    body = { ok: true, preflight: serverPreflight };
+  } else if (/\/check-local/.test(u)) {
+    let ex = false;
+    try { ex = String(JSON.parse((opts && opts.body) || "{}").path || "").endsWith("x.md"); } catch { /* 忽略 */ }
+    body = { ok: true, exists: ex };
   } else if (/\/projects$/.test(u)) {
     body = { ok: true, projects: [
       { name: "P 项目", slug: "p", repos: [{ uri: "https://p.git" }], triggers: [{ kind: "issue", uri: "D:\\x.md" }],
@@ -104,6 +121,8 @@ globalThis.fetch = (url, opts) => {
       { name: "演示", slug: "demo", repos: [{ uri: "https://x.git" }], triggers: [],
         reviewMode: "every", p6Mode: "builtin", testCommand: "",
         stageConfig: { P1: { prompts: { "": "自定义 P1 提示词" } } } },
+      { name: "云仓库", slug: "cloud", repos: [{ uri: "https://gitlab.example.com/o/r.git" }], triggers: [],
+        reviewMode: "every", p6Mode: "claude", testCommand: "" },
     ] };
   }
   return Promise.resolve({ json: () => Promise.resolve(body) });
@@ -361,6 +380,54 @@ curComp = "root3"; hookSeq = 0; effectSeq = 0;
 el9 = Section();
 const cls9 = []; classNames(el9, cls9);
 assert.ok(cls9.some((c) => String(c).includes("proj-item on")), "宿主重启（localStorage 清空）后应从服务端兜底恢复选中");
+curComp = "root"; hookSeq = 0; effectSeq = 0;
+
+// ---------- 视图 9：连接台面化（仓库徽章 / 连接卡 / 健康横幅 / LLM 路由行 / 触发源存在性） ----------
+// root4 实例：claude 探测失败 + 1 个阶段覆盖 → 选中 cloud（p6Mode=claude、仓库命中 gitlab 连接）
+serverPreflight = { git: { ok: true, version: "git version 2.50.0" }, claude: { ok: false, path: "C:\\nope\\claude.cmd" },
+  llm: { provider: "glm", model: "glm-5.2", source: "host", overrides: { P1: { provider: "a", model: "b" } } } };
+curComp = "root4"; hookSeq = 0; effectSeq = 0;
+const render4 = () => { curComp = "root4"; hookSeq = 0; effectSeq = 0; return Section(); };
+render4(); await settle();
+hookCells.get("root4:s3").set("cloud");
+let elA = render4();
+await settle(); elA = render4(); await settle(); elA = render4();
+let at9 = flattenTexts(elA);
+assert.ok(at9.some((t) => t.includes("Git 托管连接（全局 · 所有项目共用）")), "项目页应渲染 Git 托管连接区块");
+assert.ok(at9.some((t) => t.includes("已连接")), "仓库命中连接应显示已连接徽章");
+let acl9 = []; classNames(elA, acl9);
+assert.ok(acl9.some((c) => String(c).split(" ").includes("host-badge") && String(c).includes("ok")), "已连接徽章应用 ok 样式");
+assert.ok(at9.some((t) => t.includes("未探测到 claude CLI")), "p6Mode=claude 且探测失败应显示横幅");
+assert.ok(at9.some((t) => t.includes("LLM 默认")), "应显示 LLM 路由行");
+assert.ok(at9.some((t) => t.includes("宿主默认模型")), "路由来源应标注");
+assert.ok(at9.some((t) => t.includes("1 个阶段已覆盖模型")), "阶段覆盖计数应显示");
+// 连接列表行有测试/删除按钮
+let ael9 = []; elements(elA, ael9);
+assert.ok(ael9.some((n) => n.props.className === "btn sm" && flattenTexts(n).includes("测试")), "连接行应有测试按钮");
+assert.ok(ael9.some((n) => String(n.props.className || "").includes("btn") && String(n.props["aria-label"] || "").includes("仓库") === false && flattenTexts(n).includes("删除")), "连接行应有删除按钮");
+// 仓库行「测试」按钮（ls-remote）
+assert.ok(ael9.some((n) => n.props["aria-label"] && String(n.props["aria-label"]).startsWith("测试仓库")), "仓库行应有测试连通按钮");
+
+// 切到 p 项目：仓库 host 无连接 → 黄牌徽章；本地触发源存在 → 绿徽章；builtin 模式无 claude 横幅
+hookCells.get("root4:s3").set("p");
+elA = render4(); await settle(); elA = render4(); await settle(); elA = render4();
+at9 = flattenTexts(elA);
+assert.ok(at9.some((t) => t.includes("未配置连接")), "未匹配连接的 https 仓库应显示黄牌徽章");
+acl9 = []; classNames(elA, acl9);
+assert.ok(acl9.some((c) => String(c).split(" ").includes("host-badge") && String(c).includes("warn")), "黄牌徽章应用 warn 样式");
+assert.ok(at9.some((t) => t.includes("文件存在")), "本地触发源存在应显示徽章");
+assert.ok(!at9.some((t) => t.includes("未探测到 claude CLI")), "builtin 模式不显示 claude 横幅");
+
+// root5 实例：git 探测失败 → 红色横幅
+serverPreflight = { git: { ok: false, message: "ENOENT" }, claude: { ok: true, path: "C:\\bin\\claude.cmd" },
+  llm: { provider: "deepseek-official", model: "deepseek-v4-pro", source: "default", overrides: {} } };
+const render5 = () => { curComp = "root5"; hookSeq = 0; effectSeq = 0; return Section(); };
+render5(); await settle();
+hookCells.get("root5:s3").set("demo");
+let elB = render5(); await settle(); elB = render5();
+at9 = flattenTexts(elB);
+assert.ok(at9.some((t) => t.includes("未检测到 git")), "git 缺失应显示红色横幅");
+assert.ok(at9.some((t) => t.includes("插件内置兜底")), "路由来源为兜底时应标注");
 curComp = "root"; hookSeq = 0; effectSeq = 0;
 
 console.log("SMOKE-OK: 全部视图渲染通过（含配置页、入口按钮与整页工作台）");
