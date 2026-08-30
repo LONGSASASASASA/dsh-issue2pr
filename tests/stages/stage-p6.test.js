@@ -138,6 +138,39 @@ test("claude：is_error=true（403 类）→ failed 且错误信息含 result �
   assert.match(run.externalExec.error, /认证|白名单|中转/); // 可操作引导
 });
 
+test("dsh：p6Mode=dsh 经 dsh-agent 执行器 → externalExec.executor=dsh-agent，产物就绪走正常复核", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
+  const run = { id: "r7", stages: {} };
+  const spawnExternal = async (opts) => {
+    assert.ok(opts.repoDir && opts.prompt && opts.timeoutMs > 0, "执行器应收到完整 runCtx");
+    mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+    writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
+    writeFileSync(join(runDir, "06-implementation", "coder-report.json"), '{"mode":"dsh-agent"}');
+    return { code: 0, sessionId: "session-dsh-1", stats: { turns: 2, durationMs: 30000, result: "完成" }, resultText: "完成", toolCalls: ["write", "bash"], stopReason: "completed" };
+  };
+  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "dsh", spawnExternal });
+  assert.equal(r.external, undefined);
+  assert.equal(run.externalExec.executor, "dsh-agent");
+  assert.equal(run.externalExec.sessionId, "session-dsh-1");
+  assert.equal(run.externalExec.stats.turns, 2);
+  assert.match(r.summary, /DSH 原生智能体/);
+  const ev = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8");
+  assert.match(ev, /DSH 原生智能体 执行完成[^\n]*工具 2 次/);
+});
+
+test("dsh：智能体异常结束无产物 → failed 回退等人工", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
+  const run = { id: "r8", stages: {} };
+  const spawnExternal = async () => ({ code: 1, stopReason: "error", resultText: "工具执行被拒", toolCalls: [] });
+  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "dsh", spawnExternal });
+  assert.equal(r.external, true);
+  assert.equal(run.externalExec.status, "failed");
+  assert.match(run.externalExec.error, /error/);
+  assert.match(run.externalExec.error, /工具执行被拒/);
+});
+
 test("claude：执行失败无产物 → externalExec=failed，external=true 回退等人工", async () => {
   const runDir = mkdtempSync(join(root, "run-"));
   writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);

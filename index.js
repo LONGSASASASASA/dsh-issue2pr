@@ -67,7 +67,7 @@ function executorsOf() {
 // 每次调用现读 project 与 run.current，配置修改在下一阶段即时生效
 function buildRcx(ctx, root, runDir, run) {
   const rcx = {
-    runDir, run, dataRoot: root,
+    runDir, run, dataRoot: root, hostCtx: ctx, // dsh-agent 执行器经 ctx.get("agents") 消费宿主智能体服务
     project: loadProject(root, run.project),
     repoDir: runRepoDir(root, run.project, run.id), // per-Run worktree（drive 开工时确保存在，失败兜底基线 repo）
     trigger: run.trigger,
@@ -625,6 +625,13 @@ async function handleApi(ctx, root, req, res) {
             return sendJson(res, 400, { ok: false, message: "委外智能体门禁未通过：claude CLI 无法运行（" + String((r.err && r.err.message) || r.err).slice(0, 200) + "）。请在「项目」页 P6 执行模式选「委托 Claude Code」，用委外智能体卡片选择可用安装或修正路径，通过测试门禁后再保存。" });
           }
         }
+        // —— p6Mode=dsh 保存兜底：宿主 agents 服务必须可用（模型路由实测由门禁卡片完成） ——
+        if (body && body.p6Mode === "dsh" && !__testHooks) {
+          const agents = typeof ctx?.get === "function" ? ctx.get("agents") : null;
+          if (!agents || typeof agents.create !== "function") {
+            return sendJson(res, 400, { ok: false, message: "当前 DSH 宿主未提供智能体服务（ctx.agents 不可用）：请完全重启 DSH 后重试，或改用「委托 Claude Code」模式。" });
+          }
+        }
         try { saveProject(root, body); }
         catch (e) { return sendJson(res, 400, { ok: false, message: (e && e.message) || String(e) }); }
         return sendJson(res, 200, { ok: true, project: body });
@@ -712,7 +719,7 @@ async function handleApi(ctx, root, req, res) {
       if (!action && m === "GET") {
         const run = loadRun(runDir);
         if (!run) return sendJson(res, 404, { ok: false, message: "run 不存在" });
-        if (run.p6Mode === "session" || run.p6Mode === "claude") run.externalProgress = externalProgress(runDir);
+        if (run.p6Mode === "session" || run.p6Mode === "claude" || run.p6Mode === "dsh") run.externalProgress = externalProgress(runDir);
         return sendJson(res, 200, run); // 直接吐 run.json（session/claude 模式附带外部执行进度）
       }
 
