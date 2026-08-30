@@ -809,7 +809,12 @@ body.i2p-dragging{user-select:none}
 			return ({ every: "每阶段都停", "key-only": "只停关键门", auto: "全自动" })[m] || String(m || "");
 		}
 		function p6ModeLabel(m) {
-			return ({ builtin: "插件内多智能体", session: "交给 DSH 会话", claude: "委托 Claude Code" })[m] || String(m || "");
+			return ({ builtin: "插件内多智能体", session: "交给 DSH 会话", claude: "委托 Claude Code", dsh: "DSH 原生智能体" })[m] || String(m || "");
+		}
+		// 委外门禁结果键：bin + 认证中转摘要（改路径或换预设后 key 不匹配即失效需重测）
+		function agentGateKey(bin, preset, baseUrl) {
+			return (bin ? "bin:" + bin : "auto") + "|auth:" + (preset || "none")
+				+ (preset === "custom" && baseUrl ? "@" + baseUrl : "");
 		}
 		function kindLabel(k) { return k === "issue" ? "Issue" : "需求"; }
 		function fmtClock(iso) {
@@ -855,6 +860,13 @@ body.i2p-dragging{user-select:none}
 		function apiDelete(path) {
 			return fetch(API + path, { method: "DELETE" })
 				.then(function (r) { return r.json().catch(function () { return {}; }); });
+		}
+		function apiPut(path, body) {
+			return fetch(API + path, {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body || {}),
+			}).then(function (r) { return r.json().catch(function () { return {}; }); });
 		}
 
 		// SVG 描边图标（24 网格 lucide 路径，按 width/height 缩放；stroke 继承 currentColor）
@@ -1125,15 +1137,25 @@ body.i2p-dragging{user-select:none}
 
 		/* 委外智能体绑定卡（项目页 P6=claude 与「配置」页 P6 共用）：
 		 * 发现——五种来源（项目配置/环境变量/常见安装位置/npm 全局目录/PATH）+ 手动路径；
-		 * 门禁——定位 → 版本 → 认证微任务（一次极小真实调用，403 IP 白名单等在绑定时拦截而非 Run 中暴露）。
-		 * gate 状态由父组件持有（控制保存按钮）：{key:"bin:<路径>"|"auto", status:"pass"|"fail", result}
+		 * 门禁——定位 → 版本 → 认证微任务（一次极小真实调用，403 IP 白名单等在绑定时拦截而非 Run 中暴露）；
+		 * 认证中转——GLM Coding Plan / 自定义网关预设，token 全局存 relay-auth.json（403 IP 白名单根治路径）。
+		 * gate 状态由父组件持有（控制保存按钮）：{key: agentGateKey(bin,preset,baseUrl), status, result}
 		 * 扫描过程走马灯可见：请求 20s 超时 / 404（旧版 node 半）显式报错 + 重试，不再无限「解析中…」。 */
 		function AgentBindCard(props) {
-			const p = props; // { bin, onBinChange, gate, onGate, toast, slug }
+			const p = props; // { bin, onBinChange, authPreset, authBaseUrl, onAuthPreset, onAuthBaseUrl, gate, onGate, toast, slug }
 			const [found, setFound] = React.useState(null);
 			// 扫描态：status scanning|done|fail；phase 驱动标记位阶段轮播与走马灯
 			const [scan, setScan] = React.useState({ status: "scanning", phase: 0, error: "" });
 			const [testing, setTesting] = React.useState(false);
+			// 认证中转 token（全局 relay-auth.json；卡内输入-保存，门禁请求带新值或回落已存值）
+			const [relay, setRelay] = React.useState({ exists: false, masked: "" });
+			const [tokenInput, setTokenInput] = React.useState("");
+			const [savingToken, setSavingToken] = React.useState(false);
+			React.useEffect(function () {
+				apiGet("/relay-auth").then(function (r) {
+					if (r && r.ok) setRelay({ exists: !!r.exists, masked: r.masked || "" });
+				}).catch(function () { /* 留空态；保存时会再暴露错误 */ });
+			}, []);
 
 			const doDiscover = React.useCallback(function () {
 				setFound(null);
@@ -1162,16 +1184,34 @@ body.i2p-dragging{user-select:none}
 			}, [scan.status]);
 
 			const cur = (p.bin || "").trim();
-			const gateLive = p.gate && p.gate.key === (cur ? "bin:" + cur : "auto") ? p.gate : null;
+			const preset = p.authPreset || "none";
+			const baseUrl = (p.authBaseUrl || "").trim();
+			const gateKey = agentGateKey(cur, preset, baseUrl);
+			const gateLive = p.gate && p.gate.key === gateKey ? p.gate : null;
+			const saveToken = function () {
+				const t = tokenInput.trim();
+				if (!t) { p.toast("请先填写 token", "bad"); return; }
+				setSavingToken(true);
+				apiPut("/relay-auth", { token: t }).then(function (r) {
+					setSavingToken(false);
+					if (!r || !r.ok) { p.toast((r && r.message) || "保存失败", "bad"); return; }
+					setRelay({ exists: true, masked: r.masked || "" });
+					setTokenInput("");
+					p.toast("中转 token 已保存（全局 relay-auth.json）");
+				}).catch(function (e) { setSavingToken(false); p.toast("请求失败: " + e, "bad"); });
+			};
 			const runGate = function () {
 				if (testing) return;
 				setTesting(true);
-				apiPost("/agents/test", cur ? { bin: cur } : {}).then(function (r) {
+				const body = { executor: "claude-code" };
+				if (cur) body.bin = cur;
+				if (preset !== "none") body.auth = { preset: preset, baseUrl: baseUrl, token: tokenInput.trim() };
+				apiPost("/agents/test", body).then(function (r) {
 					setTesting(false);
 					if (!r || typeof r.ok !== "boolean") { p.toast("门禁请求失败", "bad"); return; }
 					// r.gate 缺失 = 接口 404/异常（常见于 UI 已新版而 node 半未随重启更新）——给出可操作文案
 					const res = r.gate || { message: (r && r.message) ? ("接口异常：" + r.message) : "接口不可用——若刚升级插件，请重启 DSH 后重试" };
-					p.onGate({ key: cur ? "bin:" + cur : "auto", status: r.ok ? "pass" : "fail", result: res });
+					p.onGate({ key: gateKey, status: r.ok ? "pass" : "fail", result: res });
 					if (r.ok) p.toast("委外智能体门禁通过" + (r.gate && r.gate.version ? "：" + r.gate.version : ""));
 				}).catch(function (e) { setTesting(false); p.toast("请求失败: " + e, "bad"); });
 			};
@@ -1225,12 +1265,87 @@ body.i2p-dragging{user-select:none}
 					}, testing ? "测试中…" : "测试门禁")),
 				testing ? h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
 					"门禁测试中：真实调用一次 claude（通常 5–30 秒），请勿关闭本页…") : null,
+				// —— 认证中转（可选）：公司出口漂移导致 403 IP 白名单时，改走 Anthropic 兼容端点根治 ——
+				h("div", { className: "field", style: { marginTop: 10 } },
+					h("span", { className: "f-label" }, "认证中转（可选 · 403 IP 白名单根治）"),
+					h("div", { className: "dyn-row" },
+						h("select", {
+							className: "f-select", value: preset, "aria-label": "claude 认证预设",
+							onChange: function (e) { p.onAuthPreset(e.target.value); },
+						},
+							h("option", { value: "none" }, "继承本机 claude 登录态"),
+							h("option", { value: "glm" }, "GLM Coding Plan（推荐）"),
+							h("option", { value: "custom" }, "自定义网关 baseUrl")),
+						preset === "custom" ? h("input", {
+							className: "f-input mono", value: baseUrl,
+							placeholder: "https://gw.example.com/api/anthropic（不带 /v1/messages）",
+							"aria-label": "自定义中转 baseUrl",
+							onChange: function (e) { p.onAuthBaseUrl(e.target.value); },
+						}) : null),
+					preset !== "none" ? h("div", { className: "dyn-row", style: { marginTop: 6 } },
+						h("input", {
+							className: "f-input mono", type: "password", value: tokenInput, autoComplete: "new-password",
+							placeholder: relay.exists
+								? "已保存 " + relay.masked + " · 输入新值覆盖"
+								: "中转 API token（Anthropic 兼容端点的 key）",
+							"aria-label": "中转 token",
+							onChange: function (e) { setTokenInput(e.target.value); },
+						}),
+						h("button", { type: "button", className: "btn sm", disabled: savingToken, onClick: saveToken },
+							savingToken ? "保存中…" : "保存 token")) : null,
+					h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
+						"公司网络出口漂移会让带 IP 白名单的 API Key 间歇 403。中转让 claude 改打 Anthropic 兼容端点（GLM Coding Plan 官方支持，无 IP 白名单校验），",
+						"token 全局存 ", h("code", null, "…\\issue2pr\\relay-auth.json"), "，门禁与 Run 走同一条路径。")),
 				gateLive ? (function () {
 					const g = gateLive.result || {};
 					return h("div", { className: "agent-gate " + (gateLive.status === "pass" ? "ok" : "bad") },
 						h("p", { className: "ag-line" },
 							gateLive.status === "pass"
 								? "✓ 门禁通过" + (g.version ? " · " + g.version : "") + (g.ms != null ? " · " + (Math.round(g.ms / 100) / 10) + "s" : "")
+								: "✗ 未通过：" + (g.message || "未知错误")),
+						(g.steps || []).length ? h("p", { className: "ag-steps" }, g.steps.map(function (s, i) {
+							return h("span", { key: i, className: "ag-step " + (s.ok ? "ok" : "bad") }, (s.ok ? "✓" : "✗") + s.name);
+						})) : null,
+						g.hint ? h("p", { className: "ag-hint" }, g.hint) : null);
+				})() : null);
+		}
+
+		/* DSH 原生智能体绑定卡（p6Mode=dsh）：宿主进程内执行，零外部进程/认证。
+		 * 门禁两步：智能体服务 + 模型路由 → 一次极小真实调用；gate.key 固定 "dsh"。 */
+		function DshAgentCard(props) {
+			const p = props; // { gate, onGate, toast }
+			const [testing, setTesting] = React.useState(false);
+			const gateLive = p.gate && p.gate.key === "dsh" ? p.gate : null;
+			const runGate = function () {
+				if (testing) return;
+				setTesting(true);
+				apiPost("/agents/test", { executor: "dsh-agent" }).then(function (r) {
+					setTesting(false);
+					if (!r || typeof r.ok !== "boolean") { p.toast("门禁请求失败", "bad"); return; }
+					const res = r.gate || { message: (r && r.message) ? ("接口异常：" + r.message) : "接口不可用——若刚升级插件，请重启 DSH 后重试" };
+					p.onGate({ key: "dsh", status: r.ok ? "pass" : "fail", result: res });
+					if (r.ok) p.toast("DSH 智能体门禁通过");
+				}).catch(function (e) { setTesting(false); p.toast("请求失败: " + e, "bad"); });
+			};
+			return h("div", { className: "agent-bind" },
+				h("span", { className: "f-label" }, "委外智能体 · DSH 原生智能体（测试门禁通过后才能保存）"),
+				h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
+					"P6「DSH 原生智能体」由宿主内置 agent loop 进程内执行（bash/pwsh/文件工具随宿主全局层），",
+					"模型走宿主路由（如 zai-coding-cn/glm-5.2，Models 页可换），无外部进程、无外部 CLI 认证，不受出口 IP 漂移影响。",
+					"「测试门禁」真实跑一次极小调用验证模型路由与工具层。"),
+				h("div", { className: "dyn-row", style: { marginTop: 6 } },
+					h("button", {
+						type: "button", className: "btn sm" + (gateLive && gateLive.status === "pass" ? "" : " pri"),
+						disabled: testing, onClick: runGate,
+					}, testing ? "测试中…" : "测试门禁")),
+				testing ? h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
+					"门禁测试中：真实创建一次宿主智能体（通常 5–30 秒），请勿关闭本页…") : null,
+				gateLive ? (function () {
+					const g = gateLive.result || {};
+					return h("div", { className: "agent-gate " + (gateLive.status === "pass" ? "ok" : "bad") },
+						h("p", { className: "ag-line" },
+							gateLive.status === "pass"
+								? "✓ 门禁通过" + (g.ms != null ? " · " + (Math.round(g.ms / 100) / 10) + "s" : "")
 								: "✗ 未通过：" + (g.message || "未知错误")),
 						(g.steps || []).length ? h("p", { className: "ag-steps" }, g.steps.map(function (s, i) {
 							return h("span", { key: i, className: "ag-step " + (s.ok ? "ok" : "bad") }, (s.ok ? "✓" : "✗") + s.name);
@@ -1249,7 +1364,7 @@ body.i2p-dragging{user-select:none}
 			const [agentGate, setAgentGate] = React.useState(null);
 
 			const blankForm = function () {
-				return { name: "", slug: "", repos: [{ uri: "" }], triggers: [], reviewMode: "every", p6Mode: "builtin", testCommand: "", claudeBin: "" };
+				return { name: "", slug: "", repos: [{ uri: "" }], triggers: [], reviewMode: "every", p6Mode: "builtin", testCommand: "", claudeBin: "", claudeAuthPreset: "none", claudeBaseUrl: "" };
 			};
 
 			React.useEffect(function () {
@@ -1265,8 +1380,10 @@ body.i2p-dragging{user-select:none}
 					reviewMode: pr.reviewMode || "every",
 					p6Mode: pr.p6Mode || "builtin",
 					testCommand: pr.testCommand || "",
-					// 委外智能体绑定：claudeBin 存于 stageConfig.P6.params（「配置」页同源），空 = 自动探测
+					// 委外智能体绑定：claudeBin/认证中转存于 stageConfig.P6.params（「配置」页同源），空 = 自动探测/默认
 					claudeBin: (pr.stageConfig && pr.stageConfig.P6 && pr.stageConfig.P6.params && pr.stageConfig.P6.params.claudeBin) || "",
+					claudeAuthPreset: (pr.stageConfig && pr.stageConfig.P6 && pr.stageConfig.P6.params && pr.stageConfig.P6.params.claudeAuthPreset) || "none",
+					claudeBaseUrl: (pr.stageConfig && pr.stageConfig.P6 && pr.stageConfig.P6.params && pr.stageConfig.P6.params.claudeBaseUrl) || "",
 				});
 				setTrigCheck({});
 				setAgentGate(null);
@@ -1286,14 +1403,19 @@ body.i2p-dragging{user-select:none}
 			const collect = function () {
 				const f = form;
 				// stageConfig（「配置」页维护）与项目表单互不感知：原样透传，避免保存项目时丢失阶段配置；
-				// 唯一例外 claudeBin——委外智能体绑定卡在本表单维护，合并进 P6.params（清空 = 移除覆盖恢复自动探测）
+				// 唯一例外 P6 委外绑定三件套——绑定卡在本表单维护，合并进 P6.params（清空 = 移除覆盖恢复默认）
 				const pr = p.projects ? p.projects.find(function (x) { return x.slug === p.slug; }) : null;
 				const stageConfig = JSON.parse(JSON.stringify((pr && pr.stageConfig) || {}));
 				const bin = (f.claudeBin || "").trim();
-				if (bin || (stageConfig.P6 && stageConfig.P6.params && stageConfig.P6.params.claudeBin)) {
+				const preset = f.claudeAuthPreset || "none";
+				const baseUrl = (f.claudeBaseUrl || "").trim();
+				const hasOld = stageConfig.P6 && stageConfig.P6.params && ["claudeBin", "claudeAuthPreset", "claudeBaseUrl"].some(function (k) { return stageConfig.P6.params[k] != null; });
+				if (bin || preset !== "none" || hasOld) {
 					const p6 = stageConfig.P6 || {};
 					const params = Object.assign({}, p6.params);
 					if (bin) params.claudeBin = bin; else delete params.claudeBin;
+					if (preset !== "none") params.claudeAuthPreset = preset; else delete params.claudeAuthPreset;
+					if (preset === "custom" && baseUrl) params.claudeBaseUrl = baseUrl; else delete params.claudeBaseUrl;
 					if (Object.keys(params).length) p6.params = params; else delete p6.params;
 					if (Object.keys(p6).length) stageConfig.P6 = p6; else delete stageConfig.P6;
 				}
@@ -1316,11 +1438,12 @@ body.i2p-dragging{user-select:none}
 				if (o.repos.length === 0) return "至少填写一个 Git 仓库链接";
 				return null;
 			};
-			// 委外智能体门禁是否对当前绑定有效：仅 p6Mode=claude 需要；改过路径后 key 不匹配即失效需重测
+			// 委外智能体门禁是否对当前绑定有效：claude/dsh 需通过；改路径或换认证预设后 key 失效需重测
 			const agentGateOk = function () {
+				if (form.p6Mode === "dsh") return !!(agentGate && agentGate.status === "pass" && agentGate.key === "dsh");
 				if (form.p6Mode !== "claude") return true;
-				const cur = (form.claudeBin || "").trim();
-				return !!(agentGate && agentGate.status === "pass" && agentGate.key === (cur ? "bin:" + cur : "auto"));
+				return !!(agentGate && agentGate.status === "pass"
+					&& agentGate.key === agentGateKey((form.claudeBin || "").trim(), form.claudeAuthPreset, form.claudeBaseUrl));
 			};
 
 			const ensureSaved = function () {
@@ -1328,7 +1451,7 @@ body.i2p-dragging{user-select:none}
 				const err = validate(o);
 				if (err) { p.toast(err, "bad"); return Promise.resolve(null); }
 				if (!agentGateOk()) {
-					p.toast("P6 委托 Claude Code：请先通过「委外智能体」测试门禁再保存", "bad");
+					p.toast("P6 委外执行：请先通过「委外智能体」测试门禁再保存", "bad");
 					return Promise.resolve(null);
 				}
 				setSaving(true);
@@ -1563,12 +1686,18 @@ body.i2p-dragging{user-select:none}
 									{ value: "builtin", label: "插件内多智能体", hint: "Planner/Coder/Reviewer" },
 									{ value: "session", label: "交给 DSH 会话", hint: "真 workflow" },
 									{ value: "claude", label: "委托 Claude Code", hint: "claude CLI 自动执行" },
+									{ value: "dsh", label: "DSH 原生智能体", hint: "宿主内执行 · 零外部认证" },
 								], form.p6Mode, function (v) { setField("p6Mode", v); }, "exec"))),
-						// 委外智能体绑定（仅 claude 模式）：多方式发现 + 测试门禁，通过后才能保存
+						// 委外智能体绑定（claude=发现+门禁+认证中转；dsh=宿主智能体门禁），通过后才能保存
 						form.p6Mode === "claude" ? h(AgentBindCard, {
 							key: "agent-bind", bin: form.claudeBin, gate: agentGate,
+							authPreset: form.claudeAuthPreset, authBaseUrl: form.claudeBaseUrl,
 							onBinChange: function (v) { setField("claudeBin", v); },
+							onAuthPreset: function (v) { setField("claudeAuthPreset", v); },
+							onAuthBaseUrl: function (v) { setField("claudeBaseUrl", v); },
 							onGate: setAgentGate, toast: p.toast, slug: p.slug,
+						}) : form.p6Mode === "dsh" ? h(DshAgentCard, {
+							key: "dsh-bind", gate: agentGate, onGate: setAgentGate, toast: p.toast,
 						}) : null,
 						h("div", { className: "field" },
 							h("label", { className: "f-label", htmlFor: "f-test" }, "测试命令（可选 · P8 使用）"),
@@ -1582,7 +1711,7 @@ body.i2p-dragging{user-select:none}
 							h("button", {
 								type: "submit", className: "btn pri",
 								disabled: saving || !agentGateOk(),
-								title: form.p6Mode === "claude" && !agentGateOk() ? "P6 委托 Claude Code 需先通过委外智能体测试门禁" : "",
+								title: form.p6Mode !== "builtin" && form.p6Mode !== "session" && !agentGateOk() ? "P6 委外执行需先通过委外智能体测试门禁" : "",
 							}, "保存配置"),
 							h("button", { type: "button", className: "btn", onClick: runFirst }, Ic("play"), " 用该项目发起 Run"),
 							form.slug && p.slug ? h("button", { type: "button", className: "btn danger", onClick: deleteProject }, Ic("trash"), " 删除项目") : null),
@@ -1904,11 +2033,11 @@ body.i2p-dragging{user-select:none}
 			const sDef = STAGES.find(function (x) { return x.id === selStage; });
 			const st = p.run && p.run.stages ? p.run.stages[selStage] : null;
 			const stStatus = st ? st.status : null;
-			// session/claude 模式的 P6 待复核 = 任务包等外部执行（按 p6Mode 推导，兼容旧 run）
-			// claude 委托成功（externalExec.status=done）后实施已完成，走正常"待复核"；执行中则显示"claude 执行中"
+			// session/claude/dsh 模式的 P6 待复核 = 任务包等外部执行（按 p6Mode 推导，兼容旧 run）
+			// 委托成功（externalExec.status=done）后实施已完成，走正常"待复核"；执行中显示"委外执行中"
 			const ee = p.run ? p.run.externalExec : null;
 			const stExternal = selStage === "P6" && stStatus === "awaiting_review"
-				&& !!(p.run && (p.run.p6Mode === "session" || p.run.p6Mode === "claude"))
+				&& !!(p.run && (p.run.p6Mode === "session" || p.run.p6Mode === "claude" || p.run.p6Mode === "dsh"))
 				&& !(ee && ee.status === "done");
 			const stClaudeRun = selStage === "P6" && stStatus === "running" && !!(ee && ee.status === "running");
 
@@ -1985,14 +2114,15 @@ body.i2p-dragging{user-select:none}
 					STAGES.map(function (s) {
 						const cur = p.run && p.run.stages ? p.run.stages[s.id] : null;
 						const status = restoringAll ? "…" : (cur ? cur.status : "pending");
-						// session/claude 模式的 P6 待复核 = 任务包等外部执行（claude 委托成功后显示正常"待复核"）
+						// session/claude/dsh 模式的 P6 待复核 = 任务包等外部执行（委托成功后显示正常"待复核"）
 						const eeRow = p.run ? p.run.externalExec : null;
 						const ext = s.id === "P6" && status === "awaiting_review"
-							&& !!(p.run && (p.run.p6Mode === "session" || p.run.p6Mode === "claude"))
+							&& !!(p.run && (p.run.p6Mode === "session" || p.run.p6Mode === "claude" || p.run.p6Mode === "dsh"))
 							&& !(eeRow && eeRow.status === "done");
-						// claude 委托执行中：P6 处于 running，徽标准明示由 claude 执行
+						// 委外执行中：P6 处于 running，徽标准明示由哪个执行器执行
 						const claudeRun = s.id === "P6" && status === "running" && !!(eeRow && eeRow.status === "running");
-						const c = restoringAll ? ["t-off", "…"] : claudeRun ? ["t-acc", "claude 执行中"] : ext ? ["t-warn", "等外部执行"] : tag(status);
+						const execBadge = claudeRun ? (eeRow && eeRow.executor === "dsh-agent" ? "dsh 执行中" : "claude 执行中") : "";
+						const c = restoringAll ? ["t-off", "…"] : claudeRun ? ["t-acc", execBadge] : ext ? ["t-warn", "等外部执行"] : tag(status);
 							const dur = cur ? fmtDur(cur.startedAt, cur.finishedAt) : "";
 							const extra = cur && cur.attempts ? " · 重试" + cur.attempts : "";
 							const xp = (ext || claudeRun) ? p.run.externalProgress : null;
@@ -2467,16 +2597,18 @@ body.i2p-dragging{user-select:none}
 				};
 			};
 
-			// P6 门禁是否对当前绑定有效（仅 P6 + claude 模式需要；改过路径 → key 失效需重测）
+			// P6 门禁是否对当前绑定有效（P6 + claude/dsh 模式需要；改路径或换认证预设 → key 失效需重测）
 			const p6GateOk = function () {
-				if (stageId !== "P6" || e.delegate.mode !== "claude") return true;
-				const cur = (e.params.claudeBin || "").trim();
-				return !!(p6Gate && p6Gate.status === "pass" && p6Gate.key === (cur ? "bin:" + cur : "auto"));
+				if (stageId !== "P6") return true;
+				if (e.delegate.mode === "dsh") return !!(p6Gate && p6Gate.status === "pass" && p6Gate.key === "dsh");
+				if (e.delegate.mode !== "claude") return true;
+				return !!(p6Gate && p6Gate.status === "pass"
+					&& p6Gate.key === agentGateKey((e.params.claudeBin || "").trim(), e.params.claudeAuthPreset || "none", (e.params.claudeBaseUrl || "").trim()));
 			};
 
 			const save = function () {
-				if (stageId === "P6" && e.delegate.mode === "claude" && !p6GateOk()) {
-					p.toast("P6 委托 Claude Code：请先通过「委外智能体」测试门禁再保存", "bad");
+				if (stageId === "P6" && (e.delegate.mode === "claude" || e.delegate.mode === "dsh") && !p6GateOk()) {
+					p.toast("P6 委外执行：请先通过「委外智能体」测试门禁再保存", "bad");
 					return;
 				}
 				setSaving(true);
@@ -2633,21 +2765,27 @@ body.i2p-dragging{user-select:none}
 						// —— 委托外部智能体 ——
 						caps.delegate ? (function () {
 							if (stageId === "P6") {
-								// P6：执行模式与项目页同源（builtin/session/claude）；claude 模式出绑定卡（发现 + 测试门禁）
+								// P6：执行模式与项目页同源（builtin/session/claude/dsh）；claude/dsh 模式出绑定卡
 								return h("div", { className: "field" },
 									h("span", { className: "f-label", id: "cfg-p6-label" }, "执行模式 · 委托外部智能体"),
 									radioGroup("cfg-p6-label", [
 										{ value: "builtin", label: "插件内多智能体", hint: "Planner/Coder/Reviewer" },
 										{ value: "session", label: "交给外部会话", hint: "生成任务包，人工交接" },
 										{ value: "claude", label: "委托 Claude Code", hint: "claude CLI 自动执行" },
+										{ value: "dsh", label: "DSH 原生智能体", hint: "宿主内执行 · 零外部认证" },
 									], e.delegate.mode, function (v) { setDelegate({ mode: v }); }, "p6mode"),
 									e.delegate.mode === "claude" ? h(AgentBindCard, {
 										bin: e.params.claudeBin, gate: p6Gate,
+										authPreset: e.params.claudeAuthPreset || "none", authBaseUrl: e.params.claudeBaseUrl || "",
 										onBinChange: function (v) { setParam("claudeBin", v); },
+										onAuthPreset: function (v) { setParam("claudeAuthPreset", v); },
+										onAuthBaseUrl: function (v) { setParam("claudeBaseUrl", v); },
 										onGate: setP6Gate, toast: p.toast, slug: p.slug,
+									}) : e.delegate.mode === "dsh" ? h(DshAgentCard, {
+										gate: p6Gate, onGate: setP6Gate, toast: p.toast,
 									}) : null,
 									h("p", { className: "hint-line", style: { margin: "8px 0 0" } },
-										"与「项目」页 P6 执行模式为同一配置（p6Mode）；claude 模式任务包自动执行，产出补丁后回复核门。"));
+										"与「项目」页 P6 执行模式为同一配置（p6Mode）；claude/dsh 模式任务包自动执行，产出补丁后回复核门。"));
 							}
 							const on = e.delegate.mode === "session";
 							return h("div", { className: "field" },

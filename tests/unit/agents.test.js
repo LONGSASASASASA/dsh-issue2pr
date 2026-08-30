@@ -212,6 +212,50 @@ test("API：agents/test — 403 → ok:false + hint；成功 → ok:true + versi
   assert.equal(r.body.gate.version, "1.0.66 (Claude Code)");
 });
 
+test("API：agents/test executor=dsh-agent — dshGate 钩子分派；无钩子时真实路径报服务不可用", async () => {
+  __setTestHooks({
+    dataRoot: root, executors: {},
+    dshGate: { ok: true, gate: { ok: true, executor: "dsh-agent", message: "门禁通过（fake）", steps: [] } },
+  });
+  let r = await call(handlerOf(), "POST", "/issue2pr/api/agents/test", { executor: "dsh-agent" });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.gate.executor, "dsh-agent");
+  // 无钩子走真实 testDshGate：fakeCtx 无 agents 服务 → 可操作失败
+  __setTestHooks({ dataRoot: root, executors: {} });
+  r = await call(handlerOf(), "POST", "/issue2pr/api/agents/test", { executor: "dsh-agent" });
+  assert.equal(r.body.ok, false);
+  assert.match(r.body.gate.message, /ctx\.agents/);
+});
+
+test("API：agents/test 认证中转 — 表单 token 优先，留空回落已存 relay-auth token", async () => {
+  const seen = [];
+  __setTestHooks({
+    dataRoot: root, executors: {},
+    agentProbes: {
+      runVersion: (b, o, cb) => cb(null, "1.0.66 (Claude Code)"),
+      runPrompt: (b, o, cb) => { seen.push(o && o.auth); cb(null, { code: 0, stdout: '{"result":"OK"}', stderr: "" }); },
+    },
+  });
+  const h = handlerOf();
+  let r = await call(h, "PUT", "/issue2pr/api/relay-auth", { token: "sk-relay-saved-token" });
+  assert.equal(r.body.ok, true);
+  assert.ok(r.body.masked && r.body.masked.length < "sk-relay-saved-token".length, "返回打码（比原文短）");
+  r = await call(h, "POST", "/issue2pr/api/agents/test", { auth: { preset: "glm", token: "" } });
+  assert.equal(r.body.ok, true);
+  assert.equal(seen[seen.length - 1].token, "sk-relay-saved-token", "留空回落已存 token（门禁测保存后的真实路径）");
+  r = await call(h, "POST", "/issue2pr/api/agents/test", { auth: { preset: "glm", token: "sk-form-new-token" } });
+  assert.equal(seen[seen.length - 1].token, "sk-form-new-token", "表单新 token 优先");
+  // GET 打码不泄露 + DELETE 清除
+  r = await call(h, "GET", "/issue2pr/api/relay-auth");
+  assert.equal(r.body.exists, true);
+  assert.ok(!String(r.body.masked).includes("sk-relay-saved-token"), "打码不得包含完整 token");
+  r = await call(h, "DELETE", "/issue2pr/api/relay-auth");
+  assert.equal(r.body.exists, false);
+  r = await call(h, "POST", "/issue2pr/api/agents/test", { auth: { preset: "glm", token: "" } });
+  assert.equal(seen[seen.length - 1].token, "", "清除后回落空（= 继承环境）");
+});
+
 test("API：POST /projects 保存门禁 — 无 agentProbes 跳过（兼容）；注入后失败 400 / 通过 200", async () => {
   // 既有测试路径：钩子存在但未注入 agentProbes → 门禁跳过，不依赖本机 claude
   __setTestHooks({ dataRoot: root, executors: {} });

@@ -18,6 +18,8 @@ import { buildExecutors } from "./lib/stages/index.js";
 import { rollbackLedger } from "./lib/stages/p7-patch.js";
 import { stopExternals } from "./lib/delegate/executors/index.js";
 import { resolveClaudeBin } from "./lib/delegate/executors/claude-code.js";
+import { testDshGate } from "./lib/delegate/executors/dsh-agent.js";
+import { loadRelayToken, saveRelayToken, relayAuthExists } from "./lib/infra/relayAuth.js";
 import { discoverAgents, testAgentGate, realRunWhich, realRunNpmPrefix, realRunVersion } from "./lib/delegate/agents.js";
 import { readTriggerText, logEvent } from "./lib/stages/helpers.js";
 import {
@@ -493,25 +495,49 @@ async function handleApi(ctx, root, req, res) {
       });
       return sendJson(res, 200, { ok: true, agents: out.agents, resolved: out.resolved });
     }
-    // —— /issue2pr/api/agents/test：委外智能体测试门禁 ——
-    // 三步：定位 → --version → headless 认证微任务（真实极小调用，403 IP 白名单/未登录在此拦截）。
-    // body {bin?: string, timeoutMs?: 10000..180000, auth?: {preset, baseUrl, token}}；
-    // auth 是认证中转配置（未保存的表单值也可先测），与 P6 委托同一条执行路径。ok=false 也回 200。
+    // —— /issue2pr/api/agents/test：委外智能体测试门禁（按执行器分派） ——
+    // claude-code（默认）：定位 → --version → headless 认证微任务；body 可带 auth 中转配置
+    //   {preset, baseUrl, token}（未保存的表单值也可先测；token 留空回落已存 relay-auth）。
+    // dsh-agent：智能体服务 → 模型路由 → 一次极小真实调用。ok=false 也回 200（与 connections/test 同约定）。
     if (parts[2] === "agents" && parts[3] === "test" && !parts[4] && m === "POST") {
       const body = await readBody(req);
-      const bin = typeof body?.bin === "string" ? body.bin.trim() : "";
       const t = Number(body?.timeoutMs);
       const timeoutMs = Number.isFinite(t) && t >= 10000 && t <= 180000 ? t : 120000;
+      if (body?.executor === "dsh-agent") {
+        if (__testHooks && __testHooks.dshGate) return sendJson(res, 200, __testHooks.dshGate);
+        const gate = await testDshGate({ hostCtx: ctx, timeoutMs });
+        return sendJson(res, 200, { ok: gate.ok, gate });
+      }
+      const bin = typeof body?.bin === "string" ? body.bin.trim() : "";
       const a = body?.auth;
       const auth = (a && typeof a === "object")
         ? {
             preset: ["glm", "custom"].includes(a.preset) ? a.preset : "none",
             baseUrl: typeof a.baseUrl === "string" ? a.baseUrl : "",
-            token: typeof a.token === "string" ? a.token : "",
+            // 表单 token 留空时回落已保存的全局 relay token（门禁测的就是保存后的真实路径）
+            token: (typeof a.token === "string" && a.token.trim()) ? a.token.trim() : loadRelayToken(root),
           }
         : null;
       const gate = await testAgentGate({ bin, timeoutMs, auth, runners: (__testHooks && __testHooks.agentProbes) || {} });
       return sendJson(res, 200, { ok: gate.ok, gate });
+    }
+    // —— /issue2pr/api/relay-auth：claude 认证中转 token（全局一份，明文存 <dataRoot>/relay-auth.json） ——
+    // 返回 UI 一律打码；与 connections.json 同级安全。
+    if (parts[2] === "relay-auth" && !parts[3] && m === "GET") {
+      const token = loadRelayToken(root);
+      return sendJson(res, 200, { ok: true, exists: !!token, masked: token ? maskToken(token) : "" });
+    }
+    if (parts[2] === "relay-auth" && !parts[3] && m === "PUT") {
+      const body = await readBody(req);
+      if (!body || typeof body.token !== "string" || !body.token.trim()) {
+        return sendJson(res, 400, { ok: false, message: "token 必填" });
+      }
+      saveRelayToken(root, body.token.trim());
+      return sendJson(res, 200, { ok: true, exists: relayAuthExists(root), masked: maskToken(body.token.trim()) });
+    }
+    if (parts[2] === "relay-auth" && !parts[3] && m === "DELETE") {
+      saveRelayToken(root, "");
+      return sendJson(res, 200, { ok: true, exists: false, masked: "" });
     }
     // —— /issue2pr/api/preflight：环境健康探测（git 二进制 / claude CLI / LLM 默认路由与来源） ——
     // 纯只读探测：git --version、claudeBin 解析 + 存在性/PATH 校验、resolveRoute 现算；不发真实 LLM 请求。
