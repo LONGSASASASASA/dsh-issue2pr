@@ -3,14 +3,16 @@
  * 路由与 spec §7 对齐：projects / runs（嵌套）/ review / rollback / tree / artifact。
  * 数据读写一律走 lib/store.js 与 lib/pipeline.js，不重复造轮子。
  */
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { existsSync, readdirSync, mkdirSync, readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import {
   defaultDataRoot, saveProject, loadProject, listProjects,
   createRun, runDirOf, readArtifact, listRunTree, rmTree, loadUiState, saveUiState,
+  writeArtifact, timestamp,
 } from "./lib/store.js";
-import { initRun, saveRun, loadRun, advance, applyReview, STAGES } from "./lib/pipeline.js";
+import { initRun, saveRun, loadRun, advance, applyReview, isGate, STAGES, MAIN_FLOW } from "./lib/pipeline.js";
+import { verifyDelegateResult } from "./lib/delegateVerify.js";
 import { makeLlm, routeInfo } from "./lib/llm.js";
 import { buildExecutors } from "./lib/stages/index.js";
 import { rollbackLedger } from "./lib/stages/p7-patch.js";
@@ -21,7 +23,8 @@ import {
   loadConnections, upsertConnection, deleteConnection, normalizeConnection,
   matchConnection, injectGitCredentials, redactUrl, maskToken, hostOf, CONNECTION_KINDS,
 } from "./lib/connections.js";
-import { STAGE_DEFS, stageCfgOf, routeOverridesOf, DEFAULT_LLM_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS } from "./lib/stageConfig.js";
+import { STAGE_DEFS, stageCfgOf, stageDelegated, delegateReady, purgeDelegateArtifacts, routeOverridesOf, DEFAULT_LLM_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS } from "./lib/stageConfig.js";
+import { baseRepoDir, runRepoDir, ensureWorktree, removeWorktree, resetRepoClean } from "./lib/repoState.js";
 import { ASSISTANT_SYSTEM_HEAD, buildAssistantContext } from "./lib/assistant.js";
 
 export const name = "dsh-issue2pr";
@@ -65,7 +68,7 @@ function buildRcx(ctx, root, runDir, run) {
   const rcx = {
     runDir, run,
     project: loadProject(root, run.project),
-    repoDir: join(root, "projects", run.project, "repo"),
+    repoDir: runRepoDir(root, run.project, run.id), // per-Run worktree（drive 开工时确保存在，失败兜底基线 repo）
     trigger: run.trigger,
     llm: null,
     p6Mode: run.p6Mode,
@@ -87,11 +90,32 @@ function sessionFor(runDir) {
   return runSessions.get(runDir);
 }
 
+// —— 项目级互斥（A3 修复）：同项目的 Run 串行推进 ——
+// per-Run worktree 已让并发 Run 的仓库隔离；worktree 创建失败的兜底路径（共用基线 repo）与
+// 基线 repo 的 clone/reset 管理操作仍需互斥。锁按需创建、空闲自动回收，等待不因前任失败而中断。
+const projectLocks = new Map();
+function withProjectLock(key, fn) {
+  const prev = projectLocks.get(key) || Promise.resolve();
+  const task = prev.then(() => fn());
+  const tail = task.then(() => {}, () => {});
+  projectLocks.set(key, tail);
+  tail.then(() => { if (projectLocks.get(key) === tail) projectLocks.delete(key); });
+  return task;
+}
+function projectKeyOf(root, runDir) {
+  try {
+    const rel = relative(join(root, "projects"), runDir);
+    const slug = String(rel).split(sep)[0];
+    if (slug && !slug.startsWith("..")) return join(root, "projects", slug);
+  } catch { /* 兜底 */ }
+  return runDir;
+}
+
 // —— 仓库克隆：repo 目录不存在时 git clone --depth 1 主仓库（幂等） ——
 // https 地址若匹配到「Git 托管连接」则注入凭据（私有仓库可克隆）；ssh/scp 形态走本机密钥不注入。
 // 注入后的 URL 绝不落事件/错误信息（redactUrl 脱敏）。
 function ensureRepo(root, project, rcx) {
-  const repoDir = join(root, "projects", project.slug, "repo");
+  const repoDir = baseRepoDir(root, project.slug);
   if (existsSync(join(repoDir, ".git"))) return Promise.resolve(repoDir);
   if (!project.repos || !project.repos.length) return Promise.reject(new Error("项目未配置仓库"));
   mkdirSync(repoDir, { recursive: true });
@@ -147,18 +171,30 @@ function recordFailureAnalysis(runDir) {
 // 阶段失败自动调 P10 executor 写分类产物后停（v1：不自动 replan）。
 function drive(ctx, root, runDir) {
   const s = sessionFor(runDir);
-  const task = s.lock.then(async () => {
+  // 单 Run 锁（防同 Run 并发推进）之内再套项目锁（防同项目 Run 交错写仓库）—— A3 修复
+  const task = s.lock.then(() => withProjectLock(projectKeyOf(root, runDir), async () => {
     // 确保仓库已克隆（幂等：已存在则跳过）。克隆失败 = 流水线无法开工：
     // 快速失败写入 run.json 并走 P10 分类，而不是让 P2 拿空仓库产出垃圾候选。
-    // 测试钩子注入执行器时跳过真实 clone（用例使用假仓库地址）。
+    // 测试钩子注入执行器时跳过真实 clone / worktree（用例使用假仓库地址）。
     const initRun = loadRun(runDir);
     if (!__testHooks && initRun && initRun.status === "running") {
       const project = loadProject(root, initRun.project);
       if (project) {
         const rcx0 = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, initRun));
-        try { await ensureRepo(root, project, rcx0); }
+        try {
+          await ensureRepo(root, project, rcx0);
+          // A3：每 Run 独立 worktree（同项目并发 Run 互不污染；创建失败兜底共用基线 repo，靠项目锁串行保安全）
+          rcx0.repoDir = await ensureWorktree(root, project.slug, initRun.id, (ev) => logEvent(rcx0, ev));
+          // A1：即将执行 P2-P6 时把工作区重置回 HEAD 基线 —— 清掉上一轮已应用补丁与未跟踪残留
+          //（P7 应用前自身也会 reset，双保险；P8-P11 不 reset，需要保留 P7 已应用的补丁状态）
+          const nextId = MAIN_FLOW.find((id) => initRun.stages[id] && initRun.stages[id].status !== "approved");
+          if (nextId && MAIN_FLOW.indexOf(nextId) <= MAIN_FLOW.indexOf("P6")) {
+            await resetRepoClean(rcx0.repoDir);
+            logEvent(rcx0, { kind: "git", name: "工作区基线重置", detail: nextId + " 执行前 git reset --hard + git clean -fd（清除上一轮补丁/未跟踪残留）" });
+          }
+        }
         catch (e) {
-          const msg = "仓库克隆失败: " + String((e && e.message) || e);
+          const msg = "仓库准备失败: " + String((e && e.message) || e);
           const run = failRun(runDir, initRun.current, msg);
           if (run) {
             const rcx = s.rcx;
@@ -181,7 +217,9 @@ function drive(ctx, root, runDir) {
         runSessions.delete(runDir);
         return;
       }
-      if (run.status !== "running") return;
+      // A4 修正：停在 awaiting_review 且属"委外等待 + 无人工门"（全自动模式）时，
+      // 挂一个就绪监听：拿到委外结果 → 机器验证 → 验证 ok 自动放行流转
+      if (run.status !== "running") { maybeWatchDelegate(ctx, root, runDir, run); return; }
       const rcx = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, run));
       rcx.run = run; // 刷新为最新落盘状态（reviewComment 保留在 rcx 上）
       rcx.project = loadProject(root, run.project) || rcx.project; // 配置页改动下一阶段生效
@@ -194,9 +232,100 @@ function drive(ctx, root, runDir) {
         return;
       }
     }
-  });
+  }));
   s.lock = task.then(() => {}, () => {}); // 失败不污染锁链
   return s.lock;
+}
+
+// —— A4 修正：全自动模式的委外产物就绪监听（拿到结果 + 验证 ok 才自动流转）——
+// 触发条件：drive 停在 awaiting_review，当前阶段是委托阶段且无人工门（reviewMode=auto，
+// 或 key-only 下未设门的委托阶段）。有人工门（every / key-only 的门阶段）不自动放行，
+// 验证由 applyReview 的人工"通过"动作触发（同一验证函数，同一口径）。
+// 语义：拿到委外结果 → verifyDelegateResult（结构 + 对 HEAD 基线的应用性演练）→
+//   验证 ok  → 自动放行（落 auto-approve 复核记录，机器决策可审计）+ 继续推进；
+//   验证不过 → 容错窗口内继续等待（外部会话可能还在写产物）；连续
+//   DELEGATE_VERIFY_MAX_FAILS 次不过（产物稳定存在但不可用）→ Run 显式失败。
+export const DELEGATE_WATCH_INTERVAL_MS =
+  Number(process.env.ISSUE2PR_DELEGATE_WATCH_MS) > 0 ? Number(process.env.ISSUE2PR_DELEGATE_WATCH_MS) : 5000;
+export const DELEGATE_VERIFY_MAX_FAILS =
+  Number(process.env.ISSUE2PR_DELEGATE_VERIFY_MAX_FAILS) > 0 ? Number(process.env.ISSUE2PR_DELEGATE_VERIFY_MAX_FAILS) : 3;
+
+function stopDelegateWatch(runDir) {
+  const s = runSessions.get(runDir);
+  if (s && s.watch) { clearInterval(s.watch); s.watch = null; }
+}
+
+function maybeWatchDelegate(ctx, root, runDir, run) {
+  if (!run || run.status !== "awaiting_review") return;
+  const s = sessionFor(runDir);
+  if (s.watch) return; // 已在监听
+  const rcx = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, run));
+  rcx.run = run;
+  rcx.project = loadProject(root, run.project) || rcx.project;
+  if (!stageDelegated(rcx, run.current) || isGate(run, run.current)) return; // 人工门交人工
+  s.watch = setInterval(async () => {
+    const r = await delegateWatchTick(ctx, root, runDir);
+    if (r !== "waiting" && r !== "verify-fail") stopDelegateWatch(runDir);
+    if (r === "advanced") drive(ctx, root, runDir);
+  }, DELEGATE_WATCH_INTERVAL_MS);
+  s.watch.unref?.(); // 不阻止进程退出（测试 / 停服场景）
+  ctx.logger?.info?.("issue2pr: 全自动模式监听委外产物就绪（每 " + DELEGATE_WATCH_INTERVAL_MS + "ms 验证一次）");
+}
+
+// 单次监听推进（导出供测试直接驱动）。
+// 返回: idle(非委托等待态) | gate(人工门，交人工) | waiting(未拿到委外结果)
+//      | verify-fail(验证未过，仍在容错窗口) | advanced(验证过 → 已自动放行) | failed(连续不过 → Run 显式失败)
+export async function delegateWatchTick(ctx, root, runDir) {
+  const run = loadRun(runDir);
+  if (!run || run.status !== "awaiting_review") return "idle";
+  const id = run.current;
+  const s = sessionFor(runDir);
+  const rcx = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, run));
+  rcx.run = run;
+  rcx.project = loadProject(root, run.project) || rcx.project;
+  if (!stageDelegated(rcx, id)) return "idle";
+  if (isGate(run, id)) return "gate"; // 复核模式中途改为有人工门 → 交人工
+  if (!delegateReady(runDir, id)) return "waiting"; // 还没拿到委外结果
+  const v = await verifyDelegateResult(rcx, id);
+  logEvent(rcx, { kind: "stage", name: id + " 委外产物自动验证" + (v.ok ? "通过" : "未通过"),
+    detail: v.ok
+      ? "结构完整" + (v.rehearsal ? "，对 HEAD 基线应用性演练通过（" + v.patches + " 份补丁）" : "")
+      : v.errors.join("；"),
+    ok: v.ok });
+  if (v.ok) {
+    // 自动放行：落 auto-approve 复核记录（审计可见这是机器决策，非人工）
+    delete run.delegateVerifyFails;
+    const st = run.stages[id];
+    st.status = "approved"; st.finishedAt = new Date().toISOString();
+    run.status = "running";
+    writeArtifact(runDir, `reviews/${timestamp()}-auto-approve-${id}.json`, JSON.stringify({
+      stage: id, decision: "approve", auto: true,
+      comment: "全自动模式：委外产物就绪且机器验证通过，自动放行",
+      verification: { ok: true, patches: v.patches, rehearsal: v.rehearsal },
+      at: new Date().toISOString(),
+    }, null, 2));
+    saveRun(runDir, run);
+    return "advanced";
+  }
+  run.delegateVerifyFails = (run.delegateVerifyFails || 0) + 1;
+  if (run.delegateVerifyFails < DELEGATE_VERIFY_MAX_FAILS) {
+    saveRun(runDir, run); // 计数落盘：外部会话可能仍在写产物，给容错窗口
+    return "verify-fail";
+  }
+  // 连续 N 次不过：产物稳定存在但不可用 → 显式失败（不无限等待，更不空手放行）
+  delete run.delegateVerifyFails;
+  const st = run.stages[id];
+  const msg = id + " 委外产物验证连续 " + DELEGATE_VERIFY_MAX_FAILS + " 次未通过: " + v.errors.join("；")
+    + "；请回退该阶段重跑，或修正外部产物";
+  st.status = "failed"; st.error = msg;
+  run.status = "failed";
+  saveRun(runDir, run);
+  rcx.run = run;
+  try {
+    await rcx.executors.P10({ ...rcx, failure: { stage: id, error: msg } });
+    recordFailureAnalysis(runDir);
+  } catch { /* P10 自身失败不阻断主流程 */ }
+  return "failed";
 }
 
 // 启动恢复：dsh 进程重启后，盘上遗留 status==="running" 的 Run 已无驱动循环，
@@ -510,6 +639,7 @@ async function handleApi(ctx, root, req, res) {
             r.status = "stopped";
             if (r.stages[r.current] && r.stages[r.current].status === "running") r.stages[r.current].status = "stopped";
             saveRun(rd, r);
+            stopDelegateWatch(rd);
             runSessions.delete(rd);
             killExternal(rd);
             stopped += 1;
@@ -589,6 +719,7 @@ async function handleApi(ctx, root, req, res) {
         }
         saveRun(runDir, run);
         killExternal(runDir); // claude 委托在跑时一并终止进程树，避免孤儿进程继续写仓库
+        stopDelegateWatch(runDir); // 委外就绪监听一并停止
         return sendJson(res, 200, { ok: true, message: "已停止（当前阶段执行完即停）" });
       }
 
@@ -601,15 +732,20 @@ async function handleApi(ctx, root, req, res) {
         const stage = String(body?.stage || "");
         const ids = STAGES.map((s) => s.id);
         if (!ids.includes(stage)) return sendJson(res, 400, { ok: false, message: "非法阶段: " + stage });
+        const project0 = loadProject(root, slug);
+        const shimRcx = project0 ? { run, project: project0, stageCfgOf: (id) => stageCfgOf(project0, id) } : null;
         for (const s of STAGES) {
           const idx = ids.indexOf(s.id);
           if (idx >= ids.indexOf(stage)) {
             run.stages[s.id] = { status: "pending", attempts: run.stages[s.id]?.attempts || 0 };
+            // A2 修复：被重置的委托阶段清空旧外部产物 —— 否则 delegateReady 误判就绪、P7 应用过期 patch
+            if (shimRcx && stageDelegated(shimRcx, s.id)) purgeDelegateArtifacts(runDir, s.id);
           }
         }
         run.current = stage;
         run.status = "running";
         saveRun(runDir, run);
+        stopDelegateWatch(runDir); // 旧监听作废（阶段已重置、产物已清场，等新产物重新就绪）
         sendJson(res, 200, { ok: true, message: "已从 " + stage + " 重跑" });
         setImmediate(() => drive(ctx, root, runDir));
         return;
@@ -623,10 +759,12 @@ async function handleApi(ctx, root, req, res) {
           run.status = "stopped";
           saveRun(runDir, run); // 推进循环下一圈 loadRun 读到 stopped 即退出
         }
+        stopDelegateWatch(runDir); // 停委外就绪监听，再丢弃会话
         runSessions.delete(runDir); // 丢弃共享 rcx（reviewComment 等），防复活
         killExternal(runDir);
         try { rmTree(runDir); }
         catch (e) { return sendJson(res, 500, { ok: false, message: "删除失败: " + String((e && e.message) || e) }); }
+        removeWorktree(root, slug, runId).catch(() => {}); // 尽力清理 per-Run worktree（孤儿可由 prune 收敛）
         return sendJson(res, 200, { ok: true, message: "已删除" });
       }
 
@@ -637,8 +775,9 @@ async function handleApi(ctx, root, req, res) {
         const rcx = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, run));
         rcx.run = run;
         const body = await readBody(req);
-        const [ok, msg] = applyReview(rcx, { decision: body?.decision, comment: body?.comment });
+        const [ok, msg] = await applyReview(rcx, { decision: body?.decision, comment: body?.comment });
         if (!ok) return sendJson(res, 400, { ok: false, message: msg });
+        stopDelegateWatch(runDir); // 人工已决策，监听退出（避免与人工决策赛跑）
         sendJson(res, 200, { ok: true, message: msg });
         if (run.status === "running") setImmediate(() => drive(ctx, root, runDir)); // approve/reject 后继续推进
         return;
@@ -653,8 +792,10 @@ async function handleApi(ctx, root, req, res) {
         const body = await readBody(req);
         const lineNo = Number(body?.lineNo);
         if (!Number.isInteger(lineNo) || lineNo < 0) return sendJson(res, 400, { ok: false, message: "lineNo 必须是合法行号" });
+        const wtRepo = runRepoDir(root, slug, runId); // A3：补丁应用在 per-Run worktree，回滚也要对着它
+        const repoPath = existsSync(join(wtRepo, ".git")) ? wtRepo : baseRepoDir(root, slug);
         try {
-          await rollbackLedger(runDir, join(root, "projects", slug, "repo"), lineNo);
+          await rollbackLedger(runDir, repoPath, lineNo);
         } catch (e) { return sendJson(res, 400, { ok: false, message: "回滚失败: " + String((e && e.message) || e) }); }
         return sendJson(res, 200, { ok: true });
       }

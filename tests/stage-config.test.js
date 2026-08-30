@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   STAGE_DEFS, stageCfgOf, sysOf, paramsOf, routeOverridesOf, validateStageConfig,
-  stageDelegated, buildDelegateTask, delegateReady,
+  stageDelegated, buildDelegateTask, delegateReady, purgeDelegateArtifacts,
 } from "../lib/stageConfig.js";
 import { maybeDelegate } from "../lib/stages/helpers.js";
 
@@ -113,6 +113,25 @@ test("delegateReady：非 P6 看产物文件；P6 看 patches/coder-report 口�
   mkdirSync(join(runDir2, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir2, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
   assert.equal(delegateReady(runDir2, "P6"), true);
+});
+
+test("purgeDelegateArtifacts：P6 清 coder-report 与 patches/*.diff（保留任务包）；非 P6 清产物文件", () => {
+  const d = mkdtempSync(join(root, "purge-"));
+  mkdirSync(join(d, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(d, "06-implementation", "coder-report.json"), "{}");
+  writeFileSync(join(d, "06-implementation", "session-task.md"), "任务包");
+  writeFileSync(join(d, "06-implementation", "patches", "0001-T1.diff"), "diff");
+  writeFileSync(join(d, "06-implementation", "patches", "notes.txt"), "非 diff 不动");
+  const removed = purgeDelegateArtifacts(d, "P6");
+  assert.ok(removed.includes("06-implementation/coder-report.json"));
+  assert.ok(removed.some((r) => r.endsWith("0001-T1.diff")));
+  assert.equal(existsSync(join(d, "06-implementation", "session-task.md")), true, "任务包保留");
+  assert.equal(existsSync(join(d, "06-implementation", "patches", "notes.txt")), true);
+  assert.equal(delegateReady(d, "P6"), false, "清场后未就绪，复核门重新拦截");
+  writeFileSync(join(d, "05-task-graph.json"), "{}");
+  assert.deepEqual(purgeDelegateArtifacts(d, "P5"), ["05-task-graph.json"]);
+  assert.equal(existsSync(join(d, "05-task-graph.json")), false);
+  assert.deepEqual(purgeDelegateArtifacts(d, "P7"), [], "无委托产物定义的阶段不动");
 });
 
 test("maybeDelegate：off 返回 null 走本机；session 生成任务包并 external", async () => {

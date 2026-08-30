@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { STAGES, MAIN_FLOW, initRun, saveRun, loadRun, isGate, advance, applyReview } from "../lib/pipeline.js";
+import { delegateReady } from "../lib/stageConfig.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-pipe-"));
 function freshRun(reviewMode) {
@@ -27,7 +29,7 @@ test("every 模式：逐阶段停 awaiting_review，approve 后才推进", async
   const rcx = { runDir, run, executors: okExecutors, log() {} };
   await advance(rcx);
   assert.equal(run.stages.P1.status, "awaiting_review");
-  const [ok] = applyReview(rcx, { decision: "approve", comment: "" });
+  const [ok] = await applyReview(rcx, { decision: "approve", comment: "" });
   assert.ok(ok);
   await advance(rcx);
   assert.equal(run.stages.P1.status, "approved");
@@ -70,8 +72,8 @@ test("reject 必须带意见；打回后阶段回 pending 且 attempts+1，意�
   const { runDir, run } = freshRun("every");
   const rcx = { runDir, run, executors: okExecutors, log() {} };
   await advance(rcx);
-  assert.equal(applyReview(rcx, { decision: "reject", comment: "" })[0], false);
-  const [ok] = applyReview(rcx, { decision: "reject", comment: "契约缺 risk_level" });
+  assert.equal((await applyReview(rcx, { decision: "reject", comment: "" }))[0], false);
+  const [ok] = await applyReview(rcx, { decision: "reject", comment: "契约缺 risk_level" });
   assert.ok(ok);
   assert.equal(run.stages.P1.status, "pending");
   assert.equal(run.stages.P1.attempts, 1);
@@ -115,7 +117,7 @@ test("P6 external（session）：事件不说\"完成\"；空 patches 拒绝 app
     P6: async () => ({ artifact: "06-implementation/session-task.md", summary: "任务包已生成，等待外部 DSH 会话执行", external: true }) };
   const rcx = { runDir, run, executors: extExec, log() {} };
   await advance(rcx); // 停 P5
-  applyReview(rcx, { decision: "approve", comment: "" });
+  await applyReview(rcx, { decision: "approve", comment: "" });
   await advance(rcx); // 跑 P6 → external → awaiting_review
   assert.equal(run.stages.P6.status, "awaiting_review");
   assert.equal(run.stages.P6.external, true);
@@ -124,14 +126,181 @@ test("P6 external（session）：事件不说\"完成\"；空 patches 拒绝 app
   assert.ok(evs.some((e) => e.stage === "P6" && /任务包已生成 · 等待外部会话执行/.test(e.name)), "事件应写明等待外部会话执行");
   assert.ok(!evs.some((e) => e.stage === "P6" && /完成/.test(e.name)), "P6 未实施完成，事件不得出现\"完成\"");
   // 空 patches：approve 被拦（否则 P7 必然无 patch 可用而失败）
-  const [ok1, msg1] = applyReview(rcx, { decision: "approve", comment: "" });
+  const [ok1, msg1] = await applyReview(rcx, { decision: "approve", comment: "" });
   assert.equal(ok1, false);
   assert.match(msg1, /session 模式/);
   assert.equal(run.stages.P6.status, "awaiting_review");
   // 外部会话产出 patch → 放行
   mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
-  const [ok2] = applyReview(rcx, { decision: "approve", comment: "" });
+  const [ok2] = await applyReview(rcx, { decision: "approve", comment: "" });
   assert.ok(ok2);
   assert.equal(run.stages.P6.status, "approved");
+});
+
+test("A4 修复：auto 模式 + P6 session → 外部产物未就绪时挂起等待（不再直通 P7 必败）", async () => {
+  const { runDir, run } = freshRun("auto");
+  run.p6Mode = "session";
+  const extExec = { ...okExecutors,
+    P6: async () => ({ artifact: "06-implementation/session-task.md", summary: "任务包已生成", external: true }) };
+  const rcx = { runDir, run, executors: extExec, log() {} };
+  await advance(rcx);
+  assert.equal(run.stages.P6.status, "awaiting_review", "全自动也不能空手放行委托阶段");
+  assert.equal(run.status, "awaiting_review");
+  // 外部产出后放行 → P7 才被执行
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
+  assert.ok((await applyReview(rcx, { decision: "approve", comment: "" }))[0]);
+  await advance(rcx);
+  assert.equal(run.stages.P7.status, "approved", "产出就绪后 P7 正常推进");
+});
+
+test("A2 修复：打回委托 P6 清空旧外部产物（防 delegateReady 误判与过期 patch 复用）", async () => {
+  const { runDir, run } = freshRun("key-only");
+  run.p6Mode = "session";
+  const extExec = { ...okExecutors,
+    P6: async () => ({ artifact: "06-implementation/session-task.md", summary: "任务包", external: true }) };
+  const rcx = { runDir, run, executors: extExec, log() {} };
+  for (let i = 0; i < 5; i++) await advance(rcx); // P1-P4 直过，停 P5
+  await applyReview(rcx, { decision: "approve", comment: "" });
+  await advance(rcx); // P6 external → awaiting_review
+  // 外部会话产出旧产物
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"), "{\"mode\":\"session\"}");
+  writeFileSync(join(runDir, "06-implementation", "session-task.md"), "任务包");
+  assert.equal(delegateReady(runDir, "P6"), true);
+  // 打回：旧产物必须被清场
+  assert.ok((await applyReview(rcx, { decision: "reject", comment: "改动越界" }))[0]);
+  assert.equal(run.stages.P6.status, "pending");
+  assert.equal(existsSync(join(runDir, "06-implementation", "coder-report.json")), false, "旧 report 已清");
+  assert.equal(existsSync(join(runDir, "06-implementation", "patches", "0001-T1.diff")), false, "旧 diff 已清");
+  assert.equal(existsSync(join(runDir, "06-implementation", "session-task.md")), true, "任务包保留（重跑重新生成）");
+  // 重跑后仍是空手 → approve 继续被拦（打回意见真正生效）
+  await advance(rcx);
+  assert.equal(run.stages.P6.status, "awaiting_review");
+  const [ok2, msg2] = await applyReview(rcx, { decision: "approve", comment: "" });
+  assert.equal(ok2, false);
+  assert.match(msg2, /尚未产出/);
+});
+
+test("A4 兜底：委托 P6 产物缺失时 P7 显式失败（不空跑）", async () => {
+  const { runDir, run } = freshRun("auto");
+  run.p6Mode = "session";
+  for (const id of ["P1", "P2", "P3", "P4", "P5", "P6"]) run.stages[id] = { status: "approved", attempts: 0 };
+  run.current = "P7";
+  saveRun(runDir, run);
+  const rcx = { runDir, run, executors: okExecutors, log() {} };
+  await advance(rcx);
+  assert.equal(run.stages.P7.status, "failed");
+  assert.match(run.stages.P7.error, /委托产物缺失/);
+  assert.equal(run.status, "failed");
+});
+// —— A4 修正回归：放行前必须「拿到委外结果 + 验证 ok」，坏补丁在门上拦截 ——
+// 真实 git 仓库夹具：验证应用性演练（对 HEAD 基线 git apply）真实生效
+function gitInit2(dir) {
+  mkdirSync(dir, { recursive: true });
+  const git = (a) => execFileSync("git", a, { cwd: dir, stdio: "pipe" });
+  git(["init"]); git(["config", "user.email", "t@t"]); git(["config", "user.name", "t"]);
+  git(["config", "core.autocrlf", "false"]);
+  return git;
+}
+function realPatchFixture(repoDir) {
+  const git = gitInit2(repoDir);
+  writeFileSync(join(repoDir, "a.txt"), "line1\n");
+  git(["add", "."]); git(["commit", "-m", "init"]);
+  writeFileSync(join(repoDir, "a.txt"), "line1-fixed\n");
+  const diff = execFileSync("git", ["diff", "--", "a.txt"], { cwd: repoDir }).toString();
+  execFileSync("git", ["checkout", "--", "a.txt"], { cwd: repoDir, stdio: "pipe" });
+  return diff;
+}
+
+test("A4 修正：人工放行也过机器验证——非 diff 内容的补丁被拒（不只是文件存在性）", async () => {
+  const { runDir, run } = freshRun("key-only");
+  run.p6Mode = "session";
+  const extExec = { ...okExecutors,
+    P6: async () => ({ artifact: "06-implementation/session-task.md", summary: "任务包", external: true }) };
+  const rcx = { runDir, run, executors: extExec, log() {} };
+  for (let i = 0; i < 5; i++) await advance(rcx);
+  await applyReview(rcx, { decision: "approve", comment: "" });
+  await advance(rcx); // P6 → awaiting_review
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), "这不是补丁，只是普通文本");
+  const [ok, msg] = await applyReview(rcx, { decision: "approve", comment: "" });
+  assert.equal(ok, false);
+  assert.match(msg, /委外产物验证未通过/);
+  assert.match(msg, /不是 unified diff/);
+  assert.equal(run.stages.P6.status, "awaiting_review", "验证不过不放行");
+});
+
+test("A4 修正：对 HEAD 基线不可应用的补丁，人工放行被拒；修正后放行", async () => {
+  const { runDir, run } = freshRun("key-only");
+  run.p6Mode = "session";
+  const repoDir = mkdtempSync(join(root, "repo-"));
+  const diff = realPatchFixture(repoDir);
+  const extExec = { ...okExecutors,
+    P6: async () => ({ artifact: "06-implementation/session-task.md", summary: "任务包", external: true }) };
+  const rcx = { runDir, run, repoDir, executors: extExec, log() {} };
+  for (let i = 0; i < 5; i++) await advance(rcx);
+  await applyReview(rcx, { decision: "approve", comment: "" });
+  await advance(rcx); // P6 → awaiting_review
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), diff.replace(/line1/g, "ghost-line"));
+  let [ok, msg] = await applyReview(rcx, { decision: "approve", comment: "" });
+  assert.equal(ok, false, "上下文不匹配的补丁不得放行");
+  assert.match(msg, /无法应用到 HEAD 基线/);
+  // 外部会话修正产物 → 同一验证口径下放行
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), diff);
+  [ok] = await applyReview(rcx, { decision: "approve", comment: "" });
+  assert.ok(ok);
+  assert.equal(run.stages.P6.status, "approved");
+});
+
+test("A4 修正：全自动 + 委托产物就绪但坏 → advance 显式失败（不流进 P7）", async () => {
+  const { runDir, run } = freshRun("auto");
+  run.p6Mode = "claude";
+  const repoDir = mkdtempSync(join(root, "repo-"));
+  const diff = realPatchFixture(repoDir);
+  let p7Ran = 0;
+  const extExec = { ...okExecutors,
+    P6: async () => ({ // claude 执行完返回（非 external），产物已落盘但不可应用
+      artifact: "06-implementation/",
+      summary: "claude 完成（但补丁坏）",
+    }),
+    P7: async () => { p7Ran += 1; return { artifact: "ledger/patch-ledger.jsonl" }; } };
+  const rcx = { runDir, run, repoDir, executors: extExec, log() {} };
+  // 预置：P1-P5 已过，当前 P6
+  for (const id of ["P1", "P2", "P3", "P4", "P5"]) run.stages[id] = { status: "approved", attempts: 0 };
+  run.current = "P6"; saveRun(runDir, run);
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), diff.replace(/line1/g, "ghost-line"));
+  await advance(rcx);
+  assert.equal(run.stages.P6.status, "failed", "坏补丁在 P6 显式失败");
+  assert.match(run.stages.P6.error, /委外产物验证未通过/);
+  assert.match(run.stages.P6.error, /无法应用到 HEAD 基线/);
+  assert.equal(p7Ran, 0, "P7 不得执行（宁可显式失败，不可错跑）");
+  assert.equal(run.status, "failed");
+});
+
+test("A4 修正：全自动 + 委托产物就绪且验证 ok → 自动放行，P7 正常执行", async () => {
+  const { runDir, run } = freshRun("auto");
+  run.p6Mode = "claude";
+  const repoDir = mkdtempSync(join(root, "repo-"));
+  const diff = realPatchFixture(repoDir);
+  let p7Ran = 0;
+  const extExec = { ...okExecutors,
+    P6: async () => ({ artifact: "06-implementation/", summary: "claude 完成" }),
+    P7: async () => { p7Ran += 1; return { artifact: "ledger/patch-ledger.jsonl" }; } };
+  const rcx = { runDir, run, repoDir, executors: extExec, log() {} };
+  for (const id of ["P1", "P2", "P3", "P4", "P5"]) run.stages[id] = { status: "approved", attempts: 0 };
+  run.current = "P6"; saveRun(runDir, run);
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), diff);
+  await advance(rcx);
+  assert.equal(run.stages.P6.status, "approved", "拿到结果且验证 ok → 自动放行");
+  assert.equal(run.status, "completed");
+  assert.ok(p7Ran >= 1, "P7 已执行");
+  // 过程事件留痕：验证通过事件可追溯
+  const evs = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.ok(evs.some((e) => e.stage === "P6" && /委外产物验证通过/.test(e.name)), "验证通过事件落盘");
 });

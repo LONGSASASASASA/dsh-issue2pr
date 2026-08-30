@@ -23,7 +23,7 @@
 ## ✨ 特性总览
 
 - 🔗 **11 阶段全链路**：Issue 分析 → 检索 → 代码理解 → 根因假设 → 任务规划 → 编码 → 补丁管线 → 测试 → 审查 → PR 构建，一步不省。
-- 🚦 **人工复核门**：P5 / P6 / P9 / P11 四道关键门控，`approve` 放行、`reject` 带意见打回重跑；复核模式可选每阶段 / 仅关键 / 全自动。
+- 🚦 **人工复核门**：P5 / P6 / P9 / P11 四道关键门控，`approve` 放行、`reject` 带意见打回重跑；复核模式可选每阶段 / 仅关键 / 全自动。打回委托阶段会**先清空旧外部产物**（防止过期 patch 复用）；委托阶段放行前必须通过**机器验证**（拿到委外结果 + 对 HEAD 基线可应用），全自动模式下就绪后由插件**自动验证并放行**，不空手放行也不带病放行。
 - 🧾 **产物证据链**：每个阶段落盘一份编号产物（`01-*.json` … `10-pr-description.md`），输入来自上游产物、输出去往下游契约，可独立审查、可打回重做。
 - 🔁 **可回滚**：Patch Pipeline 带台账（ledger），只撤销 Agent 引入的修改，不碰用户自己的代码。
 - 🧪 **真实测试**：结果必须来自真实工具执行——在克隆的仓库里跑真实测试命令，完整输出落盘可回溯。
@@ -39,7 +39,7 @@
   <img src="docs/assets/pipeline.svg" alt="11 阶段流水线：主流程 P1→P9→P11，复核门 P5/P6/P9/P11，失败旁路 P10" width="100%">
 </div>
 
-一次 **Run** 就是一条证据链：发起时从触发源读入 Issue 原文，主流程 `P1→P9→P11` 依次推进，每步落盘产物；任何阶段失败立即停下并进入 P10 分类旁路；到达复核门时等待人工 `approve / reject`，打回的意见会传回该阶段重新执行。
+一次 **Run** 就是一条证据链：发起时从触发源读入 Issue 原文，主流程 `P1→P9→P11` 依次推进，每步落盘产物；任何阶段失败立即停下并进入 P10 分类旁路；到达复核门时等待人工 `approve / reject`，打回的意见会传回该阶段重新执行（该阶段的旧外部产物同时清场；P7 应用补丁前会把工作区重置回基线，打回重跑不会残留上一轮补丁）。
 
 ### 阶段一览
 
@@ -77,7 +77,7 @@
 | --- | --- |
 | `every` | 每个阶段完成后都进入复核门 |
 | `key-only` | 仅 P5 / P6 / P9 / P11 四道关键门停（推荐） |
-| `auto` | 全自动推进，不停留 |
+| `auto` | 全自动推进，不停留（委托阶段例外：见下方「委外产物验证」） |
 
 **P6 执行模式 `p6Mode`** —— 决定代码由谁写：
 
@@ -86,6 +86,13 @@
 | `builtin` | 内置多智能体：Planner 派单 → 并行 Coder（TDD / 最小 diff 纪律）→ Reviewer 门控 |
 | `session` | 生成任务包交给 DSH 会话执行，人工完成后通过复核门放行 |
 | `claude` | 任务包自动委托 Claude Code CLI 无人值守执行（`--add-dir` 写产物目录，停止/删除时杀进程树），失败回退等人工会话 |
+
+**委外产物验证（拿到结果 + 验证 ok 才往下流转）** —— 委托阶段（`session` / `claude` / 各阶段委托开关）的放行不看「文件存在」，看「产物可用」，验证分两层：
+
+1. **结构完整**：补丁清单与 P7 应用清单完全同口径；逐份补丁存在、非空、形如 unified diff；`coder-report.json` 可解析且清单与文件一致。
+2. **应用性演练**：用一次性 git 索引从 `HEAD` 构建基线，按应用序逐份 `git apply --cached` 演练——不碰工作区，语义与 P7（重置后顺序应用）完全一致；对基线不可应用的补丁在此拦截。
+
+三种放行路径同一验证口径：**人工门**（`every` / `key-only`）`approve` 时必须验证通过；**全自动**（`auto`）插件轮询产物就绪（默认 5s）自动验证，通过即放行并落 `auto-approve` 审计记录，连续 3 次不过（产物稳定存在但不可用）则 Run 显式失败并走 P10 归因；**advance 直通**（如 `claude` 同步执行完）验证不过就地失败，绝不把坏补丁带进 P7。
 
 ### 委外智能体：多方式发现 + 测试门禁
 
@@ -121,7 +128,7 @@ cd ~/.dsh/plugins
 git clone https://github.com/LONGSASASASASA/dsh-issue2pr.git dsh-issue2pr
 ```
 
-> 也可以通过 [dsh-plugin-manager](https://github.com/LONGSASASASASA) 插件安装与管理；审阅源码后可用 `dsh plugin --profile web add github:LONGSASASASASA/dsh-issue2pr#<commit>` 锁定 commit 安装。数据默认存放在 `~/.dsh/issue2pr/`（与插件目录分离，升级插件不丢数据）。
+> 也可以通过 [dsh-plugin-manager](https://github.com/LONGSASASASASA) 插件安装与管理；审阅源码后可用 `dsh plugin --profile web add github:LONGSASASASASA/dsh-issue2pr#<commit>` 锁定 commit 安装。数据默认存放在 `~/.dsh/issue2pr/`（与插件目录分离，升级插件不丢数据）：`projects/<slug>/repo` 是基线克隆，`projects/<slug>/worktrees/<runId>` 是每个 Run 的独立工作区（同项目并发 Run 互不污染，Run 删除时一并清理）。
 
 ### 五分钟跑通第一单
 

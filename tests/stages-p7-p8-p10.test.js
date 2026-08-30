@@ -136,3 +136,21 @@ test("P7：git apply 成功/失败都记过程事件", async () => {
   assert.ok(evs.some((e) => e.kind === "git" && e.ok === false), "失败 apply 记事件");
   assert.ok(evs.every((e) => e.stage === "P7"), "事件携带阶段号");
 });
+
+test("A1/A2 修复：P7 重跑前自动重置工作区（打回/回退后 re-apply 不再必败）", async () => {
+  const repoDir = gitRepo();
+  const runDir = mkdtempSync(join(root, "run-"));
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  mkdirSync(join(runDir, "ledger"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"),
+    JSON.stringify({ patches: [{ patch: "06-implementation/patches/0001-a.diff" }] }));
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-a.diff"),
+    "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1\n+line1-patched\n");
+  await p7({ runDir, repoDir, llm: null, reviewComment: "" });
+  assert.match(readFileSync(join(repoDir, "a.txt"), "utf8"), /patched/);
+  // 旧实现：工作区仍是 patched 状态，直接 re-apply 必失败（git apply --check 报 already exists）
+  await p7({ runDir, repoDir, llm: null, reviewComment: "" });
+  assert.match(readFileSync(join(repoDir, "a.txt"), "utf8"), /patched/, "基线重置后重新应用一次");
+  const ledger = readFileSync(join(runDir, "ledger", "patch-ledger.jsonl"), "utf8").trim().split("\n");
+  assert.equal(ledger.length, 2, "两次应用各记一行 ledger");
+});
