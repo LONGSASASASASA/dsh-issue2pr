@@ -1,7 +1,7 @@
 /**
  * dsh-issue2pr — node 半：REST API + 驱动循环（随 dsh web 同生共死）。
  * 路由与 spec §7 对齐：projects / runs（嵌套）/ review / rollback / tree / artifact。
- * 数据读写一律走 lib/store.js 与 lib/pipeline.js，不重复造轮子。
+ * 数据读写一律走 lib/core/store.js 与 lib/core/pipeline.js，不重复造轮子。
  */
 import { join, relative, sep } from "node:path";
 import { existsSync, readdirSync, mkdirSync, readFileSync } from "node:fs";
@@ -10,21 +10,21 @@ import {
   defaultDataRoot, saveProject, loadProject, listProjects,
   createRun, runDirOf, readArtifact, listRunTree, rmTree, loadUiState, saveUiState,
   writeArtifact, timestamp,
-} from "./lib/store.js";
-import { initRun, saveRun, loadRun, advance, applyReview, isGate, STAGES, MAIN_FLOW } from "./lib/pipeline.js";
-import { verifyDelegateResult } from "./lib/delegateVerify.js";
-import { makeLlm, routeInfo } from "./lib/llm.js";
+} from "./lib/core/store.js";
+import { initRun, saveRun, loadRun, advance, applyReview, isGate, STAGES, MAIN_FLOW } from "./lib/core/pipeline.js";
+import { verifyDelegateResult } from "./lib/delegate/delegateVerify.js";
+import { makeLlm, routeInfo } from "./lib/infra/llm.js";
 import { buildExecutors } from "./lib/stages/index.js";
 import { rollbackLedger } from "./lib/stages/p7-patch.js";
 import { killExternal, resolveClaudeBin } from "./lib/stages/p6-coder.js";
-import { discoverAgents, testAgentGate, realRunWhich, realRunNpmPrefix, realRunVersion } from "./lib/agents.js";
+import { discoverAgents, testAgentGate, realRunWhich, realRunNpmPrefix, realRunVersion } from "./lib/delegate/agents.js";
 import { readTriggerText, logEvent } from "./lib/stages/helpers.js";
 import {
   loadConnections, upsertConnection, deleteConnection, normalizeConnection,
   matchConnection, injectGitCredentials, redactUrl, maskToken, hostOf, CONNECTION_KINDS,
-} from "./lib/connections.js";
-import { STAGE_DEFS, stageCfgOf, stageDelegated, delegateReady, purgeDelegateArtifacts, routeOverridesOf, DEFAULT_LLM_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS } from "./lib/stageConfig.js";
-import { baseRepoDir, runRepoDir, ensureWorktree, removeWorktree, resetRepoClean } from "./lib/repoState.js";
+} from "./lib/infra/connections.js";
+import { STAGE_DEFS, stageCfgOf, stageDelegated, delegateReady, purgeDelegateArtifacts, routeOverridesOf, DEFAULT_LLM_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS } from "./lib/core/stageConfig.js";
+import { baseRepoDir, runRepoDir, ensureWorktree, removeWorktree, resetRepoClean } from "./lib/infra/repoState.js";
 import { ASSISTANT_SYSTEM_HEAD, buildAssistantContext } from "./lib/assistant.js";
 
 export const name = "dsh-issue2pr";

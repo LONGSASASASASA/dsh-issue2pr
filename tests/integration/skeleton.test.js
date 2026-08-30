@@ -1,7 +1,7 @@
 // tests/skeleton.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { apply, name, inject, __setTestHooks } from "../index.js";
+import { apply, name, inject, __setTestHooks } from "../../index.js";
 
 function fakeCtx() {
   const routes = [];

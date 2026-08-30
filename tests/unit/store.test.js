@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, existsSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as store from "../lib/store.js";
-import { rmTree, appendArtifactLine } from "../lib/store.js";
+import * as store from "../../lib/core/store.js";
+import { rmTree, appendArtifactLine } from "../../lib/core/store.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-store-"));
 

@@ -5,9 +5,9 @@ import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import p7, { rollbackLedger } from "../lib/stages/p7-patch.js";
-import p8 from "../lib/stages/p8-test-runner.js";
-import p10 from "../lib/stages/p10-failure.js";
+import p7, { rollbackLedger } from "../../lib/stages/p7-patch.js";
+import p8 from "../../lib/stages/p8-test-runner.js";
+import p10 from "../../lib/stages/p10-failure.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-p78-"));
 function gitRepo() {

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import p6 from "../lib/stages/p6-coder.js";
+import p6 from "../../lib/stages/p6-coder.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-p6-"));
 const repoDir = join(root, "repo");

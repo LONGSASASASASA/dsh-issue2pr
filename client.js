@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
 		const en = { nav: "Issue2PR" };
 		const API = "/issue2pr/api";
 
-		// ---------- 常量：11 阶段（与 lib/pipeline.js STAGES 对齐；P10 为失败旁路，不在 MAIN_FLOW） ----------
+		// ---------- 常量：11 阶段（与 lib/core/pipeline.js STAGES 对齐；P10 为失败旁路，不在 MAIN_FLOW） ----------
 		// about：阶段职责说明（「运行」页阶段详情·说明 tab 展示；输入 → 做什么 → 输出 → 何时介入）
 		const STAGES = [
 			{ id: "P1",  name: "IssueAnalyzer",      desc: "Issue → 结构化契约",            art: "01-issue-analysis.json",    key: false,
@@ -899,7 +899,7 @@ body.i2p-dragging{user-select:none}
 		const runsViewStore = { runId: null, selStage: null, stTab: "run", selArt: null };
 
 		/* ================================================================
-		 * Git 托管连接辅助：host 解析（与服务端 lib/connections.js 对齐）。
+		 * Git 托管连接辅助：host 解析（与服务端 lib/infra/connections.js 对齐）。
 		 * 支持 https / ssh:// / scp（git@host:path）三种形态。
 		 * ================================================================ */
 		function hostOfUri(uri) {

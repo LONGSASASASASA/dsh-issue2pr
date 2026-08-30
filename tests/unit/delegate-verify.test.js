@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { verifyDelegateResult } from "../lib/delegateVerify.js";
+import { verifyDelegateResult } from "../../lib/delegate/delegateVerify.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-dverify-"));
 function gitInit(dir) {

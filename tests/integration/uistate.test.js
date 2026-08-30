@@ -8,8 +8,8 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { apply, __setTestHooks } from "../index.js";
-import { writeArtifact } from "../lib/store.js";
+import { apply, __setTestHooks } from "../../index.js";
+import { writeArtifact } from "../../lib/core/store.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-uistate-"));
 

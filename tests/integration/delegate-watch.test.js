@@ -8,9 +8,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
-import { apply, __setTestHooks, delegateWatchTick, DELEGATE_VERIFY_MAX_FAILS } from "../index.js";
-import { saveProject } from "../lib/store.js";
-import { initRun, saveRun, loadRun } from "../lib/pipeline.js";
+import { apply, __setTestHooks, delegateWatchTick, DELEGATE_VERIFY_MAX_FAILS } from "../../index.js";
+import { saveProject } from "../../lib/core/store.js";
+import { initRun, saveRun, loadRun } from "../../lib/core/pipeline.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-dwatch-"));
 const SLUG = "wtest";

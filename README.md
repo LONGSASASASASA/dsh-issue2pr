@@ -279,15 +279,12 @@ npm test        # node --test，覆盖 API / 流水线 / 各阶段执行器 / �
 | --- | --- |
 | `index.js` | REST API + 驱动循环（node 半，随宿主同生共死） |
 | `client.js` | 工作台 UI（web 半） |
-| `lib/pipeline.js` | 状态机核心：`advance` 推进、`applyReview` 复核 |
-| `lib/stageConfig.js` | 阶段能力表、配置合并、委托任务包 |
-| `lib/stages/p1…p11` | 11 个阶段执行器（输入契约 → 产物落盘） |
-| `lib/llm.js` | LLM 路由解析 + JSON 契约解析（失败重试一次） |
-| `lib/connections.js` | 托管连接、凭据注入与脱敏 |
-| `lib/agents.js` | 委外智能体发现与测试门禁 |
-| `lib/store.js` | 目录规则与产物读写（唯一允许写盘的地方） |
+| `lib/core/` | 流水线骨架：`pipeline.js` 状态机（`advance` 推进、`applyReview` 复核）、`stageConfig.js` 阶段能力表与委托任务包、`store.js` 目录规则与产物读写（唯一允许写盘的地方） |
+| `lib/stages/` | `p1…p11` 11 个阶段执行器（输入契约 → 产物落盘） |
+| `lib/infra/` | 运行设施：`llm.js` LLM 路由与 JSON 契约解析（失败重试一次）、`connections.js` 托管连接与凭据注入脱敏、`repoState.js` 基线克隆与 per-Run worktree |
+| `lib/delegate/` | 委外体系：`agents.js` 委外智能体发现与测试门禁、`delegateVerify.js` 委外产物机器验证 |
 | `lib/assistant.js` | 智能助手上下文聚合 |
-| `tests/` | 单测 + `e2e-live.mjs` 真实链路演练 |
+| `tests/` | `unit/` 模块单测 · `stages/` 阶段执行器 · `integration/` API 与流水线装配 · `manual/` 人工演练（`e2e-live.mjs` 真实链路等，不入 npm test） |
 
 设计背后的完整调研（端到端架构、Sub-Agent 取舍、缓存与记忆边界、评测指标）见 [issue2pr-research.html](./issue2pr-research.html)。
 

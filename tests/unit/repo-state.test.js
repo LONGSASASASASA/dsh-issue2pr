@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { baseRepoDir, runRepoDir, resetRepoClean, ensureWorktree, removeWorktree } from "../lib/repoState.js";
+import { baseRepoDir, runRepoDir, resetRepoClean, ensureWorktree, removeWorktree } from "../../lib/infra/repoState.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-repostate-"));
 function gitInit(dir) {

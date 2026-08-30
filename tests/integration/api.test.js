@@ -5,8 +5,8 @@ import { mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { apply } from "../index.js";
-import { __setTestHooks } from "../index.js";   // 测试注入：dataRoot / executors / llm
+import { apply } from "../../index.js";
+import { __setTestHooks } from "../../index.js";   // 测试注入：dataRoot / executors / llm
 
 const root = mkdtempSync(join(tmpdir(), "i2p-api-"));
 
@@ -238,7 +238,7 @@ test("API：rollback 在 run 运行中/待复核时拒绝；停止后放行校�
 });
 
 test("recoverInterruptedRuns：遗留 running 的 run 置为 stopped 并标 interruptedAt", async () => {
-  const { recoverInterruptedRuns } = await import("../index.js");
+  const { recoverInterruptedRuns } = await import("../../index.js");
   const recRoot = mkdtempSync(join(tmpdir(), "i2p-rec-"));
   const runDir = join(recRoot, "projects", "p1", "runs", "20260829-120000-x");
   mkdirSync(runDir, { recursive: true });
@@ -259,7 +259,7 @@ test("recoverInterruptedRuns：遗留 running 的 run 置为 stopped 并标 inte
 });
 
 test("failRun：running 的 run 落盘 failed + 阶段 error；非 running 不动", async () => {
-  const { failRun } = await import("../index.js");
+  const { failRun } = await import("../../index.js");
   const frRoot = mkdtempSync(join(tmpdir(), "i2p-fail-"));
   const runDir = join(frRoot, "projects", "px", "runs", "20260829-130000-y");
   mkdirSync(runDir, { recursive: true });
@@ -280,7 +280,7 @@ test("failRun：running 的 run 落盘 failed + 阶段 error；非 running 不�
 });
 
 test("saveProject：repos 字符串形态规范化为 { uri } 落盘", async () => {
-  const { saveProject, loadProject } = await import("../lib/store.js");
+  const { saveProject, loadProject } = await import("../../lib/core/store.js");
   const spRoot = mkdtempSync(join(tmpdir(), "i2p-sp-"));
   saveProject(spRoot, {
     name: "规范化", slug: "norm", repos: ["https://x.git"], triggers: [],

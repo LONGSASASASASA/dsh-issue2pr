@@ -7,7 +7,7 @@ import { join } from "node:path";
 import {
   loadConnections, upsertConnection, deleteConnection, normalizeConnection,
   hostOf, matchConnection, injectGitCredentials, redactUrl, maskToken,
-} from "../lib/connections.js";
+} from "../../lib/infra/connections.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-conn-"));
 

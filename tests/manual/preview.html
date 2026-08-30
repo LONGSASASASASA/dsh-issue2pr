@@ -261,7 +261,7 @@ window.__ModuleLoader__.load({
 		const en = { nav: "Issue2PR" };
 		const API = "/issue2pr/api";
 
-		// ---------- 常量：11 阶段（与 lib/pipeline.js STAGES 对齐；P10 为失败旁路，不在 MAIN_FLOW） ----------
+		// ---------- 常量：11 阶段（与 lib/core/pipeline.js STAGES 对齐；P10 为失败旁路，不在 MAIN_FLOW） ----------
 		// about：阶段职责说明（「运行」页阶段详情·说明 tab 展示；输入 → 做什么 → 输出 → 何时介入）
 		const STAGES = [
 			{ id: "P1",  name: "IssueAnalyzer",      desc: "Issue → 结构化契约",            art: "01-issue-analysis.json",    key: false,
@@ -1145,7 +1145,7 @@ body.i2p-dragging{user-select:none}
 		const runsViewStore = { runId: null, selStage: null, stTab: "run", selArt: null };
 
 		/* ================================================================
-		 * Git 托管连接辅助：host 解析（与服务端 lib/connections.js 对齐）。
+		 * Git 托管连接辅助：host 解析（与服务端 lib/infra/connections.js 对齐）。
 		 * 支持 https / ssh:// / scp（git@host:path）三种形态。
 		 * ================================================================ */
 		function hostOfUri(uri) {
@@ -3210,14 +3210,16 @@ body.i2p-dragging{user-select:none}
 			}, []);
 
 			// Run 状态跃迁显式提示：从执行态（running/awaiting_review）离开时 toast，
-			// 切标签/合上工作台期间的后台失败/完成/待复核不再静默（首帧加载不算跃迁）
+			// 切标签/合上工作台期间的后台失败/完成/待复核不再静默（首帧加载不算跃迁；
+			// 按 {id,status} 记忆——切换到另一个 Run 不误报跃迁）
 			const runStatusRef = React.useRef(null);
 			React.useEffect(function () {
-				const s = run && run.id === selRunId ? run.status : null;
+				const cur = run && run.id === selRunId ? { id: run.id, status: run.status } : null;
 				const prev = runStatusRef.current;
-				runStatusRef.current = s;
-				if (!s || !prev || prev === s) return;
-				if (prev !== "running" && prev !== "awaiting_review") return;
+				runStatusRef.current = cur;
+				if (!cur || !prev || prev.id !== cur.id || prev.status === cur.status) return;
+				if (prev.status !== "running" && prev.status !== "awaiting_review") return;
+				const s = cur.status;
 				if (s === "awaiting_review") toastFn("Run " + run.id + " 待复核：" + run.current + " 阶段等您确认", "warn");
 				else if (s === "failed") {
 					const st = run.stages ? run.stages[run.current] : null;

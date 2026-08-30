@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeLlm, extractJson } from "../lib/llm.js";
+import { makeLlm, extractJson } from "../../lib/infra/llm.js";
 
 function fakeCtx(outputs) {
   let i = 0;

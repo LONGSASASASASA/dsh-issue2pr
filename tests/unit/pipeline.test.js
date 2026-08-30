@@ -4,8 +4,8 @@ import { mkdtempSync, readFileSync, readdirSync, mkdirSync, writeFileSync, exist
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { STAGES, MAIN_FLOW, initRun, saveRun, loadRun, isGate, advance, applyReview } from "../lib/pipeline.js";
-import { delegateReady } from "../lib/stageConfig.js";
+import { STAGES, MAIN_FLOW, initRun, saveRun, loadRun, isGate, advance, applyReview } from "../../lib/core/pipeline.js";
+import { delegateReady } from "../../lib/core/stageConfig.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-pipe-"));
 function freshRun(reviewMode) {

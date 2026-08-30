@@ -7,8 +7,8 @@ import { join } from "node:path";
 import {
   STAGE_DEFS, stageCfgOf, sysOf, paramsOf, routeOverridesOf, validateStageConfig,
   stageDelegated, buildDelegateTask, delegateReady, purgeDelegateArtifacts,
-} from "../lib/stageConfig.js";
-import { maybeDelegate } from "../lib/stages/helpers.js";
+} from "../../lib/core/stageConfig.js";
+import { maybeDelegate } from "../../lib/stages/helpers.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-scfg-"));
 

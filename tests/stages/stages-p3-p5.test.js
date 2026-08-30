@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import p3 from "../lib/stages/p3-code-understanding.js";
-import p4 from "../lib/stages/p4-hypothesis.js";
-import p5 from "../lib/stages/p5-planner.js";
+import p3 from "../../lib/stages/p3-code-understanding.js";
+import p4 from "../../lib/stages/p4-hypothesis.js";
+import p5 from "../../lib/stages/p5-planner.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-stg2-"));
 const repoDir = join(root, "repo");

@@ -1,11 +1,11 @@
-// tests/preview.mjs — 生成 preview.html（浏览器视觉验证用，不入 npm test）。
+// tests/manual/preview.mjs — 生成 preview.html（浏览器视觉验证用，不入 npm test）。
 // 内联真实 client.js + React 18.3.1（CDN）+ 宿主 dsw 令牌模拟 + /issue2pr/api fetch mock。
-// 运行：node tests/preview.mjs && 用浏览器打开 tests/preview.html
+// 运行：node tests/manual/preview.mjs && 用浏览器打开 tests/manual/preview.html
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-const client = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "client.js"), "utf8");
+const client = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "client.js"), "utf8");
 
 const html = `<!doctype html>
 <html lang="zh-CN">
@@ -282,4 +282,4 @@ reopen();
 `;
 
 writeFileSync(join(dirname(fileURLToPath(import.meta.url)), "preview.html"), html);
-console.log("written tests/preview.html");
+console.log("written tests/manual/preview.html");

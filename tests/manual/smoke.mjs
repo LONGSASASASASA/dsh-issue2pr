@@ -1,5 +1,5 @@
-// tests/smoke.mjs — 前端渲染冒烟（不入 npm test）：mock React（含 deps 语义）真实渲染 Section 四个视图。
-// 运行：node tests/smoke.mjs
+// tests/manual/smoke.mjs — 前端渲染冒烟（不入 npm test）：mock React（含 deps 语义）真实渲染 Section 四个视图。
+// 运行：node tests/manual/smoke.mjs
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -62,6 +62,9 @@ const fakeRun = {
   },
 };
 globalThis.window = globalThis; // document 不定义：client 内有 typeof 守卫
+// client 用到而 Node globalThis 没有的 window API：事件监听（focus 刷新）与 confirm 补 no-op
+globalThis.addEventListener = globalThis.removeEventListener = () => {};
+globalThis.confirm = () => false;
 globalThis.fetch = (url, opts) => {
   const u = String(url);
   let body = { ok: true };
@@ -148,7 +151,7 @@ globalThis.document = { // 拖宽手柄事件委托 / WorkbenchPage anchor 探�
 globalThis.window.__ModuleLoader__ = {
   load: (def) => { modExports = def.factory((id) => { if (id === "react") return miniReact; if (id === "@deepseek-ai/dsh-client-ui-primitives") return primitives; throw new Error("unknown require: " + id); }); },
 };
-(0, eval)(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "client.js"), "utf8"));
+(0, eval)(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "client.js"), "utf8"));
 assert.ok(modExports && typeof modExports.apply === "function", "factory 应导出 apply");
 
 let Section = null;
@@ -353,6 +356,7 @@ function flattenTexts(node, out = []) { flatten(node, out); return out; }
 
 // ---------- 视图 8：项目选中记忆（进入恢复 / 新建清除 / 选择写回） ----------
 // 新实例：换 curComp 前缀让 hookCells 走全新 key，useState 初始函数才会重新执行（读 localStorage）
+lsStore["i2p.nav"] = "projects"; // nav 记忆也在 localStorage：前序视图切走的 nav 不影响本视图，模拟上次停留在项目页
 lsStore["i2p.proj"] = "demo";
 curComp = "root2"; hookSeq = 0; effectSeq = 0;
 let el8 = Section(); await settle();

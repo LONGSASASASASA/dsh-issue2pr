@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import p9 from "../lib/stages/p9-reviewer.js";
-import p11 from "../lib/stages/p11-pr-builder.js";
+import p9 from "../../lib/stages/p9-reviewer.js";
+import p11 from "../../lib/stages/p11-pr-builder.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-p911-"));
 function runDir() {

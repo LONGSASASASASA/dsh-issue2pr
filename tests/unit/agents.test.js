@@ -8,8 +8,8 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { apply, __setTestHooks } from "../index.js";
-import { discoverAgents, testAgentGate } from "../lib/agents.js";
+import { apply, __setTestHooks } from "../../index.js";
+import { discoverAgents, testAgentGate } from "../../lib/delegate/agents.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-agents-"));
 
