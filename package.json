@@ -33,7 +33,9 @@
     "client.js",
     "lib/",
     "cordis.patch.yml",
-    "docs/assets/"
+    "docs/assets/",
+    "docs/design-taste.md",
+    "docs/design-demo.html"
   ],
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"

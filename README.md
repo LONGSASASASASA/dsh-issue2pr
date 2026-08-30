@@ -311,6 +311,7 @@ npm test        # node --test，覆盖 API / 流水线 / 各阶段执行器 / �
 | `tests/` | `unit/` 模块单测 · `stages/` 阶段执行器 · `integration/` API 与流水线装配 · `manual/` 人工演练（`e2e-live.mjs` 真实链路等，不入 npm test） |
 
 设计背后的完整调研（端到端架构、Sub-Agent 取舍、缓存与记忆边界、评测指标）见 [issue2pr-research.html](./issue2pr-research.html)。
+工作台视觉方案与已确认的交互 Demo 见 [docs/design-taste.md](./docs/design-taste.md) 和 [design-demo.html](docs/design-demo.html)。
 
 ## 📌 当前边界
 

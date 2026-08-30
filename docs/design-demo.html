@@ -1,0 +1,1325 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Issue2PR Taste Demo</title>
+    <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB0AAAAQCAYAAADqDXTRAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADbSURBVEhLtZKxDcIwEEXTImoUiZY1aOihQ2yAaJBYhIoF6NmBdRAFYgb+k2zJduwYJ07xfL5TdD//zk27bC0LsTbRrVfHXo7i60DufVgTDpwhdBc4JZJP5pgDIUSIsRxqjP4q6LsncZ0eTHSd1hq9Jwqpxu4P4XTM6DuisDVFoq2Fow7zEqKisYa50ZfwtyhMtlOIjRfm4ik+YmVqQ8g+pLPYiZt4mdpFuE1K8URTe4O3eIiNCJuU4omGu7T5ScxMrQZJpwiOeaF9ZHc69IX20REFnOG0tsOAtvkBVizaPZkAqB8AAAAASUVORK5CYII=">
+    <style>
+        :root {
+            color-scheme: light;
+            --shell: #ecebe6;
+            --porcelain: #f5f5f2;
+            --porcelain-strong: #ffffff;
+            --panel: rgba(255, 255, 255, 0.84);
+            --panel-strong: #ffffff;
+            --ink: #20211f;
+            --ink-soft: #474a45;
+            --muted: #767a73;
+            --hairline: #deddd6;
+            --hairline-soft: #e9e8e1;
+            --neutral-soft: #eeeeea;
+            --accent: #177b62;
+            --accent-soft: #e5f0eb;
+            --good: #27703d;
+            --good-soft: #e5f0e7;
+            --warn: #90620b;
+            --warn-soft: #f4ead6;
+            --error: #a43c34;
+            --error-soft: #f6e5e2;
+            --shadow: 0 12px 38px rgba(32, 33, 31, 0.08);
+        }
+
+        html[data-theme="dark"] {
+            color-scheme: dark;
+            --shell: #101110;
+            --porcelain: #151614;
+            --porcelain-strong: #1b1d1a;
+            --panel: rgba(27, 29, 26, 0.88);
+            --panel-strong: #1b1d1a;
+            --ink: #eceae4;
+            --ink-soft: #c8cbc3;
+            --muted: #8f948a;
+            --hairline: #343731;
+            --hairline-soft: #2a2c28;
+            --neutral-soft: #232521;
+            --accent: #67b79d;
+            --accent-soft: rgba(103, 183, 157, 0.14);
+            --good: #85c99a;
+            --good-soft: rgba(133, 201, 154, 0.14);
+            --warn: #d9ab62;
+            --warn-soft: rgba(217, 171, 98, 0.15);
+            --error: #e59b91;
+            --error-soft: rgba(229, 155, 145, 0.14);
+            --shadow: 0 14px 44px rgba(0, 0, 0, 0.3);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--shell);
+            color: var(--ink);
+            font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+            font-size: 15px;
+            line-height: 1.5;
+            letter-spacing: 0.1px;
+        }
+
+        button,
+        input,
+        select,
+        textarea {
+            font: inherit;
+            color: inherit;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        .mono {
+            font-family: "Cascadia Mono", "Consolas", monospace;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0;
+        }
+
+        .app-header {
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+            min-height: 52px;
+            padding: 0 20px;
+            border-bottom: 1px solid var(--hairline);
+            background: color-mix(in srgb, var(--porcelain) 92%, transparent);
+            backdrop-filter: blur(14px);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .brand-mark {
+            flex: 0 0 auto;
+            width: 29px;
+            height: 16px;
+        }
+
+        .brand-icon {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        html[data-theme="dark"] .brand-icon {
+            filter: invert(1);
+        }
+
+        .brand-copy strong {
+            display: block;
+            font-size: 16.5px;
+            font-weight: 680;
+            letter-spacing: 0.3px;
+        }
+
+        .header-actions,
+        .action-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header-actions {
+            justify-content: flex-end;
+        }
+
+        .ghost-button,
+        .solid-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 35px;
+            border-radius: 3px;
+            padding: 0 14px;
+            font-size: 13px;
+            font-weight: 620;
+            transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+        }
+
+        .ghost-button {
+            border: 1px solid var(--hairline);
+            background: var(--porcelain-strong);
+            color: var(--ink-soft);
+        }
+
+        .ghost-button:hover {
+            border-color: var(--muted);
+            color: var(--ink);
+        }
+
+        .solid-button {
+            border: 1px solid var(--accent);
+            background: var(--accent);
+            color: #ffffff;
+        }
+
+        html[data-theme="dark"] .solid-button {
+            color: #121412;
+        }
+
+        .solid-button:hover {
+            filter: brightness(0.97);
+        }
+
+        .section-nav {
+            position: sticky;
+            top: 74px;
+            z-index: 25;
+            display: flex;
+            gap: 4px;
+            overflow-x: auto;
+            border-bottom: 1px solid var(--hairline);
+            background: color-mix(in srgb, var(--porcelain-strong) 90%, transparent);
+            padding: 0 clamp(18px, 4vw, 54px);
+            scrollbar-width: none;
+        }
+
+        .section-nav::-webkit-scrollbar {
+            display: none;
+        }
+
+        .section-link {
+            position: relative;
+            border: 0;
+            background: transparent;
+            padding: 14px 16px;
+            color: var(--muted);
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        .section-link:hover,
+        .section-link.active {
+            color: var(--ink);
+        }
+
+        .section-link.active {
+            font-weight: 680;
+        }
+
+        .section-link.active::after {
+            content: "";
+            position: absolute;
+            right: 16px;
+            bottom: 0;
+            left: 16px;
+            height: 2px;
+            background: var(--accent);
+        }
+
+        .demo-main {
+            width: min(1480px, 100%);
+            margin: 0 auto;
+            padding: 28px clamp(18px, 4vw, 54px) 130px;
+        }
+
+        .page {
+            display: none;
+            animation: page-in 180ms ease-out;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        @keyframes page-in {
+            from {
+                opacity: 0;
+                transform: translateY(5px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .page-head {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 24px;
+            margin-bottom: 22px;
+        }
+
+        .eyebrow {
+            margin: 0 0 5px;
+            color: var(--muted);
+            font-size: 11px;
+            letter-spacing: 1.8px;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(25px, 3vw, 34px);
+            font-weight: 680;
+            letter-spacing: -0.5px;
+            line-height: 1.15;
+        }
+
+        h2 {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 680;
+        }
+
+        .page-note {
+            margin: 8px 0 0;
+            max-width: 760px;
+            color: var(--ink-soft);
+            font-size: 14px;
+        }
+
+        .status-strip {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            margin-bottom: 20px;
+            border: 1px solid var(--hairline);
+            border-radius: 4px;
+            background: var(--porcelain-strong);
+        }
+
+        .status-cell {
+            padding: 15px 18px 16px;
+            border-right: 1px solid var(--hairline);
+        }
+
+        .status-cell:last-child {
+            border-right: 0;
+        }
+
+        .status-label {
+            margin-bottom: 3px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .status-value {
+            display: block;
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 1.25;
+        }
+
+        .panel {
+            border: 1px solid var(--hairline);
+            border-radius: 4px;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            min-height: 49px;
+            padding: 0 18px;
+            border-bottom: 1px solid var(--hairline);
+            background: var(--porcelain-strong);
+        }
+
+        .panel-body {
+            padding: 4px 0 10px;
+        }
+
+        .ledger-row {
+            display: grid;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--hairline-soft);
+            transition: background 140ms ease;
+        }
+
+        .ledger-row:last-child {
+            border-bottom: 0;
+        }
+
+        .ledger-row:hover {
+            background: var(--accent-soft);
+        }
+
+        .project-row {
+            grid-template-columns: minmax(210px, 1.4fr) minmax(150px, 0.8fr) minmax(140px, 0.7fr) 88px;
+        }
+
+        .row-title {
+            min-width: 0;
+            font-weight: 650;
+        }
+
+        .row-title small,
+        .muted {
+            display: block;
+            overflow: hidden;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 400;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 23px;
+            border-radius: 999px;
+            padding: 2px 9px;
+            background: var(--neutral-soft);
+            color: var(--ink-soft);
+            font-size: 11px;
+            font-weight: 650;
+            white-space: nowrap;
+        }
+
+        .pill.good {
+            background: var(--good-soft);
+            color: var(--good);
+        }
+
+        .pill.warn {
+            background: var(--warn-soft);
+            color: var(--warn);
+        }
+
+        .pill.error {
+            background: var(--error-soft);
+            color: var(--error);
+        }
+
+        .pill.accent {
+            background: var(--accent-soft);
+            color: var(--accent);
+        }
+
+        .split {
+            display: grid;
+            grid-template-columns: minmax(0, 1.45fr) minmax(310px, 0.75fr);
+            gap: 18px;
+            align-items: start;
+        }
+
+        .stack {
+            display: grid;
+            gap: 18px;
+        }
+
+        .definition-list {
+            display: grid;
+            grid-template-columns: 150px minmax(0, 1fr);
+            margin: 0;
+            padding: 4px 18px 12px;
+        }
+
+        .definition-list div:nth-child(odd) {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .definition-list div:nth-child(even) {
+            min-width: 0;
+            overflow-wrap: anywhere;
+            font-size: 13px;
+        }
+
+        .run-layout {
+            display: grid;
+            gap: 18px;
+        }
+
+        .route {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 10px;
+            padding: 18px;
+            overflow-x: auto;
+        }
+
+        .route-step {
+            position: relative;
+            min-height: 92px;
+            border: 1px solid var(--hairline);
+            border-radius: 3px;
+            padding: 10px;
+            background: var(--porcelain-strong);
+        }
+
+        .route-step::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            right: 0;
+            left: 0;
+            height: 2px;
+            background: var(--hairline);
+        }
+
+        .route-step.done::before,
+        .route-step.current::before {
+            background: var(--accent);
+        }
+
+        .route-step.current {
+            border-color: color-mix(in srgb, var(--accent) 55%, var(--hairline));
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
+        }
+
+        .route-number {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .route-name {
+            display: block;
+            margin-top: 7px;
+            font-size: 13px;
+            font-weight: 680;
+            line-height: 1.3;
+        }
+
+        .route-note {
+            display: block;
+            margin-top: 5px;
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .artifact-layout,
+        .config-layout {
+            display: grid;
+            gap: 18px;
+            align-items: start;
+        }
+
+        .artifact-layout {
+            grid-template-columns: 310px minmax(0, 1fr);
+        }
+
+        .config-layout {
+            grid-template-columns: 270px minmax(0, 1fr);
+        }
+
+        .artifact-tree,
+        .config-menu {
+            display: grid;
+            gap: 2px;
+            padding: 12px;
+        }
+
+        .artifact-children {
+            display: grid;
+            gap: 2px;
+            margin: 2px 0 6px 17px;
+            border-left: 1px solid var(--hairline);
+            padding-left: 12px;
+        }
+
+        .artifact-children.collapsed {
+            display: none;
+        }
+
+        .artifact-item,
+        .config-link {
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--ink-soft);
+            text-align: left;
+        }
+
+        .artifact-item {
+            display: grid;
+            grid-template-columns: 16px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 9px;
+            border-radius: 3px;
+            padding: 9px 10px;
+        }
+
+        .artifact-item:hover,
+        .config-link:hover {
+            border-color: var(--hairline);
+            background: var(--porcelain-strong);
+            color: var(--ink);
+        }
+
+        .artifact-item.active {
+            border-color: color-mix(in srgb, var(--accent) 42%, var(--hairline));
+            background: var(--accent-soft);
+            color: var(--ink);
+        }
+
+        .artifact-item.folder {
+            color: var(--ink);
+            font-weight: 650;
+        }
+
+        .artifact-icon {
+            width: 7px;
+            height: 7px;
+            border: 1px solid currentColor;
+            border-radius: 1px;
+        }
+
+        .artifact-folder .artifact-icon {
+            width: 6px;
+            height: 6px;
+            margin: 0 4px 2px 0;
+            border-top: 0;
+            border-left: 0;
+            border-right: 1.5px solid currentColor;
+            border-bottom: 1.5px solid currentColor;
+            border-radius: 0;
+            background: transparent;
+            transform: rotate(45deg);
+            transition: transform 0.18s ease;
+        }
+
+        .artifact-folder[aria-expanded="false"] .artifact-icon {
+            transform: rotate(-45deg);
+        }
+
+        .artifact-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+        }
+
+        .artifact-preview {
+            min-height: 610px;
+            overflow: hidden;
+        }
+
+        .preview-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            border-bottom: 1px solid var(--hairline);
+            background: var(--porcelain-strong);
+            padding: 12px 18px;
+        }
+
+        .preview-toolbar small {
+            display: block;
+        }
+
+        .code-pane {
+            margin: 0;
+            padding: 20px 22px 40px;
+            overflow: auto;
+            background: var(--panel-strong);
+            color: var(--ink-soft);
+            font-family: "Cascadia Mono", "Consolas", monospace;
+            font-size: 12.5px;
+            line-height: 1.8;
+            white-space: pre;
+        }
+
+        .config-link {
+            border-left: 2px solid transparent;
+            padding: 11px 12px;
+            color: var(--muted);
+        }
+
+        .config-link.active {
+            border-left-color: var(--accent);
+            background: var(--accent-soft);
+            color: var(--ink);
+            font-weight: 650;
+        }
+
+        .form-grid,
+        .guide-grid {
+            display: grid;
+            gap: 18px;
+        }
+
+        .form-grid {
+            grid-template-columns: repeat(2, minmax(220px, 1fr));
+            gap: 16px 22px;
+            padding: 20px 22px 26px;
+        }
+
+        .field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .field label {
+            color: var(--ink-soft);
+            font-size: 12px;
+            font-weight: 620;
+        }
+
+        .field input,
+        .field select {
+            width: 100%;
+            min-height: 36px;
+            border: 1px solid var(--hairline);
+            border-radius: 3px;
+            background: var(--porcelain-strong);
+            padding: 0 10px;
+            font-size: 13px;
+        }
+
+        .guide-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .guide-card {
+            padding: 20px 22px 24px;
+        }
+
+        .guide-list {
+            display: grid;
+            gap: 13px;
+            margin: 18px 0 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .guide-list li {
+            display: grid;
+            grid-template-columns: 24px minmax(0, 1fr);
+            gap: 11px;
+        }
+
+        .guide-index {
+            color: var(--accent);
+            font-size: 12px;
+        }
+
+        .assistant-dock {
+            position: fixed;
+            right: 22px;
+            bottom: 22px;
+            z-index: 50;
+            width: min(390px, calc(100vw - 36px));
+            border: 1px solid var(--hairline);
+            border-radius: 5px;
+            background: color-mix(in srgb, var(--porcelain-strong) 94%, transparent);
+            box-shadow: 0 26px 70px rgba(32, 33, 31, 0.22);
+            overflow: hidden;
+            transform: translateY(14px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 170ms ease, transform 170ms ease;
+        }
+
+        .assistant-dock.open {
+            transform: translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .assistant-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--hairline);
+            background: var(--porcelain);
+            padding: 13px 15px;
+        }
+
+        .assistant-title {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            font-size: 13px;
+            font-weight: 680;
+        }
+
+        .assistant-title::before {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--accent);
+            content: "";
+        }
+
+        .assistant-close {
+            width: 28px;
+            height: 28px;
+            border: 0;
+            border-radius: 3px;
+            background: transparent;
+            color: var(--muted);
+            font-size: 17px;
+            line-height: 1;
+        }
+
+        .assistant-close:hover {
+            background: var(--neutral-soft);
+            color: var(--ink);
+        }
+
+        .assistant-body {
+            display: grid;
+            gap: 12px;
+            padding: 15px;
+        }
+
+        .context-card {
+            border-left: 2px solid var(--accent);
+            background: var(--accent-soft);
+            padding: 11px 12px;
+        }
+
+        .context-card strong {
+            display: block;
+            margin-bottom: 3px;
+            font-size: 12px;
+        }
+
+        .context-card span {
+            color: var(--ink-soft);
+            font-size: 12px;
+        }
+
+        .assistant-message {
+            margin: 0;
+            color: var(--ink-soft);
+            font-size: 13px;
+        }
+
+        .assistant-input {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+            border-top: 1px solid var(--hairline);
+            padding: 12px;
+            background: var(--porcelain);
+        }
+
+        .assistant-input input {
+            min-width: 0;
+            min-height: 36px;
+            border: 1px solid var(--hairline);
+            border-radius: 3px;
+            background: var(--porcelain-strong);
+            padding: 0 10px;
+            font-size: 13px;
+        }
+
+        .assistant-input .solid-button {
+            min-height: 36px;
+        }
+
+        @media (max-width: 1220px) {
+            .split,
+            .run-layout,
+            .artifact-layout {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .route {
+                grid-template-columns: repeat(6, minmax(104px, 1fr));
+            }
+        }
+
+        @media (max-width: 880px) {
+            .app-header {
+                min-height: 60px;
+            }
+
+            .section-nav {
+                top: 60px;
+            }
+
+            .page-head {
+                align-items: start;
+                flex-direction: column;
+            }
+
+            .status-strip,
+            .config-layout,
+            .guide-grid,
+            .form-grid {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .status-cell {
+                border-bottom: 1px solid var(--hairline);
+                border-right: 0;
+            }
+
+            .status-cell:last-child {
+                border-bottom: 0;
+            }
+
+            .project-row {
+                grid-template-columns: minmax(0, 1fr) auto;
+            }
+
+            .project-row .row-meta,
+            .project-row .row-time {
+                display: none;
+            }
+
+            .route {
+                grid-template-columns: repeat(3, minmax(118px, 1fr));
+            }
+
+            .assistant-dock {
+                right: 12px;
+                bottom: 12px;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="app-header">
+        <div class="brand">
+            <div class="brand-mark">
+                <img class="brand-icon" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB0AAAAQCAYAAADqDXTRAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADbSURBVEhLtZKxDcIwEEXTImoUiZY1aOihQ2yAaJBYhIoF6NmBdRAFYgb+k2zJduwYJ07xfL5TdD//zk27bC0LsTbRrVfHXo7i60DufVgTDpwhdBc4JZJP5pgDIUSIsRxqjP4q6LsncZ0eTHSd1hq9Jwqpxu4P4XTM6DuisDVFoq2Fow7zEqKisYa50ZfwtyhMtlOIjRfm4ik+YmVqQ8g+pLPYiZt4mdpFuE1K8URTe4O3eIiNCJuU4omGu7T5ScxMrQZJpwiOeaF9ZHc69IX20REFnOG0tsOAtvkBVizaPZkAqB8AAAAASUVORK5CYII=" alt="" aria-hidden="true">
+            </div>
+            <div class="brand-copy">
+                <strong>Issue2PR</strong>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button id="theme-toggle" class="ghost-button" type="button">深色</button>
+            <button id="assistant-toggle" class="solid-button" type="button">助手</button>
+        </div>
+    </header>
+    <nav class="section-nav" aria-label="页面导航">
+        <button class="section-link active" data-page="projects" type="button">项目</button>
+        <button class="section-link" data-page="runs" type="button">运行</button>
+        <button class="section-link" data-page="artifacts" type="button">产物</button>
+        <button class="section-link" data-page="config" type="button">配置</button>
+        <button class="section-link" data-page="guide" type="button">说明</button>
+    </nav>
+    <main class="demo-main">
+        <section class="page active" data-page="projects">
+            <div class="page-head">
+                <div>
+                    <p class="eyebrow">Projects</p>
+                    <h1>项目总览</h1>
+                    <p class="page-note">先给仓库健康与契约状态，再进入项目明细。目录负责检索，契约负责判断仓库能否安全接入。</p>
+                </div>
+                <div class="action-row">
+                    <button class="ghost-button" type="button">同步目录</button>
+                    <button class="solid-button" type="button">接入项目</button>
+                </div>
+            </div>
+
+            <div class="status-strip">
+                <div class="status-cell">
+                    <div class="status-label">接入项目</div>
+                    <span class="status-value mono">24</span>
+                </div>
+                <div class="status-cell">
+                    <div class="status-label">契约通过</div>
+                    <span class="status-value mono">21</span>
+                </div>
+                <div class="status-cell">
+                    <div class="status-label">待补齐</div>
+                    <span class="status-value mono">2</span>
+                </div>
+                <div class="status-cell">
+                    <div class="status-label">异常仓库</div>
+                    <span class="status-value mono">1</span>
+                </div>
+            </div>
+
+            <div class="split">
+                <article class="panel">
+                    <header class="panel-head">
+                        <h2>项目目录</h2>
+                        <span class="muted mono">24 repositories</span>
+                    </header>
+                    <div class="panel-body">
+                        <div class="ledger-row project-row">
+                            <div class="row-title">payment-service<small class="mono">github.com/ops/payment-service</small></div>
+                            <div class="row-meta"><span class="pill good">契约通过</span></div>
+                            <div class="row-time muted mono">08-29 21:40</div>
+                            <div><span class="pill accent">3 runs</span></div>
+                        </div>
+                        <div class="ledger-row project-row">
+                            <div class="row-title">issue-broker<small class="mono">github.com/platform/issue-broker</small></div>
+                            <div class="row-meta"><span class="pill warn">缺少测试命令</span></div>
+                            <div class="row-time muted mono">08-29 18:12</div>
+                            <div><span class="pill accent">1 run</span></div>
+                        </div>
+                        <div class="ledger-row project-row">
+                            <div class="row-title">web-console<small class="mono">github.com/design/web-console</small></div>
+                            <div class="row-meta"><span class="pill good">契约通过</span></div>
+                            <div class="row-time muted mono">08-28 09:56</div>
+                            <div><span class="pill accent">8 runs</span></div>
+                        </div>
+                        <div class="ledger-row project-row">
+                            <div class="row-title">legacy-report<small class="mono">github.com/data/legacy-report</small></div>
+                            <div class="row-meta"><span class="pill error">分支保护缺失</span></div>
+                            <div class="row-time muted mono">08-27 17:03</div>
+                            <div><span class="pill">0 runs</span></div>
+                        </div>
+                    </div>
+                </article>
+
+                <div class="stack">
+                    <article class="panel">
+                        <header class="panel-head">
+                            <h2>项目契约</h2>
+                            <span class="pill good">可接入</span>
+                        </header>
+                        <dl class="definition-list">
+                            <div>默认分支</div><div class="mono">main</div>
+                            <div>测试命令</div><div class="mono">npm test</div>
+                            <div>变更边界</div><div>src / tests</div>
+                            <div>复核门</div><div>测试通过后进入实现</div>
+                        </dl>
+                    </article>
+                    <article class="panel">
+                        <header class="panel-head">
+                            <h2>最近事件</h2>
+                        </header>
+                        <div class="panel-body">
+                            <div class="ledger-row">
+                                <div class="row-title">#4821 自动补齐契约<small>payment-service / 2 分钟前</small></div>
+                            </div>
+                            <div class="ledger-row">
+                                <div class="row-title">#4796 暂停执行<small>legacy-report / 分支保护缺失</small></div>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="page" data-page="config">
+            <div class="page-head">
+                <div>
+                    <p class="eyebrow">Configuration</p>
+                    <h1>阶段配置</h1>
+                    <p class="page-note">左侧按阶段导航，右侧只显示当前阶段相关参数。表单不再整页平铺，调整成本与误改概率同时下降。</p>
+                </div>
+                <div class="action-row">
+                    <button class="ghost-button" type="button">恢复默认</button>
+                    <button class="solid-button" type="button">保存配置</button>
+                </div>
+            </div>
+
+            <div class="config-layout">
+                <aside class="panel config-menu" aria-label="阶段配置导航">
+                    <button class="config-link" type="button">全局默认</button>
+                    <button class="config-link" type="button">P01 Issue Analyzer</button>
+                    <button class="config-link" type="button">P02 Search Layer</button>
+                    <button class="config-link" type="button">P03 Code Understanding</button>
+                    <button class="config-link" type="button">P04 Hypothesis</button>
+                    <button class="config-link active" type="button">P05 Planner</button>
+                    <button class="config-link" type="button">P06 代码优化</button>
+                    <button class="config-link" type="button">P07 Patch Pipeline</button>
+                    <button class="config-link" type="button">P08 Test Runner</button>
+                    <button class="config-link" type="button">P09 Reviewer</button>
+                    <button class="config-link" type="button">P11 PR Builder</button>
+                </aside>
+
+                <article class="panel">
+                    <header class="panel-head">
+                        <h2>P05 Planner</h2>
+                        <span class="pill accent">复核门</span>
+                    </header>
+                    <div class="form-grid">
+                        <div class="field">
+                            <label for="model">模型</label>
+                            <select id="model"><option>deepseek-reasoner</option><option>deepseek-chat</option></select>
+                        </div>
+                        <div class="field">
+                            <label for="temperature">温度</label>
+                            <input id="temperature" class="mono" type="number" value="0.1" step="0.1" min="0" max="1">
+                        </div>
+                        <div class="field">
+                            <label for="max-tasks">最大任务节点</label>
+                            <input id="max-tasks" class="mono" type="number" value="12" min="1" max="50">
+                        </div>
+                        <div class="field">
+                            <label for="review-mode">复核门模式</label>
+                            <select id="review-mode"><option>人工确认后继续</option><option>自动通过测试后继续</option></select>
+                        </div>
+                        <div class="field">
+                            <label for="timeout">超时时间</label>
+                            <input id="timeout" class="mono" type="number" value="180" min="30" max="900">
+                        </div>
+                        <div class="field">
+                            <label for="retry">重试次数</label>
+                            <input id="retry" class="mono" type="number" value="2" min="0" max="5">
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section class="page" data-page="guide">
+            <div class="page-head">
+                <div>
+                    <p class="eyebrow">Guide</p>
+                    <h1>工作流说明</h1>
+                    <p class="page-note">说明页从介绍插件改为教会使用者决策：先理解与规划，再实施与交付。</p>
+                </div>
+            </div>
+
+            <div class="guide-grid">
+                <article class="panel guide-card">
+                    <p class="eyebrow">Phase A</p>
+                    <h2>理解与规划</h2>
+                    <ul class="guide-list">
+                        <li><span class="guide-index mono">01</span><span>P01 把 Issue 提炼为结构化契约，成功标准必须可验证。</span></li>
+                        <li><span class="guide-index mono">02</span><span>P02 到 P04 逐步收敛：候选文件、调用链、根因假设。</span></li>
+                        <li><span class="guide-index mono">03</span><span>P05 生成 TaskGraph，是第一个必须认真复核的关卡。</span></li>
+                    </ul>
+                </article>
+                <article class="panel guide-card">
+                    <p class="eyebrow">Phase B</p>
+                    <h2>实施与交付</h2>
+                    <ul class="guide-list">
+                        <li><span class="guide-index mono">04</span><span>P06 产出候选修改，P07 校验基线后才落盘。</span></li>
+                        <li><span class="guide-index mono">05</span><span>P08 必须真实执行测试，结果不允许由模型编造。</span></li>
+                        <li><span class="guide-index mono">06</span><span>P09 与 P11 分别完成审查门控和交付评测。</span></li>
+                    </ul>
+                </article>
+                <article class="panel guide-card">
+                    <p class="eyebrow">Safety</p>
+                    <h2>边界规则</h2>
+                    <ul class="guide-list">
+                        <li><span class="guide-index mono">A</span><span>基线不一致时拒绝应用 patch，避免覆盖他人修改。</span></li>
+                        <li><span class="guide-index mono">B</span><span>每条 patch 进入 ledger，可追踪也可单独回滚。</span></li>
+                    </ul>
+                </article>
+                <article class="panel guide-card">
+                    <p class="eyebrow">Failure</p>
+                    <h2>失败路径</h2>
+                    <ul class="guide-list">
+                        <li><span class="guide-index mono">C</span><span>失败进入 P10 分类，不走盲目重试。</span></li>
+                        <li><span class="guide-index mono">D</span><span>根因错误回到规划，测试选择错误补测试，权限问题升级人工。</span></li>
+                    </ul>
+                </article>
+            </div>
+        </section>
+
+        <section class="page" data-page="artifacts">
+            <div class="page-head">
+                <div>
+                    <p class="eyebrow">Artifacts</p>
+                    <h1>产物工作台</h1>
+                    <p class="page-note">左侧保持目录心智，右侧专注阅读。JSON 与 Markdown 的元信息放入工具条，内容区只承担内容本身。</p>
+                </div>
+                <div class="action-row">
+                    <button class="ghost-button" type="button">下载</button>
+                    <button class="ghost-button" type="button">复制路径</button>
+                </div>
+            </div>
+
+            <div class="artifact-layout">
+                <article class="panel">
+                    <header class="panel-head">
+                        <h2>产物目录</h2>
+                        <span class="muted mono">11 files</span>
+                    </header>
+                    <div class="artifact-tree">
+                        <button class="artifact-item artifact-folder" type="button" aria-expanded="true" aria-controls="run-4821-children"><span class="artifact-icon"></span><span class="artifact-name mono">run_4821</span><span class="pill">dir</span></button>
+                        <div class="artifact-children" id="run-4821-children">
+                            <button class="artifact-item" type="button"><span class="artifact-icon"></span><span class="artifact-name mono">01-issue-analysis.json</span><span class="pill">8 KB</span></button>
+                            <button class="artifact-item" type="button"><span class="artifact-icon"></span><span class="artifact-name mono">02-search-candidates.json</span><span class="pill">14 KB</span></button>
+                            <button class="artifact-item" type="button"><span class="artifact-icon"></span><span class="artifact-name mono">03-code-understanding.md</span><span class="pill">21 KB</span></button>
+                            <button class="artifact-item active" type="button"><span class="artifact-icon"></span><span class="artifact-name mono">04-hypotheses.json</span><span class="pill accent">选中</span></button>
+                            <button class="artifact-item" type="button"><span class="artifact-icon"></span><span class="artifact-name mono">05-task-graph.json</span><span class="pill">17 KB</span></button>
+                            <button class="artifact-item artifact-folder" type="button" aria-expanded="true" aria-controls="implementation-children"><span class="artifact-icon"></span><span class="artifact-name mono">06-implementation</span><span class="pill">dir</span></button>
+                            <div class="artifact-children" id="implementation-children">
+                                <button class="artifact-item" type="button"><span class="artifact-icon"></span><span class="artifact-name mono">patch-001.diff</span><span class="pill">4 KB</span></button>
+                                <button class="artifact-item" type="button"><span class="artifact-icon"></span><span class="artifact-name mono">patch-002.diff</span><span class="pill">6 KB</span></button>
+                                <button class="artifact-item" type="button"><span class="artifact-icon"></span><span class="artifact-name mono">patch-003.diff</span><span class="pill">5 KB</span></button>
+                            </div>
+                            <button class="artifact-item" type="button"><span class="artifact-icon"></span><span class="artifact-name mono">07-test-report.json</span><span class="pill good">passed</span></button>
+                            <button class="artifact-item" type="button"><span class="artifact-icon"></span><span class="artifact-name mono">08-test-output.txt</span><span class="pill">36 KB</span></button>
+                            <button class="artifact-item" type="button"><span class="artifact-icon"></span><span class="artifact-name mono">10-pr-description.md</span><span class="pill">9 KB</span></button>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="panel artifact-preview">
+                    <div class="preview-toolbar">
+                        <div>
+                            <strong class="mono">04-hypotheses.json</strong>
+                            <small class="muted mono">P04 Hypothesis</small>
+                        </div>
+                        <span class="pill accent">JSON</span>
+                    </div>
+                    <pre class="code-pane">{
+  "runId": "run_4821",
+  "repository": "ops/payment-service",
+  "hypotheses": [
+    {
+      "id": "H-001",
+      "confidence": 0.91,
+      "rootCause": "回调重试未持有幂等锁",
+      "evidence": [
+        "src/callback/retry.ts:48",
+        "src/payment/idempotency.ts:112"
+      ],
+      "verification": "注入重复回调，断言仅扣款一次"
+    }
+  ]
+}</pre>
+                </article>
+            </div>
+        </section>
+
+        <section class="page" data-page="runs">
+            <div class="page-head">
+                <div>
+                    <p class="eyebrow">Run</p>
+                    <h1>执行路线</h1>
+                    <p class="page-note">11 个阶段不再是一张长表，而是一条可扫读的路线。关键复核门保留独立标识，下方提供当前阶段与证据入口。</p>
+                </div>
+                <div class="action-row">
+                    <button class="ghost-button" type="button">查看日志</button>
+                    <button class="solid-button" type="button">继续执行</button>
+                </div>
+            </div>
+
+            <div class="run-layout">
+                <article class="panel">
+                    <header class="panel-head">
+                        <h2>#4821 修复支付回调重复扣款</h2>
+                        <span class="pill accent">P09 审查中</span>
+                    </header>
+                    <div class="route">
+                        <div class="route-step done"><span class="route-number mono">P01</span><span class="route-name">Issue Analyzer</span><span class="route-note">结构化契约</span></div>
+                        <div class="route-step done"><span class="route-number mono">P02</span><span class="route-name">Search Layer</span><span class="route-note">候选与证据</span></div>
+                        <div class="route-step done"><span class="route-number mono">P03</span><span class="route-name">Code Understanding</span><span class="route-note">调用链</span></div>
+                        <div class="route-step done"><span class="route-number mono">P04</span><span class="route-name">Hypothesis</span><span class="route-note">根因假设</span></div>
+                        <div class="route-step done"><span class="route-number mono">P05</span><span class="route-name">Planner</span><span class="route-note">复核门</span></div>
+                        <div class="route-step done"><span class="route-number mono">P06</span><span class="route-name">代码优化</span><span class="route-note">复核门</span></div>
+                        <div class="route-step done"><span class="route-number mono">P07</span><span class="route-name">Patch Pipeline</span><span class="route-note">落盘 ledger</span></div>
+                        <div class="route-step done"><span class="route-number mono">P08</span><span class="route-name">Test Runner</span><span class="route-note">真实执行</span></div>
+                        <div class="route-step current"><span class="route-number mono">P09</span><span class="route-name">Reviewer</span><span class="route-note">三维门控</span></div>
+                        <div class="route-step"><span class="route-number mono">P10</span><span class="route-name">Failure Classifier</span><span class="route-note">失败旁路</span></div>
+                        <div class="route-step"><span class="route-number mono">P11</span><span class="route-name">PR Builder</span><span class="route-note">交付评测</span></div>
+                    </div>
+                </article>
+
+                <div class="stack">
+                    <article class="panel">
+                        <header class="panel-head">
+                            <h2>当前阶段</h2>
+                            <span class="pill warn">待复核</span>
+                        </header>
+                        <dl class="definition-list">
+                            <div>阶段</div><div>P09 Reviewer</div>
+                            <div>耗时</div><div class="mono">03:41</div>
+                            <div>输入</div><div class="mono">06-implementation / 07-test-report</div>
+                            <div>门控</div><div>Diff / API / Test</div>
+                        </dl>
+                    </article>
+                    <article class="panel">
+                        <header class="panel-head">
+                            <h2>运行证据</h2>
+                        </header>
+                        <div class="panel-body">
+                            <div class="ledger-row"><div class="row-title">07-test-report.json<small class="mono">82 passed / 0 failed</small></div></div>
+                            <div class="ledger-row"><div class="row-title">patch-ledger.jsonl<small class="mono">4 patches applied</small></div></div>
+                            <div class="ledger-row"><div class="row-title">06-implementation<small>3 nodes completed</small></div></div>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <aside id="assistant" class="assistant-dock" aria-label="插件助手">
+        <header class="assistant-head">
+            <div class="assistant-title">工作流助手</div>
+            <button id="assistant-close" class="assistant-close" type="button" aria-label="关闭助手">×</button>
+        </header>
+        <div class="assistant-body">
+            <div class="context-card">
+                <strong>当前上下文</strong>
+                <span class="mono">#4821 / P09 Reviewer</span>
+            </div>
+            <p class="assistant-message">测试报告已通过。下一步是检查 Diff 范围、API 影响与测试补强；若任一项失败，将打回 P06 重新实现。</p>
+        </div>
+        <form class="assistant-input" autocomplete="off">
+            <input id="assistant-question" type="text" placeholder="询问当前阶段或产物" aria-label="询问当前阶段或产物">
+            <button class="solid-button" type="submit">发送</button>
+        </form>
+    </aside>
+
+    <script>
+        const root = document.documentElement;
+        const pages = Array.from(document.querySelectorAll(".page"));
+        const links = Array.from(document.querySelectorAll(".section-link"));
+        const assistant = document.getElementById("assistant");
+        const themeToggle = document.getElementById("theme-toggle");
+        const assistantToggle = document.getElementById("assistant-toggle");
+        const artifactFolders = document.querySelectorAll(".artifact-folder");
+
+        function selectPage(name) {
+            pages.forEach((page) => page.classList.toggle("active", page.dataset.page === name));
+            links.forEach((link) => link.classList.toggle("active", link.dataset.page === name));
+        }
+
+        links.forEach((link) => {
+            link.addEventListener("click", () => selectPage(link.dataset.page));
+        });
+
+        artifactFolders.forEach((folder) => {
+            folder.addEventListener("click", () => {
+                const expanded = folder.getAttribute("aria-expanded") === "true";
+                const children = document.getElementById(folder.getAttribute("aria-controls"));
+                folder.setAttribute("aria-expanded", String(!expanded));
+                children.classList.toggle("collapsed", expanded);
+            });
+        });
+
+        themeToggle.addEventListener("click", () => {
+            const nextTheme = root.dataset.theme === "light" ? "dark" : "light";
+            root.dataset.theme = nextTheme;
+            themeToggle.textContent = nextTheme === "light" ? "深色" : "浅色";
+        });
+
+        assistantToggle.addEventListener("click", () => assistant.classList.add("open"));
+        document.getElementById("assistant-close").addEventListener("click", () => {
+            assistant.classList.remove("open");
+        });
+
+        document.querySelector(".assistant-input").addEventListener("submit", (event) => {
+            event.preventDefault();
+            document.getElementById("assistant-question").value = "";
+        });
+    </script>
+</body>
+</html>
