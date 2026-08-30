@@ -80,6 +80,10 @@ window.__ModuleLoader__.load({
   --err-bg:rgba(213,70,58,.10);
   --code-bg:#10141d; --code-line:#1d2330;
   --mono:'JetBrains Mono','IBM Plex Mono','Cascadia Code',Consolas,'Liberation Mono',monospace;
+  --fs-xs:11.5px; --fs-sm:12.5px; --fs-md:13.5px; --fs-lg:14.5px; /* 字号 scale：AI 面板段统一走 token */
+  /* 字体必须显式声明：不声明则继承宿主→系统默认字体（Win 雅黑/Mac 苹方/Linux Noto
+     度量差异大），同一字号在不同电脑上观感"一大一小"——跨平台栈保证同类字形 */
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC','Source Han Sans SC',sans-serif;
   color:var(--ink); font-size:14.5px; line-height:1.7;
   flex:1; min-height:0; display:flex; flex-direction:column;
 }
@@ -118,7 +122,7 @@ window.__ModuleLoader__.load({
    hover 显色；双击恢复默认宽 */
 .i2p-nav-grip{position:absolute;top:0;bottom:0;right:0;width:8px;z-index:5;cursor:col-resize;
   border-radius:5px;background:transparent;transition:background .15s}
-.i2p-nav-grip:hover,.i2p-nav-grip:focus-visible{background:color-mix(in srgb,var(--accent) 26%,transparent)}
+.i2p-nav-grip:hover,.i2p-nav-grip:focus-visible{background:var(--hover);background:color-mix(in srgb,var(--accent) 26%,transparent)}
 body.i2p-dragging{cursor:col-resize}
 body.i2p-dragging *{cursor:col-resize!important}
 body.i2p-dragging{user-select:none}
@@ -510,21 +514,27 @@ body.i2p-dragging{user-select:none}
 .i2p-ai button{font-family:inherit;cursor:pointer;color:inherit}
 /* 入口 = 中性工具钮（非"AI 球"）：描边消息图标，hover 才显底；开启态反色 */
 .i2p-ai-fab{pointer-events:auto;position:absolute;top:64px;right:88px;width:30px;height:30px;border-radius:9px;
+  border:1px solid var(--line-2,#d8dae3);
   border:1px solid color-mix(in srgb,#3aa0f5 24%,var(--line-2,#d8dae3));
+  background:var(--panel,#fff);
   background:color-mix(in srgb,#3aa0f5 9%,var(--panel,#fff));color:var(--ink-2,#414351);
   display:inline-flex;align-items:center;justify-content:center;
   box-shadow:0 1px 4px rgba(9,12,20,.08);
   transition:background .18s,color .18s,border-color .18s,transform .12s}
-.i2p-ai-fab:hover{background:color-mix(in srgb,#3aa0f5 16%,var(--panel,#fff));color:var(--ink);transform:translateY(-1px)}
+.i2p-ai-fab:hover{background:var(--hover);background:color-mix(in srgb,#3aa0f5 16%,var(--panel,#fff));color:var(--ink);transform:translateY(-1px)}
 .i2p-ai-fab:active{transform:scale(.95)}
 .i2p-ai-fab.on{background:var(--ink,#17181f);color:var(--card,#fff);border-color:var(--ink,#17181f)}
 @keyframes i2p-ai-in{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
 /* 面板：轻天蓝底（color-mix 混主题底色，浅色=淡天蓝/深色=深蓝调，官方 Markdown 文字两主题可读），
-   全部强调（边框/focus/hover/chip 圆点）统一同一天蓝色系，避免杂色 */
+   全部强调（边框/focus/hover/chip 圆点）统一同一天蓝色系，避免杂色。
+   每处 color-mix 前都有一行传统语法兜底：旧内核（Chromium<111）把不认识的值整条丢弃、
+   保留兜底行——面板退化为"无天蓝染色但结构完整"，而不是无背景无边框 */
 .i2p-ai-panel{pointer-events:auto;position:absolute;top:60px;width:400px;height:calc(100% - 76px);
   min-width:240px;min-height:200px;
   display:flex;flex-direction:column;
+  background:var(--panel,#fff);
   background:color-mix(in srgb,#3aa0f5 7%,var(--panel,#fff));
+  border:1px solid var(--line-2,#d8dae3);
   border:1px solid color-mix(in srgb,#3aa0f5 20%,var(--line-2,#d8dae3));border-radius:12px;
   box-shadow:0 6px 28px rgba(9,12,20,.12);overflow:hidden;
   animation:i2p-ai-in .2s cubic-bezier(.2,.8,.2,1)}
@@ -539,12 +549,13 @@ body.i2p-dragging{user-select:none}
 .i2p-ai-rz.ne{top:0;right:0;width:24px;height:24px;cursor:nesw-resize}
 .i2p-ai-rz.sw{bottom:0;left:0;width:24px;height:24px;cursor:nesw-resize}
 .i2p-ai-rz.se{bottom:0;right:0;width:24px;height:24px;cursor:nwse-resize}
-.i2p-ai-rz:hover{background:color-mix(in srgb,#3aa0f5 35%,transparent)}
+.i2p-ai-rz:hover{background:var(--hover);background:color-mix(in srgb,#3aa0f5 35%,transparent)}
 /* 头部：标题 + 小字副题 + 关闭，细分割线（无图标） */
 .i2p-ai-head{flex:none;display:flex;align-items:baseline;gap:8px;padding:11px 14px;cursor:move;
+  border-bottom:1px solid var(--line,#e5e6ec);
   border-bottom:1px solid color-mix(in srgb,#3aa0f5 14%,var(--line,#e5e6ec))}
-.i2p-ai-title{font-size:13.5px;font-weight:600;color:var(--ink);letter-spacing:.01em}
-.i2p-ai-sub{font-size:11.5px;color:var(--muted)}
+.i2p-ai-title{font-size:var(--fs-md,13.5px);font-weight:600;color:var(--ink);letter-spacing:.01em}
+.i2p-ai-sub{font-size:var(--fs-xs,11.5px);color:var(--muted)}
 .i2p-ai-close{margin-left:auto;align-self:center;width:26px;height:26px;border:none;border-radius:7px;background:none;
   color:var(--muted);display:inline-flex;align-items:center;justify-content:center;
   transition:background .15s,color .15s}
@@ -556,28 +567,51 @@ body.i2p-dragging{user-select:none}
 .i2p-ai-msgs::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
 /* 空态：一句能力说明 + 快捷问题（浅底单行钮，前缀天蓝圆点） */
 .i2p-ai-empty{display:flex;flex-direction:column;gap:10px;padding-top:2px}
-.i2p-ai-hint{margin:0;font-size:12.5px;color:var(--muted);line-height:1.6}
+.i2p-ai-hint{margin:0;font-size:var(--fs-sm,12.5px);color:var(--muted);line-height:1.6}
 .i2p-ai-chip{display:flex;align-items:center;gap:8px;text-align:left;
+  background:var(--card,#fff);
   background:color-mix(in srgb,var(--card,#fff) 58%,transparent);
-  border:none;border-radius:8px;padding:7px 11px;font-size:13px;color:var(--ink-2);
+  border:none;border-radius:8px;padding:7px 11px;font-size:var(--fs-md,13.5px);color:var(--ink-2);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   transition:background .15s,color .15s}
 .i2p-ai-chip::before{content:"";flex:none;width:5px;height:5px;border-radius:50%;
+  background:#3aa0f5;
   background:color-mix(in srgb,#3aa0f5 70%,var(--muted,#82848f))}
-.i2p-ai-chip:hover:not(:disabled){background:color-mix(in srgb,#3aa0f5 12%,var(--panel,#fff));color:var(--ink)}
+.i2p-ai-chip:hover:not(:disabled){background:var(--hover);background:color-mix(in srgb,#3aa0f5 12%,var(--panel,#fff));color:var(--ink)}
 .i2p-ai-chip:disabled{opacity:.5;cursor:default}
 /* 用户问题：半透明卡色块（在蓝底上呈更浅的蓝白），全宽不挤字 */
-.i2p-ai-m{max-width:100%;font-size:13.5px;line-height:1.65}
-.i2p-ai-m.user .i2p-ai-t{background:color-mix(in srgb,var(--card,#fff) 62%,transparent);
+.i2p-ai-m{max-width:100%;font-size:var(--fs-md,13.5px);line-height:1.65}
+.i2p-ai-m.user .i2p-ai-t{background:var(--card,#fff);
+  background:color-mix(in srgb,var(--card,#fff) 62%,transparent);
+  border:1px solid var(--line,#e5e6ec);
   border:1px solid color-mix(in srgb,#3aa0f5 12%,var(--line,#e5e6ec));
   border-radius:10px;padding:8px 12px;color:var(--ink);white-space:pre-wrap;word-break:break-word}
 .i2p-ai-m.assistant{overflow-wrap:break-word}
-.i2p-ai-m.assistant.err .i2p-ai-t{color:var(--err);font-size:12.5px;
+.i2p-ai-m.assistant.err .i2p-ai-t{color:var(--err);font-size:var(--fs-sm,12.5px);
   background:var(--err-bg,rgba(213,70,58,.10));border-radius:8px;padding:7px 11px}
 .i2p-ai-m .i2p-ai-t{white-space:pre-wrap;word-break:break-word}
-.i2p-ai-md{font-size:13.5px;color:var(--ink)}
+.i2p-ai-md{font-size:var(--fs-md,13.5px);color:var(--ink)}
 .i2p-ai-md :first-child{margin-top:0}
 .i2p-ai-md :last-child{margin-bottom:0}
+/* 助手回答 Markdown：插件自持排版，不随宿主 .md 全局样式版本漂移——
+   ".i2p-page .i2p-ai-md xxx" 的 specificity 压过宿主 ".md xxx" 类规则，所有电脑渲染一致 */
+.i2p-page .i2p-ai-md p,.i2p-page .i2p-ai-md ul,.i2p-page .i2p-ai-md ol{margin:0 0 8px}
+.i2p-page .i2p-ai-md li{margin:2px 0}
+.i2p-page .i2p-ai-md h1,.i2p-page .i2p-ai-md h2,.i2p-page .i2p-ai-md h3,.i2p-page .i2p-ai-md h4{
+  margin:12px 0 6px;line-height:1.4;color:var(--ink)}
+.i2p-page .i2p-ai-md h1{font-size:16px}
+.i2p-page .i2p-ai-md h2{font-size:15px}
+.i2p-page .i2p-ai-md h3{font-size:var(--fs-lg,14.5px)}
+.i2p-page .i2p-ai-md h4{font-size:var(--fs-md,13.5px)}
+.i2p-page .i2p-ai-md code{font-family:var(--mono);font-size:12.5px;background:var(--hover);
+  padding:1px 5px;border-radius:4px}
+.i2p-page .i2p-ai-md pre{background:var(--code-bg);border-radius:8px;padding:10px 12px;overflow-x:auto}
+.i2p-page .i2p-ai-md pre code{background:none;padding:0;font-size:12.5px;line-height:1.6;color:#e6edf3}
+.i2p-page .i2p-ai-md table{border-collapse:collapse;margin:0 0 8px;font-size:var(--fs-sm,12.5px)}
+.i2p-page .i2p-ai-md th,.i2p-page .i2p-ai-md td{border:1px solid var(--line);padding:4px 8px;text-align:left}
+.i2p-page .i2p-ai-md blockquote{margin:0 0 8px;padding:2px 0 2px 10px;border-left:3px solid var(--line-2);color:var(--ink-2)}
+.i2p-page .i2p-ai-md a{color:var(--accent)}
+.i2p-page .i2p-ai-md hr{border:none;border-top:1px solid var(--line);margin:10px 0}
 /* 流式等待：三点呼吸 */
 @keyframes i2p-ai-dot{50%{opacity:.25}}
 .i2p-ai-dots{display:inline-flex;gap:4px;padding:2px 0}
@@ -587,25 +621,29 @@ body.i2p-dragging{user-select:none}
 .i2p-ai-dots i:nth-child(3){animation-delay:.4s}
 /* 输入区：半透明卡色输入框 + 图标钮（生成中变停止，可中断） */
 .i2p-ai-input{flex:none;display:flex;gap:8px;align-items:flex-end;padding:10px 12px 12px;
+  border-top:1px solid var(--line,#e5e6ec);
   border-top:1px solid color-mix(in srgb,#3aa0f5 14%,var(--line,#e5e6ec))}
 .i2p-ai-input textarea{flex:1;min-height:40px;max-height:120px;resize:none;
+  background:var(--card,#fff);
   background:color-mix(in srgb,var(--card,#fff) 66%,transparent);
+  border:1px solid var(--line-2,#d8dae3);
   border:1px solid color-mix(in srgb,#3aa0f5 16%,var(--line-2,#d8dae3));
-  border-radius:9px;color:var(--ink);padding:8px 11px;font-size:13.5px;
+  border-radius:9px;color:var(--ink);padding:8px 11px;font-size:var(--fs-md,13.5px);
   line-height:1.55;font-family:inherit;transition:border-color .15s}
-.i2p-ai-input textarea:focus{border-color:color-mix(in srgb,#3aa0f5 55%,var(--line-2,#d8dae3))}
+.i2p-ai-input textarea:focus{border-color:var(--accent);border-color:color-mix(in srgb,#3aa0f5 55%,var(--line-2,#d8dae3))}
 .i2p-ai-input textarea::placeholder{color:var(--muted)}
 .i2p-ai-send{flex:none;width:38px;height:38px;border-radius:9px;
+  border:1px solid var(--line-2,#d8dae3);
   border:1px solid color-mix(in srgb,#3aa0f5 30%,var(--line-2,#d8dae3));
+  background:var(--panel,#fff);
   background:color-mix(in srgb,#3aa0f5 12%,var(--panel,#fff));color:var(--ink-2);
   display:inline-flex;align-items:center;justify-content:center;
   transition:background .15s,border-color .15s,color .15s,transform .1s}
-.i2p-ai-send:hover:not(:disabled){border-color:color-mix(in srgb,#3aa0f5 55%,var(--line-2,#d8dae3));color:var(--ink)}
+.i2p-ai-send:hover:not(:disabled){border-color:var(--accent);border-color:color-mix(in srgb,#3aa0f5 55%,var(--line-2,#d8dae3));color:var(--ink)}
 .i2p-ai-send:active:not(:disabled){transform:scale(.95)}
 .i2p-ai-send:disabled{opacity:.4;cursor:default}
 @media (max-width:880px){
   .i2p-ai-fab{right:88px;top:60px}
-  .i2p-ai-panel{width:min(360px,calc(100% - 100px))}
 }
 
 /* ===== 动效与质感层（丰富但克制：150-300ms、语义化、可关） ===== */
@@ -831,6 +869,34 @@ body.i2p-dragging{user-select:none}
 			React.useEffect(() => viewStore.subscribe(() => setV({ nav: viewStore.nav, slug: viewStore.slug, runId: viewStore.runId })), []);
 			return v;
 		}
+
+		/* ================================================================
+		 * lastRun 记忆（按项目记最近选中的 Run）：localStorage 快路径 + 服务端
+		 * ui-state 兜底（与 i2p.proj 同双写策略）。宿主标签切换会销毁重建插件
+		 * webview，选中 Run 的现场以此恢复，而不是每次都掉回最新 Run。
+		 * ================================================================ */
+		const lastRunStore = {
+			map: (function () { try { return JSON.parse(localStorage.getItem("i2p.run") || "{}") || {}; } catch (e) { return {}; } })(),
+			get(slug) { return this.map[slug] || null; },
+			set(slug, runId) {
+				if (!slug) return;
+				if (runId) this.map[slug] = runId; else delete this.map[slug];
+				try { localStorage.setItem("i2p.run", JSON.stringify(this.map)); } catch (e) { /* 忽略 */ }
+				apiPost("/ui-state", { lastRunBySlug: runId ? { [slug]: runId } : { [slug]: null } })
+					.catch(function () { /* 兜底写失败静默：localStorage 仍有效 */ });
+			},
+			// 服务端兜底返回后并入（只补缺失键，不覆盖本地较新的记忆）
+			adopt(map) {
+				if (!map || typeof map !== "object") return;
+				for (const k of Object.keys(map)) if (!this.map[k] && map[k]) this.map[k] = map[k];
+			},
+		};
+
+		/* ================================================================
+		 * 运行页现场（选中阶段 / 二级菜单 / 产物文件）：模块级 store，
+		 * RunsPanel 每次渲染写回；切走一级标签卸载后重挂载，runId 一致则恢复
+		 * ================================================================ */
+		const runsViewStore = { runId: null, selStage: null, stTab: "run", selArt: null };
 
 		/* ================================================================
 		 * Git 托管连接辅助：host 解析（与服务端 lib/connections.js 对齐）。
@@ -3114,29 +3180,22 @@ body.i2p-dragging{user-select:none}
 					const r2 = r != null ? r
 						: (oldX != null ? Math.max(4, Math.round(p.w - oldX - w2)) : AI_ANCHOR.right);
 					const t2 = oldT != null ? oldT : AI_ANCHOR.top;
-					return {
-						x: Math.round(p.w - r2 - w2),
-						y: t2,
-						w: w2,
-						h: h != null ? h : Math.max(200, Math.round(p.h - 16 - t2)),
-					};
-				})(),
+				// 恢复的矩形可能来自大屏（localStorage 按机器各存各的），先按当前页面收敛再启用
+				return aiClampRect(
+					Math.round(p.w - r2 - w2), t2, w2,
+					h != null ? h : Math.max(200, Math.round(p.h - 16 - t2)));
+			})(),
 			listeners: new Set(),
-			set(v) { this.open = v; for (const fn of this.listeners) fn(); },
+			set(v) { this.open = v; if (v) this.normalize(); for (const fn of this.listeners) fn(); },
 			// setRect：先 clamp 尺寸再 clamp 位置（面板始终完整落在工作台内）；
 			// resize 的锚定边由调用方以推导后的 x/y 一并传入（西/北边拖动时对边固定）
 			setRect(patch, persist) {
-				const p = aiPageRect();
 				const cur = this.rect;
-				let w = patch.w != null ? Math.round(patch.w) : cur.w;
-				let h = patch.h != null ? Math.round(patch.h) : cur.h;
-				w = Math.max(240, Math.min(Math.max(240, Math.min(760, p.w - 24)), w));
-				h = Math.max(200, Math.min(Math.max(200, p.h - 60), h));
-				let x = patch.x != null ? Math.round(patch.x) : cur.x;
-				let y = patch.y != null ? Math.round(patch.y) : cur.y;
-				x = Math.max(4, Math.min(Math.max(4, p.w - w - 4), x));
-				y = Math.max(44, Math.min(Math.max(44, p.h - h - 8), y));
-				this.rect = { x: x, y: y, w: w, h: h };
+				this.rect = aiClampRect(
+					patch.x != null ? Math.round(patch.x) : cur.x,
+					patch.y != null ? Math.round(patch.y) : cur.y,
+					patch.w != null ? Math.round(patch.w) : cur.w,
+					patch.h != null ? Math.round(patch.h) : cur.h);
 				if (persist) {
 					// 右上角相对坐标落盘：aiR=右缘偏移、aiT=顶部偏移；旧绝对键清除防干扰
 					try {
@@ -3157,6 +3216,15 @@ body.i2p-dragging{user-select:none}
 				for (const fn of this.listeners) fn();
 			},
 			resetRect() { this.setRect(aiDefaultRect(), true); },
+			// 收敛当前矩形到页面内（不落盘，用户偏好不动）：打开面板与页面几何变化时调用，
+			// 修掉"大屏存下的尺寸到小屏溢出屏幕"；矩形没变化时不触发监听
+			normalize() {
+				const cur = this.rect;
+				const n = aiClampRect(cur.x, cur.y, cur.w, cur.h);
+				if (n.x === cur.x && n.y === cur.y && n.w === cur.w && n.h === cur.h) return;
+				this.rect = n;
+				for (const fn of this.listeners) fn();
+			},
 			subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
 		};
 			function useAiState() {
@@ -3176,6 +3244,16 @@ body.i2p-dragging{user-select:none}
 			const el = document.querySelector(".i2p-page");
 			const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
 			return r ? { w: r.width, h: r.height } : { w: window.innerWidth || 1280, h: window.innerHeight || 720 };
+		}
+		// 矩形收敛（与 setRect 同边界）：尺寸先 clamp（240..760/页宽-24、200..页高-60），
+		// 位置后 clamp（面板完整落在工作台内）——恢复路径/打开面板/页面几何变化共用
+		function aiClampRect(x, y, w, h) {
+			const p = aiPageRect();
+			w = Math.max(240, Math.min(Math.max(240, Math.min(760, p.w - 24)), w));
+			h = Math.max(200, Math.min(Math.max(200, p.h - 60), h));
+			x = Math.max(4, Math.min(Math.max(4, p.w - w - 4), x));
+			y = Math.max(44, Math.min(Math.max(44, p.h - h - 8), y));
+			return { x: x, y: y, w: w, h: h };
 		}
 		// 默认窗口：右上角按 AI_ANCHOR 固定偏移锚定（窗口尺寸变化时相对位置不变）
 		function aiDefaultRect() {
@@ -3491,6 +3569,11 @@ body.i2p-dragging{user-select:none}
 				const timer = setInterval(tick, 300);
 				return () => clearInterval(timer);
 			}, [open]);
+			// 页面几何变化（宿主布局/窗口缩放，由上方 300ms 轮询驱动 rect）后把助手面板
+			// 收敛回页面内；effect 在 DOM 提交后运行，aiPageRect 读到的已是新尺寸
+			React.useEffect(function () {
+				if (aiStore.open) aiStore.normalize();
+			}, [rect]);
 			if (!open || rect === null) return null;
 			return h("div", {
 				className: "i2p-page", role: "region", "aria-label": "Issue2PR 工作台",

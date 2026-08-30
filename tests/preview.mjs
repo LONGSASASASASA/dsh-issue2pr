@@ -100,11 +100,16 @@ const html = `<!doctype html>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
   </div>
-  <div id="overlay-mount" style="position:relative;flex:1;min-width:0"></div>
+  <!-- 模拟宿主主内容列：工作台以 [data-slot="conversation"] 锚点的父级为定位宿主（测量其 rect） -->
+  <div id="host-col" style="flex:1;min-width:0;position:relative">
+    <div data-slot="conversation" hidden></div>
+    <div id="overlay-mount" style="position:absolute;inset:0"></div>
+  </div>
 </div>
 <div class="themebar">
   <button onclick="document.documentElement.dataset.theme='light'">浅色</button>
   <button onclick="document.documentElement.dataset.theme='dark'">深色</button>
+  <button onclick="toggleLegacy(this)" title="剥离全部 color-mix 声明，模拟 Chromium<111 旧内核，验证兜底行">旧内核</button>
   <button onclick="reopen()">重开悬浮层</button>
 </div>
 <script>
@@ -192,7 +197,7 @@ window.fetch = (url, opts) => {
   const u = String(url);
   // 智能助手：伪流式 NDJSON（预览台演示流式渲染，真实验收看真实宿主）
   if (/\\/assistant\\/ask/.test(u)) {
-    const answer = "**预览模式**：这里走的是 mock 流式回答（真实宿主由后端聚合项目/Run/事件上下文并调 LLM）。\\n\\n当前 mock 数据里的 Run 停在 P5 待复核。";
+    const answer = "**预览模式**：这里走的是 mock 流式回答（真实宿主由后端聚合项目/Run/事件上下文并调 LLM）。\\n\\n- 当前 mock 数据里的 Run 停在 \\\`P5\\\` 待复核\\n- 常见失败原因：\\\`npm test\\\` 门禁未过、绑定凭据 403\\n\\n明细见 \\\`run.json\\\` 与 \\\`trace/events.jsonl\\\` 产物。";
     const lines = [JSON.stringify({ delta: answer.slice(0, 20) }) + "\\n", JSON.stringify({ delta: answer.slice(20) }) + "\\n", JSON.stringify({ done: true }) + "\\n"];
     let i = 0;
     return new Promise((resolve2) => setTimeout(() => resolve2({ ok: true, body: { getReader() {
@@ -211,13 +216,38 @@ window.fetch = (url, opts) => {
   return Promise.resolve({ json: () => Promise.resolve(body) });
 };
 
+// —— 旧内核开关：把插件 <style> 里所有含 color-mix 的声明整条剥掉（fallback 行保留），
+// 模拟 Chromium<111 不认 color-mix 时的级联行为，目检兜底效果 ——
+let legacyOn = false;
+window.toggleLegacy = (btn) => {
+  const st = document.querySelector('style[data-plugin-css="dsh-issue2pr/styles"]');
+  if (!st) return;
+  if (!st.dataset.orig) st.dataset.orig = st.textContent;
+  legacyOn = !legacyOn;
+  st.textContent = legacyOn
+    ? st.dataset.orig.replace(/[a-zA-Z-]+\s*:\s*[^;{}]*color-mix[^;{}]*/g, "")
+    : st.dataset.orig;
+  btn.textContent = legacyOn ? "旧内核·开" : "旧内核";
+};
+
 // —— 宿主 ModuleLoader 模拟：载入真实 client.js ——
-// 宿主官方 MarkdownText 的排版与样式在宿主全局样式表里，预览台还原不了，退化为纯文本模拟（真实验收看真实宿主）。
+// MarkdownText 用最小 md→html 渲染（段落/加粗/行内码/列表），配合插件自持的 .i2p-ai-md 样式目检排版。
 let modExports = null;
 window.__ModuleLoader__ = { load(def) { modExports = def.factory((id) => {
   if (id === "react") return React;
   if (id === "@deepseek-ai/dsh-client-ui-primitives") {
-    return { MarkdownText: ({ text }) => React.createElement("pre", { style: { whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" } }, text) };
+    const md2html = (t) => String(t).split(/\\n\\n+/).map((b) => {
+      const esc = b.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      let inner = esc
+        .replace(/\\*\\*([^*]+)\\*\\*/g, "<b>$1</b>")
+        .replace(/\\\`([^\\\`]+)\\\`/g, "<code>$1</code>");
+      if (/^- /m.test(inner)) {
+        inner = "<ul>" + inner.replace(/^- (.+)$/gm, "<li>$1</li>").replace(/\\n/g, "") + "</ul>";
+        return inner;
+      }
+      return "<p>" + inner.replace(/\\n/g, "<br>") + "</p>";
+    }).join("");
+    return { MarkdownText: ({ text }) => React.createElement("div", { className: "md", dangerouslySetInnerHTML: { __html: md2html(text) } }) };
   }
   throw new Error("unknown: " + id);
 }); } };
