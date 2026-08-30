@@ -156,7 +156,7 @@ git clone https://github.com/LONGSASASASASA/dsh-issue2pr.git dsh-issue2pr
     { "kind": "requirement", "uri": "C:/docs/需求-登录修复.md" }
   ],
   "reviewMode": "key-only",              // every | key-only | auto
-  "p6Mode": "builtin",                   // builtin | session | claude
+  "p6Mode": "builtin",                   // builtin | session | claude | dsh
   "testCommand": "npm test",             // 留空则自动探测 package.json 的 test 脚本
   "stageConfig": { /* 逐阶段覆盖，见下 */ }
 }
@@ -181,7 +181,11 @@ git clone https://github.com/LONGSASASASASA/dsh-issue2pr.git dsh-issue2pr
     "delegate": { "mode": "session" },   // 本阶段委托外部智能体，产出就绪才放行
     "params": {
       "claudeBin": "C:\\Users\\you\\AppData\\Roaming\\npm\\claude.cmd",
-      "claudeTimeoutMin": 120
+      "claudeTimeoutMin": 120,           // claude CLI 执行超时（分钟）
+      "claudeAuthPreset": "glm",         // none | glm | custom（认证中转，403 根治）
+      "claudeRelayModel": "glm-5.3",     // glm 预设的驱动模型（连模型映射一并覆盖）
+      "claudePermission": "acceptEdits", // acceptEdits | bypass | dontAsk
+      "dshTimeoutMin": 120               // dsh 原生智能体执行超时（分钟）
     }
   },
   "P9": { "params": { "diffChars": 2000 } }
@@ -201,6 +205,26 @@ git clone https://github.com/LONGSASASASASA/dsh-issue2pr.git dsh-issue2pr
 - 全局共享一份（`~/.dsh/issue2pr/connections.json`），多项目复用；ssh 形态地址走本机密钥，不注入。
 - 凭据**只存本机**，返回给 UI 一律脱敏（`gh05…x8k2`），事件日志中的 URL 自动抹除凭据段。
 - Run 进行中新增 / 修改连接，下一阶段即生效。
+
+### 委外执行器（P6 自动执行通道）
+
+P6「自动执行」支持两个执行器，同一套任务包契约（`session-task.md` → `patches/*.diff` + `coder-report.json`）、同一套产物机器验证（结构校验 + 临时索引 `git apply` 演练），按项目自由切换：
+
+| | claude-code（委托 Claude Code） | dsh-agent（DSH 原生智能体） |
+| --- | --- | --- |
+| 形态 | 本机 claude CLI 子进程（`-p` headless + stream-json） | 宿主内置 agent loop 进程内执行（`ctx.agents`） |
+| 模型 | 本机 claude 认证（可走中转） | 宿主模型路由（Models 页，如 glm-5.2） |
+| 外部认证 | 需要（CLI 登录态 / 中转 token） | **零外部认证** |
+| 403 IP 白名单 | 配认证中转后根治 | 天然免疫 |
+| 依赖 | claude CLI ≥ 2.1（推荐 ≥ 2.1.140） | DSH 宿主提供 `ctx.agents`（完全重启 DSH 生效） |
+
+两者都先过**测试门禁**（绑定/保存前真实跑一次极小调用）才能保存：claude 三步（定位 → 版本 → 认证），dsh 两步（智能体服务 + 模型路由 → 真实微任务）。
+
+**认证中转（403 IP 白名单根治）**：公司网络出口漂移会让带 IP 白名单的 API Key 间歇 403（`IP access denied by API-Key restrictions`）。绑定卡「认证中转」选 **GLM Coding Plan** 并保存 token 后，claude 改打 `https://open.bigmodel.cn/api/anthropic`（官方支持的 Anthropic 兼容端点，无 IP 白名单校验），驱动模型为 GLM 系列。实现细节：用户级 `~/.claude/settings.json` 的 `env` 块会**覆盖进程环境变量**，因此中转经 `--settings` 临时文件注入（连 `ANTHROPIC_MODEL` 等模型映射一并覆盖，避免别家端点模型名残留报 `1214`）；token 全局存 `~/.dsh/issue2pr/relay-auth.json`，临时文件用后即删、日志零 token。也可选「自定义网关」指向自建 claude-code-router / new-api。
+
+**权限档位**：claude 执行默认 `acceptEdits` + 宽白名单（Bash/编辑/检索放行），替代裸 `--dangerously-skip-permissions`；`claudePermission` 可回退 `bypass`（旧行为）或收紧 `dontAsk`。
+
+**执行可靠性**：输出 stream-json 逐帧解析（`is_error` / 0-token 空结果显式判失败，不再只看退出码）；stdout 实时落盘 `external-exec.log`；超时杀整棵进程树（不留孤儿 claude 写仓库）；`session_id` 落档 `run.json`（为 `--resume` 重试留钩）。
 
 ## 📦 数据与产物布局
 
@@ -297,7 +321,8 @@ npm test        # node --test，覆盖 API / 流水线 / 各阶段执行器 / �
 - 测试命令自动探测目前只认 `package.json` 的 `test` 脚本，其他语言请显式配置 `testCommand`。
 - 托管凭据明文存于本机 `connections.json`（与本机 `GITHUB_TOKEN` 环境变量同级安全），请勿把数据目录提交进任何仓库。
 - 产物在线预览上限 200KB，更大的文件请在产物目录直接打开。
-- `claude` 委托模式在宿主进程内无人值守执行，请先评估 `--dangerously-skip-permissions` 的适用性。
+- `claude` 委托模式在宿主进程内无人值守执行，默认权限档 `acceptEdits` + 宽白名单（`claudePermission=bypass` 回退旧的全放行行为），请按仓库敏感度自行评估。
+- 认证中转 token 明文存于本机 `relay-auth.json`（与 `connections.json` 同级安全），请勿把数据目录提交进任何仓库。
 
 ## 🤝 贡献
 
