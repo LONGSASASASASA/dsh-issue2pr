@@ -15,6 +15,7 @@ import { makeLlm, routeInfo } from "./lib/llm.js";
 import { buildExecutors } from "./lib/stages/index.js";
 import { rollbackLedger } from "./lib/stages/p7-patch.js";
 import { killExternal, resolveClaudeBin } from "./lib/stages/p6-coder.js";
+import { discoverAgents, testAgentGate, realRunWhich, realRunNpmPrefix, realRunVersion } from "./lib/agents.js";
 import { readTriggerText, logEvent } from "./lib/stages/helpers.js";
 import {
   loadConnections, upsertConnection, deleteConnection, normalizeConnection,
@@ -322,6 +323,31 @@ async function handleApi(ctx, root, req, res) {
       }
       return sendJson(res, 404, { ok: false, message: "not found" });
     }
+    // —— /issue2pr/api/agents/discover：委外智能体（claude CLI）多方式发现 ——
+    // 五种来源去重合并：项目配置 > 环境变量 > 常见安装位置 > npm 全局目录 > PATH 查找；
+    // ?slug= 带项目时把该项目配置的 claudeBin 列为首位候选。测试钩子环境未注入 runNpmPrefix
+    // 时跳过 npm 来源（避免单测真跑 npm config get prefix）。
+    if (parts[2] === "agents" && parts[3] === "discover" && !parts[4] && m === "GET") {
+      const slugQ = url.searchParams.get("slug");
+      const project = (slugQ && /^[a-z0-9-]+$/.test(slugQ)) ? loadProject(root, slugQ) : null;
+      const out = await discoverAgents({
+        cfgBin: (project && project.stageConfig && project.stageConfig.P6 && project.stageConfig.P6.params && project.stageConfig.P6.params.claudeBin) || "",
+        runWhich: __testHooks?.runWhich || realRunWhich,
+        runNpmPrefix: __testHooks ? __testHooks.runNpmPrefix : realRunNpmPrefix,
+      });
+      return sendJson(res, 200, { ok: true, agents: out.agents, resolved: out.resolved });
+    }
+    // —— /issue2pr/api/agents/test：委外智能体测试门禁 ——
+    // 三步：定位 → --version → headless 认证微任务（真实极小调用，403 IP 白名单/未登录在此拦截）。
+    // body {bin?: string, timeoutMs?: 10000..180000}；ok=false 也回 200（与 connections/test 同约定）。
+    if (parts[2] === "agents" && parts[3] === "test" && !parts[4] && m === "POST") {
+      const body = await readBody(req);
+      const bin = typeof body?.bin === "string" ? body.bin.trim() : "";
+      const t = Number(body?.timeoutMs);
+      const timeoutMs = Number.isFinite(t) && t >= 10000 && t <= 180000 ? t : 120000;
+      const gate = await testAgentGate({ bin, timeoutMs, runners: (__testHooks && __testHooks.agentProbes) || {} });
+      return sendJson(res, 200, { ok: gate.ok, gate });
+    }
     // —— /issue2pr/api/preflight：环境健康探测（git 二进制 / claude CLI / LLM 默认路由与来源） ——
     // 纯只读探测：git --version、claudeBin 解析 + 存在性/PATH 校验、resolveRoute 现算；不发真实 LLM 请求。
     if (parts[2] === "preflight" && !parts[3] && m === "GET") {
@@ -423,6 +449,17 @@ async function handleApi(ctx, root, req, res) {
       if (m === "GET") return sendJson(res, 200, { ok: true, projects: listProjects(root) });
       if (m === "POST") {
         const body = await readBody(req);
+        // —— 委外智能体保存门禁（兜底）：p6Mode=claude 时 claude CLI 必须可运行（--version 快检） ——
+        // 认证级校验（403 IP 白名单等）由项目页「测试门禁」真实微任务完成；此处拦路径写错/未安装。
+        // 测试钩子环境未注入 agentProbes 时跳过（既有单测不依赖本机 claude）。
+        if (body && body.p6Mode === "claude" && (!__testHooks || __testHooks.agentProbes)) {
+          const bin = resolveClaudeBin((body.stageConfig && body.stageConfig.P6 && body.stageConfig.P6.params && body.stageConfig.P6.params.claudeBin) || "");
+          const runV = __testHooks?.agentProbes?.runVersion || realRunVersion;
+          const r = await new Promise((res2) => runV(bin, {}, (err) => res2({ err })));
+          if (r.err) {
+            return sendJson(res, 400, { ok: false, message: "委外智能体门禁未通过：claude CLI 无法运行（" + String((r.err && r.err.message) || r.err).slice(0, 200) + "）。请在「项目」页 P6 执行模式选「委托 Claude Code」，用委外智能体卡片选择可用安装或修正路径，通过测试门禁后再保存。" });
+          }
+        }
         try { saveProject(root, body); }
         catch (e) { return sendJson(res, 400, { ok: false, message: (e && e.message) || String(e) }); }
         return sendJson(res, 200, { ok: true, project: body });

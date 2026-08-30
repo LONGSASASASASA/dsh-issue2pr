@@ -445,6 +445,38 @@ body.i2p-dragging{user-select:none}
 .i2p .conn-row .cn-tok{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
 .i2p .conn-row .cn-act{margin-left:auto;display:flex;gap:6px}
 
+/* ===== 委外智能体绑定卡（项目页 P6=claude / 配置页 P6 共用）：多方式发现 + 测试门禁 ===== */
+.i2p .agent-bind{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px}
+.i2p .agent-cands{display:flex;flex-direction:column;gap:5px;margin:8px 0 2px}
+.i2p .agent-cand{display:flex;align-items:center;gap:10px;width:100%;text-align:left;cursor:pointer;
+  background:none;border:1px solid var(--line);border-radius:9px;padding:5px 10px;
+  transition:border-color .15s,background .15s;font-family:inherit;font-size:inherit;color:inherit}
+.i2p .agent-cand:hover{background:var(--hover)}
+.i2p .agent-cand.on{border-color:var(--accent);background:var(--nav-on)}
+.i2p .agent-cand .ac-path{font-size:12.5px;color:var(--ink);min-width:0;word-break:break-all}
+.i2p .agent-cand .ac-path.mono{font-family:var(--mono)}
+.i2p .agent-cand .ac-meta{margin-left:auto;flex:none;display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)}
+.i2p .agent-cand .ac-src{border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:10.5px;white-space:nowrap}
+.i2p .agent-cand .miss{color:var(--warn)}
+.i2p .agent-gate{margin-top:8px;font-size:12.5px;line-height:1.6}
+.i2p .agent-gate .ag-line{margin:0;font-weight:600}
+.i2p .agent-gate.ok .ag-line{color:var(--good)}
+.i2p .agent-gate.bad .ag-line{color:var(--err)}
+.i2p .agent-gate .ag-steps{margin:4px 0 0;display:flex;gap:6px;flex-wrap:wrap}
+.i2p .agent-gate .ag-step{font-family:var(--mono);font-size:11px;border-radius:4px;padding:0 6px;border:1px solid var(--line)}
+.i2p .agent-gate .ag-step.ok{color:var(--good)}
+.i2p .agent-gate .ag-step.bad{color:var(--err);border-color:currentColor}
+.i2p .agent-gate .ag-hint{margin:6px 0 0;color:var(--warn)}
+/* 发现扫描走马灯：滚动展示解析全过程（各来源阶段）；标记位当前阶段文字轮播 */
+.i2p .scan-ticker{margin:8px 0 0;overflow:hidden;white-space:nowrap;border:1px dashed var(--line-2);
+  border-radius:8px;background:var(--card)}
+.i2p .scan-ticker .tk{display:inline-block;padding-left:100%;line-height:22px;font-size:12px;
+  color:var(--muted);animation:i2p-tk 12s linear infinite}
+@keyframes i2p-tk{from{transform:translateX(0)}to{transform:translateX(-100%)}}
+@media (prefers-reduced-motion:reduce){.i2p .scan-ticker .tk{animation:none;padding-left:8px}}
+.i2p .scan-now{color:var(--accent)}
+.i2p .scan-fail{margin:8px 0 0}
+
 /* ---- 侧边栏入口按钮：1:1 复刻宿主设置按钮（settings-general VOzbGW_trigger 配方） ---- */
 .i2p-entry{box-sizing:border-box;cursor:pointer;width:calc(100% + 4px);height:42px;
   color:var(--dsw-alias-label-primary);background:none;border:none;border-radius:12px;
@@ -945,15 +977,144 @@ body.i2p-dragging{user-select:none}
 					: h("button", { type: "button", className: "add-row", onClick: function () { setAdding(true); } }, Ic("plus", 12), " 添加连接"));
 		}
 
+		// 委外智能体发现扫描阶段（与服务端 discoverAgents 探测顺序一致；走马灯滚动展示全过程）
+		const AGENT_SCAN_STEPS = [
+			"读取项目配置 stageConfig.P6.params.claudeBin",
+			"检查环境变量 ISSUE2PR_CLAUDE_BIN",
+			"扫描常见安装位置（.npm-global / .npm_global / AppData\\Roaming\\npm / .local\\bin）",
+			"查询 npm 全局目录（npm config get prefix）",
+			"PATH 查找 claude（where / which）",
+			"候选去重合并 · 存在性校验",
+		];
+		const AGENT_SCAN_SHORT = ["读项目配置", "查环境变量", "扫常见位置", "查 npm 全局", "PATH 查找", "去重校验"];
+
+		/* 委外智能体绑定卡（项目页 P6=claude 与「配置」页 P6 共用）：
+		 * 发现——五种来源（项目配置/环境变量/常见安装位置/npm 全局目录/PATH）+ 手动路径；
+		 * 门禁——定位 → 版本 → 认证微任务（一次极小真实调用，403 IP 白名单等在绑定时拦截而非 Run 中暴露）。
+		 * gate 状态由父组件持有（控制保存按钮）：{key:"bin:<路径>"|"auto", status:"pass"|"fail", result}
+		 * 扫描过程走马灯可见：请求 20s 超时 / 404（旧版 node 半）显式报错 + 重试，不再无限「解析中…」。 */
+		function AgentBindCard(props) {
+			const p = props; // { bin, onBinChange, gate, onGate, toast, slug }
+			const [found, setFound] = React.useState(null);
+			// 扫描态：status scanning|done|fail；phase 驱动标记位阶段轮播与走马灯
+			const [scan, setScan] = React.useState({ status: "scanning", phase: 0, error: "" });
+			const [testing, setTesting] = React.useState(false);
+
+			const doDiscover = React.useCallback(function () {
+				setFound(null);
+				setScan({ status: "scanning", phase: 0, error: "" });
+				const q = p.slug ? "?slug=" + encodeURIComponent(p.slug) : "";
+				const req = apiGet("/agents/discover" + q).catch(function () { return null; });
+				const guard = new Promise(function (r) { setTimeout(function () { r({ __timeout: true }); }, 20000); });
+				Promise.race([req, guard]).then(function (r) {
+					if (r && r.ok) {
+						setFound({ agents: r.agents || [], resolved: r.resolved || "" });
+						setScan({ status: "done", phase: 0, error: "" });
+						return;
+					}
+					const msg = !r ? "发现请求失败（网络错误）"
+						: r.__timeout ? "发现请求超时（20 秒无响应）"
+						: "发现接口不可用" + (r.message ? "：" + r.message : "");
+					setScan({ status: "fail", phase: 0, error: msg + "——若刚升级插件，node 半需重启 DSH 生效后重试" });
+				});
+			}, [p.slug]);
+			React.useEffect(function () { doDiscover(); }, [doDiscover]);
+			// 扫描期间阶段轮播（标记位「读项目配置…」→「查环境变量…」→ …）
+			React.useEffect(function () {
+				if (scan.status !== "scanning") return;
+				const t = setInterval(function () { setScan(function (s) { return Object.assign({}, s, { phase: s.phase + 1 }); }); }, 1200);
+				return function () { clearInterval(t); };
+			}, [scan.status]);
+
+			const cur = (p.bin || "").trim();
+			const gateLive = p.gate && p.gate.key === (cur ? "bin:" + cur : "auto") ? p.gate : null;
+			const runGate = function () {
+				if (testing) return;
+				setTesting(true);
+				apiPost("/agents/test", cur ? { bin: cur } : {}).then(function (r) {
+					setTesting(false);
+					if (!r || typeof r.ok !== "boolean") { p.toast("门禁请求失败", "bad"); return; }
+					// r.gate 缺失 = 接口 404/异常（常见于 UI 已新版而 node 半未随重启更新）——给出可操作文案
+					const res = r.gate || { message: (r && r.message) ? ("接口异常：" + r.message) : "接口不可用——若刚升级插件，请重启 DSH 后重试" };
+					p.onGate({ key: cur ? "bin:" + cur : "auto", status: r.ok ? "pass" : "fail", result: res });
+					if (r.ok) p.toast("委外智能体门禁通过" + (r.gate && r.gate.version ? "：" + r.gate.version : ""));
+				}).catch(function (e) { setTesting(false); p.toast("请求失败: " + e, "bad"); });
+			};
+
+			return h("div", { className: "agent-bind" },
+				h("span", { className: "f-label" }, "委外智能体 · Claude Code（测试门禁通过后才能保存）"),
+				h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
+					"P6「委托 Claude Code」由本机 claude CLI 无人值守执行。绑定 = 从候选选择或手动指定可执行文件；",
+					"「测试门禁」真实跑一次极小调用（定位 → 版本 → 认证，费用可忽略）——403 IP 白名单 / 未登录这类错误在绑定时拦截，而不是等 Run 失败后才暴露。"),
+				h("div", { className: "agent-cands", role: "radiogroup", "aria-label": "发现的 claude 安装" },
+					h("button", {
+						type: "button", key: "__auto__", className: "agent-cand" + (!cur ? " on" : ""),
+						onClick: function () { p.onBinChange(""); },
+					},
+						h("span", { className: "ac-path" }, "自动探测"),
+						h("span", { className: "ac-meta" },
+							found ? "当前解析 " + (found.resolved || "claude")
+								: scan.status === "fail" ? h("span", { className: "miss" }, "发现失败")
+								: h("span", { className: "scan-now" }, AGENT_SCAN_SHORT[scan.phase % AGENT_SCAN_SHORT.length] + "…"))),
+					(found ? found.agents : []).map(function (a, i) {
+						return h("button", {
+							type: "button", key: "a" + i,
+							className: "agent-cand" + (cur && cur.toLowerCase() === a.path.toLowerCase() ? " on" : ""),
+							onClick: function () { p.onBinChange(a.path); },
+						},
+							h("span", { className: "ac-path mono" }, a.path),
+							h("span", { className: "ac-meta" },
+								h("span", { className: "ac-src" }, a.label),
+								a.exists ? "已就绪" : h("span", { className: "miss" }, "不存在")));
+					})),
+				// —— 解析过程走马灯（标记位下方通栏滚动）——
+				scan.status === "scanning" ? h("div", { className: "scan-ticker", role: "status", "aria-live": "polite" },
+					h("span", { className: "tk" }, "正在解析 claude 安装　▸　" + AGENT_SCAN_STEPS.join("　▸　") + "　▸　")) : null,
+				scan.status === "done" && found ? h("p", { className: "hint-line", style: { margin: "8px 0 0" } },
+					found.agents.length
+						? "扫描完成：发现 " + found.agents.length + " 个候选 · 自动解析 → " + (found.resolved || "claude")
+						: "扫描完成：未发现已安装的 claude——请手动指定完整路径（如 C:\\Users\\you\\AppData\\Roaming\\npm\\claude.cmd），或先安装 claude CLI。") : null,
+				scan.status === "fail" ? h("div", { className: "scan-fail" },
+					h("p", { className: "hint-line", style: { margin: 0, color: "var(--err)" } }, "✗ " + scan.error),
+					h("button", { type: "button", className: "btn sm", style: { marginTop: 6 }, onClick: doDiscover }, "重试扫描")) : null,
+				h("div", { className: "dyn-row", style: { marginTop: 6 } },
+					h("input", {
+						className: "f-input mono", value: p.bin || "",
+						placeholder: "手动指定可执行文件（留空 = 自动探测）",
+						"aria-label": "claude 可执行文件路径",
+						onChange: function (e) { p.onBinChange(e.target.value); },
+					}),
+					h("button", {
+						type: "button", className: "btn sm" + (gateLive && gateLive.status === "pass" ? "" : " pri"),
+						disabled: testing, onClick: runGate,
+					}, testing ? "测试中…" : "测试门禁")),
+				testing ? h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
+					"门禁测试中：真实调用一次 claude（通常 5–30 秒），请勿关闭本页…") : null,
+				gateLive ? (function () {
+					const g = gateLive.result || {};
+					return h("div", { className: "agent-gate " + (gateLive.status === "pass" ? "ok" : "bad") },
+						h("p", { className: "ag-line" },
+							gateLive.status === "pass"
+								? "✓ 门禁通过" + (g.version ? " · " + g.version : "") + (g.ms != null ? " · " + (Math.round(g.ms / 100) / 10) + "s" : "")
+								: "✗ 未通过：" + (g.message || "未知错误")),
+						(g.steps || []).length ? h("p", { className: "ag-steps" }, g.steps.map(function (s, i) {
+							return h("span", { key: i, className: "ag-step " + (s.ok ? "ok" : "bad") }, (s.ok ? "✓" : "✗") + s.name);
+						})) : null,
+						g.hint ? h("p", { className: "ag-hint" }, g.hint) : null);
+				})() : null);
+		}
+
 		function ProjectsPanel(props) {
 			const p = props;
 			const [form, setForm] = React.useState(null);
 			const [saving, setSaving] = React.useState(false);
 			// 本地触发源存在性检查结果：uri → true/false（check-local 端点；onBlur 与载入时触发）
 			const [trigCheck, setTrigCheck] = React.useState({});
+			// 委外智能体测试门禁结果：{key:"bin:<路径>"|"auto", status:"pass"|"fail", result}（p6Mode=claude 时保存前置条件）
+			const [agentGate, setAgentGate] = React.useState(null);
 
 			const blankForm = function () {
-				return { name: "", slug: "", repos: [{ uri: "" }], triggers: [], reviewMode: "every", p6Mode: "builtin", testCommand: "" };
+				return { name: "", slug: "", repos: [{ uri: "" }], triggers: [], reviewMode: "every", p6Mode: "builtin", testCommand: "", claudeBin: "" };
 			};
 
 			React.useEffect(function () {
@@ -969,8 +1130,11 @@ body.i2p-dragging{user-select:none}
 					reviewMode: pr.reviewMode || "every",
 					p6Mode: pr.p6Mode || "builtin",
 					testCommand: pr.testCommand || "",
+					// 委外智能体绑定：claudeBin 存于 stageConfig.P6.params（「配置」页同源），空 = 自动探测
+					claudeBin: (pr.stageConfig && pr.stageConfig.P6 && pr.stageConfig.P6.params && pr.stageConfig.P6.params.claudeBin) || "",
 				});
 				setTrigCheck({});
+				setAgentGate(null);
 				(pr.triggers || []).forEach(function (t) { checkLocal(t.uri); }); // 载入即查本地触发源存在性
 			}, [p.slug, p.projects]);
 
@@ -986,8 +1150,18 @@ body.i2p-dragging{user-select:none}
 
 			const collect = function () {
 				const f = form;
-				// stageConfig（「配置」页维护）与项目表单互不感知：原样透传，避免保存项目时丢失阶段配置
+				// stageConfig（「配置」页维护）与项目表单互不感知：原样透传，避免保存项目时丢失阶段配置；
+				// 唯一例外 claudeBin——委外智能体绑定卡在本表单维护，合并进 P6.params（清空 = 移除覆盖恢复自动探测）
 				const pr = p.projects ? p.projects.find(function (x) { return x.slug === p.slug; }) : null;
+				const stageConfig = JSON.parse(JSON.stringify((pr && pr.stageConfig) || {}));
+				const bin = (f.claudeBin || "").trim();
+				if (bin || (stageConfig.P6 && stageConfig.P6.params && stageConfig.P6.params.claudeBin)) {
+					const p6 = stageConfig.P6 || {};
+					const params = Object.assign({}, p6.params);
+					if (bin) params.claudeBin = bin; else delete params.claudeBin;
+					if (Object.keys(params).length) p6.params = params; else delete p6.params;
+					if (Object.keys(p6).length) stageConfig.P6 = p6; else delete stageConfig.P6;
+				}
 				return {
 					name: (f.name || "").trim(),
 					slug: (f.slug || "").trim(),
@@ -998,7 +1172,7 @@ body.i2p-dragging{user-select:none}
 					reviewMode: f.reviewMode,
 					p6Mode: f.p6Mode,
 					testCommand: (f.testCommand || "").trim(),
-					stageConfig: (pr && pr.stageConfig) || {},
+					stageConfig: stageConfig,
 				};
 			};
 			const validate = function (o) {
@@ -1007,11 +1181,21 @@ body.i2p-dragging{user-select:none}
 				if (o.repos.length === 0) return "至少填写一个 Git 仓库链接";
 				return null;
 			};
+			// 委外智能体门禁是否对当前绑定有效：仅 p6Mode=claude 需要；改过路径后 key 不匹配即失效需重测
+			const agentGateOk = function () {
+				if (form.p6Mode !== "claude") return true;
+				const cur = (form.claudeBin || "").trim();
+				return !!(agentGate && agentGate.status === "pass" && agentGate.key === (cur ? "bin:" + cur : "auto"));
+			};
 
 			const ensureSaved = function () {
 				const o = collect();
 				const err = validate(o);
 				if (err) { p.toast(err, "bad"); return Promise.resolve(null); }
+				if (!agentGateOk()) {
+					p.toast("P6 委托 Claude Code：请先通过「委外智能体」测试门禁再保存", "bad");
+					return Promise.resolve(null);
+				}
 				setSaving(true);
 				return apiPost("/projects", o).then(function (r) {
 					setSaving(false);
@@ -1169,8 +1353,7 @@ body.i2p-dragging{user-select:none}
 			if (pf && pf.claude && !pf.claude.ok && form.p6Mode === "claude") banners.push(h("div", { key: "claude", className: "callout warn", style: { marginBottom: 12 } },
 				h("h4", null, "未探测到 claude CLI"),
 				h("p", { style: { margin: 0 } },
-					"尝试路径 ", h("code", null, pf.claude.path || "claude"), " 不存在——P6「委托 Claude Code」发起后将回退为等待人工。",
-					"可在「配置」页 P6 阶段指定 claude 可执行文件。")));
+					"尝试路径 ", h("code", null, pf.claude.path || "claude"), " 不存在。请在下方 P6 执行模式选「委托 Claude Code」后，用「委外智能体」卡片从扫描候选选择或手动指定路径，并通过测试门禁后保存。")));
 			// —— LLM 路由行：默认模型从哪来 + 几个阶段已覆盖（key 由 DSH 宿主管理，插件无法预检其有效性） ——
 			const llmRoute = pf && pf.llm
 				? (function () {
@@ -1246,6 +1429,12 @@ body.i2p-dragging{user-select:none}
 									{ value: "session", label: "交给 DSH 会话", hint: "真 workflow" },
 									{ value: "claude", label: "委托 Claude Code", hint: "claude CLI 自动执行" },
 								], form.p6Mode, function (v) { setField("p6Mode", v); }, "exec"))),
+						// 委外智能体绑定（仅 claude 模式）：多方式发现 + 测试门禁，通过后才能保存
+						form.p6Mode === "claude" ? h(AgentBindCard, {
+							key: "agent-bind", bin: form.claudeBin, gate: agentGate,
+							onBinChange: function (v) { setField("claudeBin", v); },
+							onGate: setAgentGate, toast: p.toast, slug: p.slug,
+						}) : null,
 						h("div", { className: "field" },
 							h("label", { className: "f-label", htmlFor: "f-test" }, "测试命令（可选 · P8 使用）"),
 							h("input", {
@@ -1255,7 +1444,11 @@ body.i2p-dragging{user-select:none}
 							})),
 						h(ConnectionsCard, { connections: p.connections, toast: p.toast, reloadConnections: p.reloadConnections }),
 						h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
-							h("button", { type: "submit", className: "btn pri", disabled: saving }, "保存配置"),
+							h("button", {
+								type: "submit", className: "btn pri",
+								disabled: saving || !agentGateOk(),
+								title: form.p6Mode === "claude" && !agentGateOk() ? "P6 委托 Claude Code 需先通过委外智能体测试门禁" : "",
+							}, "保存配置"),
 							h("button", { type: "button", className: "btn", onClick: runFirst }, Ic("play"), " 用该项目发起 Run"),
 							form.slug && p.slug ? h("button", { type: "button", className: "btn danger", onClick: deleteProject }, Ic("trash"), " 删除项目") : null),
 						h("p", { className: "hint-line" },
@@ -1970,6 +2163,8 @@ body.i2p-dragging{user-select:none}
 			const p = props;
 			const [edit, setEdit] = React.useState(null);
 			const [saving, setSaving] = React.useState(false);
+			// P6 委外智能体测试门禁（claude 模式保存前置条件；与项目页绑定卡同一套逻辑）
+			const [p6Gate, setP6Gate] = React.useState(null);
 
 			// defaults / 项目变化 → 重建编辑态（生效值 = 用户覆盖 ?? 默认）
 			React.useEffect(function () {
@@ -2003,12 +2198,13 @@ body.i2p-dragging{user-select:none}
 							agent: (user.delegate && user.delegate.agent) || "",
 							brief: (user.delegate && user.delegate.brief) || "",
 						},
-						testCommand: (pr && pr.testCommand) || "",
-					};
-				});
-				setEdit(next);
-				// eslint-disable-next-line react-hooks/exhaustive-deps
-			}, [p.defaults, p.projects, p.slug]);
+					testCommand: (pr && pr.testCommand) || "",
+				};
+			});
+			setEdit(next);
+			setP6Gate(null); // 项目/默认值变化 → 绑定路径可能变，门禁结果作废待重测
+			// eslint-disable-next-line react-hooks/exhaustive-deps
+		}, [p.defaults, p.projects, p.slug]);
 
 			if (!p.defaults || !p.projects) return h("p", { className: "empty-hint" }, "加载中…");
 			if (!p.slug) {
@@ -2107,7 +2303,18 @@ body.i2p-dragging{user-select:none}
 				};
 			};
 
+			// P6 门禁是否对当前绑定有效（仅 P6 + claude 模式需要；改过路径 → key 失效需重测）
+			const p6GateOk = function () {
+				if (stageId !== "P6" || e.delegate.mode !== "claude") return true;
+				const cur = (e.params.claudeBin || "").trim();
+				return !!(p6Gate && p6Gate.status === "pass" && p6Gate.key === (cur ? "bin:" + cur : "auto"));
+			};
+
 			const save = function () {
+				if (stageId === "P6" && e.delegate.mode === "claude" && !p6GateOk()) {
+					p.toast("P6 委托 Claude Code：请先通过「委外智能体」测试门禁再保存", "bad");
+					return;
+				}
 				setSaving(true);
 				apiPost("/projects", collect()).then(function (r) {
 					setSaving(false);
@@ -2139,6 +2346,8 @@ body.i2p-dragging{user-select:none}
 
 			const promptKeys = Object.keys((dDef && dDef.prompts) || {});
 			const paramDefs = (dDef && dDef.params) || {};
+			// P6 的 claudeBin 由上方「委外智能体」绑定卡维护（claude 模式时显示），通用参数网格不重复出
+			const paramKeys = Object.keys(paramDefs).filter(function (k) { return !(stageId === "P6" && k === "claudeBin"); });
 			const roleLabel = { planner: "派单 Planner", coder: "编码 Coder", reviewer: "门控 Reviewer", desc: "PR 说明", gate: "Gate 评测" };
 			const effortOpts = [
 				{ value: "", label: "跟随全局", hint: "默认" },
@@ -2238,10 +2447,10 @@ body.i2p-dragging{user-select:none}
 									onChange: function (ev) { setSt({ testCommand: ev.target.value }); },
 								})) : null) : null,
 						// —— 阶段专属参数（本阶段工具行为：扫描上限/深读数/claude 路径等；开源场景不藏在代码里） ——
-						Object.keys(paramDefs).length ? h("div", { className: "field" },
+						paramKeys.length ? h("div", { className: "field" },
 							h("span", { className: "f-label" }, "阶段专属参数（本阶段工具行为 · 留空 = 默认值）"),
 							h("div", { className: "field-row" },
-								Object.keys(paramDefs).map(function (k) {
+								paramKeys.map(function (k) {
 									const meta = paramDefs[k];
 									return h("div", { key: k, className: "field", style: { marginBottom: 0 } },
 										h("label", { className: "f-label", htmlFor: "cfg-p-" + stageId + "-" + k },
@@ -2260,7 +2469,7 @@ body.i2p-dragging{user-select:none}
 						// —— 委托外部智能体 ——
 						caps.delegate ? (function () {
 							if (stageId === "P6") {
-								// P6：执行模式与项目页同源（builtin/session/claude）
+								// P6：执行模式与项目页同源（builtin/session/claude）；claude 模式出绑定卡（发现 + 测试门禁）
 								return h("div", { className: "field" },
 									h("span", { className: "f-label", id: "cfg-p6-label" }, "执行模式 · 委托外部智能体"),
 									radioGroup("cfg-p6-label", [
@@ -2268,6 +2477,11 @@ body.i2p-dragging{user-select:none}
 										{ value: "session", label: "交给外部会话", hint: "生成任务包，人工交接" },
 										{ value: "claude", label: "委托 Claude Code", hint: "claude CLI 自动执行" },
 									], e.delegate.mode, function (v) { setDelegate({ mode: v }); }, "p6mode"),
+									e.delegate.mode === "claude" ? h(AgentBindCard, {
+										bin: e.params.claudeBin, gate: p6Gate,
+										onBinChange: function (v) { setParam("claudeBin", v); },
+										onGate: setP6Gate, toast: p.toast, slug: p.slug,
+									}) : null,
 									h("p", { className: "hint-line", style: { margin: "8px 0 0" } },
 										"与「项目」页 P6 执行模式为同一配置（p6Mode）；claude 模式任务包自动执行，产出补丁后回复核门。"));
 							}
@@ -2315,7 +2529,12 @@ body.i2p-dragging{user-select:none}
 									"每条 patch 可在「运行」页 P7 详情中逐条回滚。"))
 							: null,
 						h("div", { className: "cfg-foot" },
-							h("button", { type: "button", className: "btn pri", disabled: saving, onClick: save },
+							h("button", {
+								type: "button", className: "btn pri",
+								disabled: saving || !p6GateOk(),
+								title: !p6GateOk() ? "P6 委托 Claude Code 需先通过委外智能体测试门禁" : "",
+								onClick: save,
+							},
 								Ic("check"), saving ? " 保存中…" : " 保存阶段配置"),
 							h("span", { className: "hint-line", style: { margin: 0 } },
 								"写入 …\\issue2pr\\projects\\" + p.slug + "\\project.json 的 stageConfig 字段")));

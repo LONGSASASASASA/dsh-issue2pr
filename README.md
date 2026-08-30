@@ -87,6 +87,14 @@
 | `session` | 生成任务包交给 DSH 会话执行，人工完成后通过复核门放行 |
 | `claude` | 任务包自动委托 Claude Code CLI 无人值守执行（`--add-dir` 写产物目录，停止/删除时杀进程树），失败回退等人工会话 |
 
+### 委外智能体：多方式发现 + 测试门禁
+
+选 `claude` 模式后，项目页与配置页出现「委外智能体」绑定卡：
+
+- **多方式发现**：自动扫描五种来源并去重合并——项目配置 > 环境变量 `ISSUE2PR_CLAUDE_BIN` > 常见安装位置 > `npm config get prefix` 全局目录 > PATH 查找；也可手动指定完整路径（留空 = 自动探测）。
+- **测试门禁**：点「测试门禁」真实跑一次极小调用，三步全绿（定位 → `--version` → 认证微任务）才能保存——`403 IP access denied by API-Key restrictions`、未登录这类认证错误在**绑定时**就拦截并给出处置提示（IP 白名单 / 登录 / 代理出口），而不是等 Run 走到 P6 才失败回退。微任务仅一轮、几十 token，费用可忽略。
+- 改过绑定路径后门禁结果即失效，需重测；服务端保存时另有 `--version` 级快检兜底（拦路径写错 / 未安装）。
+
 ## 🚀 快速开始
 
 ### 环境要求
@@ -241,6 +249,8 @@ git clone https://github.com/LONGSASASASASA/dsh-issue2pr.git dsh-issue2pr
 | POST | `/issue2pr/api/connections/test` | 凭据探活 |
 | POST | `/issue2pr/api/connections/test-repo` | 真实仓库连通性（`git ls-remote`） |
 | GET | `/issue2pr/api/preflight` | 环境健康探测（git / claude CLI / LLM 路由来源） |
+| GET | `/issue2pr/api/agents/discover?slug=` | 委外智能体多方式发现（配置/env/常见位置/npm 前缀/PATH） |
+| POST | `/issue2pr/api/agents/test` | 委外智能体测试门禁（定位 → 版本 → 认证微任务） |
 | POST | `/issue2pr/api/check-local` | 本地触发源存在性 |
 | POST | `/issue2pr/api/assistant/ask` | 悬浮助手问答（NDJSON 流式） |
 | GET/POST | `/issue2pr/api/projects` | 项目列表 / 保存 |
@@ -267,6 +277,7 @@ npm test        # node --test，覆盖 API / 流水线 / 各阶段执行器 / �
 | `lib/stages/p1…p11` | 11 个阶段执行器（输入契约 → 产物落盘） |
 | `lib/llm.js` | LLM 路由解析 + JSON 契约解析（失败重试一次） |
 | `lib/connections.js` | 托管连接、凭据注入与脱敏 |
+| `lib/agents.js` | 委外智能体发现与测试门禁 |
 | `lib/store.js` | 目录规则与产物读写（唯一允许写盘的地方） |
 | `lib/assistant.js` | 智能助手上下文聚合 |
 | `tests/` | 单测 + `e2e-live.mjs` 真实链路演练 |
