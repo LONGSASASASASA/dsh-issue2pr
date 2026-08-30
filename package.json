@@ -1,6 +1,6 @@
 {
   "name": "dsh-issue2pr",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Issue-to-PR 可验证交付链：项目配置 → 11 阶段流水线 → 人工复核 → PR 说明（DSH 全局插件）",
   "type": "module",
   "main": "./index.js",
