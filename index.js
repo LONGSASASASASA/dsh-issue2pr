@@ -16,7 +16,8 @@ import { verifyDelegateResult } from "./lib/delegate/delegateVerify.js";
 import { makeLlm, routeInfo } from "./lib/infra/llm.js";
 import { buildExecutors } from "./lib/stages/index.js";
 import { rollbackLedger } from "./lib/stages/p7-patch.js";
-import { killExternal, resolveClaudeBin } from "./lib/stages/p6-coder.js";
+import { stopExternals } from "./lib/delegate/executors/index.js";
+import { resolveClaudeBin } from "./lib/delegate/executors/claude-code.js";
 import { discoverAgents, testAgentGate, realRunWhich, realRunNpmPrefix, realRunVersion } from "./lib/delegate/agents.js";
 import { readTriggerText, logEvent } from "./lib/stages/helpers.js";
 import {
@@ -641,7 +642,7 @@ async function handleApi(ctx, root, req, res) {
             saveRun(rd, r);
             stopDelegateWatch(rd);
             runSessions.delete(rd);
-            killExternal(rd);
+            stopExternals(rd);
             stopped += 1;
           }
         }
@@ -718,7 +719,7 @@ async function handleApi(ctx, root, req, res) {
           run.stages[run.current].status = "stopped";
         }
         saveRun(runDir, run);
-        killExternal(runDir); // claude 委托在跑时一并终止进程树，避免孤儿进程继续写仓库
+        stopExternals(runDir); // 委外在跑时一并终止（杀 CLI 进程树/取消宿主智能体），避免孤儿继续写仓库
         stopDelegateWatch(runDir); // 委外就绪监听一并停止
         return sendJson(res, 200, { ok: true, message: "已停止（当前阶段执行完即停）" });
       }
@@ -761,7 +762,7 @@ async function handleApi(ctx, root, req, res) {
         }
         stopDelegateWatch(runDir); // 停委外就绪监听，再丢弃会话
         runSessions.delete(runDir); // 丢弃共享 rcx（reviewComment 等），防复活
-        killExternal(runDir);
+        stopExternals(runDir);
         try { rmTree(runDir); }
         catch (e) { return sendJson(res, 500, { ok: false, message: "删除失败: " + String((e && e.message) || e) }); }
         removeWorktree(root, slug, runId).catch(() => {}); // 尽力清理 per-Run worktree（孤儿可由 prune 收敛）
