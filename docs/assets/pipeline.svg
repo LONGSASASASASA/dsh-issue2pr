@@ -1,0 +1,175 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1360 830" role="img" aria-labelledby="pt">
+  <title id="pt">dsh-issue2pr 11 阶段流水线：主流程 P1→P9→P11，复核门 P5/P6/P9/P11，失败旁路 P10</title>
+  <rect width="1360" height="830" fill="#F3EFE6"/>
+
+  <!-- ===== 页头 ===== -->
+  <rect x="48" y="46" width="9" height="9" fill="#2A3F7A"/>
+  <text x="66" y="55" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="12" letter-spacing="2.5" fill="#2A3F7A">PIPELINE · MAIN FLOW P1→P9→P11 + FAILURE BYPASS P10</text>
+  <text x="48" y="96" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="700" font-size="25" fill="#171820">11 阶段流水线：每一步有自己的输入契约与产物</text>
+  <text x="48" y="124" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="13" fill="#6F6B78">触发源（GitHub / GitLab Issue 或本地需求文档）从 P1 进入；关键阶段停下等人工复核，任一阶段失败进入 P10 分类。</text>
+
+  <!-- 图例 -->
+  <g font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#2B2D3A">
+    <path d="M760 94 H792" stroke="#8A8578" stroke-width="1.8" marker-end="url(#i2p-ink)"/>
+    <text x="802" y="98">主流程</text>
+    <path d="M876 94 H908" stroke="#A6453A" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#i2p-warn)"/>
+    <text x="918" y="98">失败旁路</text>
+    <rect x="990" y="83" width="58" height="20" rx="10" fill="#2A3F7A"/>
+    <text x="1019" y="97" text-anchor="middle" font-size="10.5" fill="#FFFFFF">复核门</text>
+    <text x="1056" y="98">需人工通过</text>
+    <text x="1160" y="98" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">01–11 产物</text>
+  </g>
+
+  <!-- ===== 阶段列标题 ===== -->
+  <g font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="12" letter-spacing="2" fill="#2A3F7A">
+    <text x="60" y="160">01 理解 · UNDERSTAND</text>
+    <text x="390" y="160">02 规划执行 · PLAN &amp; ACT</text>
+    <text x="720" y="160">03 验证 · VERIFY</text>
+    <text x="1050" y="160">04 交付 · DELIVER</text>
+  </g>
+
+  <!-- ===== 连接线（画在卡片下层） ===== -->
+  <g stroke="#8A8578" stroke-width="1.8" fill="none">
+    <!-- 列内垂直 -->
+    <path d="M170 262 V290" marker-end="url(#i2p-ink)"/>
+    <path d="M170 388 V416" marker-end="url(#i2p-ink)"/>
+    <path d="M170 514 V542" marker-end="url(#i2p-ink)"/>
+    <path d="M500 262 V290" marker-end="url(#i2p-ink)"/>
+    <path d="M500 388 V416" marker-end="url(#i2p-ink)"/>
+    <path d="M830 262 V290" marker-end="url(#i2p-ink)"/>
+    <!-- 跨列折线（进入下一列首行） -->
+    <path d="M280 594 H335 V216 H384" marker-end="url(#i2p-ink)"/>
+    <path d="M610 468 H665 V216 H714" marker-end="url(#i2p-ink)"/>
+    <path d="M940 342 H995 V216 H1044" marker-end="url(#i2p-ink)"/>
+    <!-- P11 → Gate 评测 -->
+    <path d="M1160 262 V290" marker-end="url(#i2p-ink)"/>
+  </g>
+  <!-- 失败旁路：任一阶段失败 → P10 -->
+  <path d="M830 388 V644" stroke="#A6453A" stroke-width="1.8" fill="none" stroke-dasharray="6 5" marker-end="url(#i2p-warn)"/>
+  <text x="844" y="560" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#A6453A">任一阶段失败</text>
+
+  <!-- ===== 阶段卡片 ===== -->
+  <g>
+    <!-- P1 -->
+    <rect x="60" y="170" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#D8D1BF" stroke-width="1.5"/>
+    <rect x="74" y="184" width="44" height="24" rx="5" fill="#2A3F7A"/>
+    <text x="96" y="201" text-anchor="middle" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="13" fill="#FFFFFF">P1</text>
+    <text x="74" y="232" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="600" font-size="15" fill="#171820">IssueAnalyzer</text>
+    <text x="74" y="251" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">01-issue-analysis.json</text>
+    <!-- P2 -->
+    <rect x="60" y="296" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#D8D1BF" stroke-width="1.5"/>
+    <rect x="74" y="310" width="44" height="24" rx="5" fill="#2A3F7A"/>
+    <text x="96" y="327" text-anchor="middle" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="13" fill="#FFFFFF">P2</text>
+    <text x="74" y="358" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="600" font-size="15" fill="#171820">Search Layer</text>
+    <text x="74" y="377" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">02-search-candidates.json</text>
+    <!-- P3 -->
+    <rect x="60" y="422" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#D8D1BF" stroke-width="1.5"/>
+    <rect x="74" y="436" width="44" height="24" rx="5" fill="#2A3F7A"/>
+    <text x="96" y="453" text-anchor="middle" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="13" fill="#FFFFFF">P3</text>
+    <text x="74" y="484" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="600" font-size="15" fill="#171820">Code Understanding</text>
+    <text x="74" y="503" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">03-code-understanding.md</text>
+    <!-- P4 -->
+    <rect x="60" y="548" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#D8D1BF" stroke-width="1.5"/>
+    <rect x="74" y="562" width="44" height="24" rx="5" fill="#2A3F7A"/>
+    <text x="96" y="579" text-anchor="middle" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="13" fill="#FFFFFF">P4</text>
+    <text x="74" y="610" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="600" font-size="15" fill="#171820">Hypothesis</text>
+    <text x="74" y="629" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">04-hypotheses.json</text>
+
+    <!-- P5（复核门） -->
+    <rect x="390" y="170" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#2A3F7A" stroke-width="1.8"/>
+    <rect x="404" y="184" width="44" height="24" rx="5" fill="#2A3F7A"/>
+    <text x="426" y="201" text-anchor="middle" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="13" fill="#FFFFFF">P5</text>
+    <rect x="544" y="186" width="52" height="20" rx="10" fill="#2A3F7A"/>
+    <text x="570" y="200" text-anchor="middle" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="10.5" fill="#FFFFFF">复核门</text>
+    <text x="404" y="232" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="600" font-size="15" fill="#171820">Planner · TaskGraph</text>
+    <text x="404" y="251" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">05-task-graph.json</text>
+    <!-- P6（复核门） -->
+    <rect x="390" y="296" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#2A3F7A" stroke-width="1.8"/>
+    <rect x="404" y="310" width="44" height="24" rx="5" fill="#2A3F7A"/>
+    <text x="426" y="327" text-anchor="middle" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="13" fill="#FFFFFF">P6</text>
+    <rect x="544" y="312" width="52" height="20" rx="10" fill="#2A3F7A"/>
+    <text x="570" y="326" text-anchor="middle" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="10.5" fill="#FFFFFF">复核门</text>
+    <text x="404" y="358" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="600" font-size="15" fill="#171820">代码优化（多智能体）</text>
+    <text x="404" y="377" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">06-implementation/</text>
+    <!-- P7 -->
+    <rect x="390" y="422" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#D8D1BF" stroke-width="1.5"/>
+    <rect x="404" y="436" width="44" height="24" rx="5" fill="#2A3F7A"/>
+    <text x="426" y="453" text-anchor="middle" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="13" fill="#FFFFFF">P7</text>
+    <text x="404" y="484" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="600" font-size="15" fill="#171820">Patch Pipeline</text>
+    <text x="404" y="503" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">ledger/patch-ledger.jsonl</text>
+
+    <!-- P8 -->
+    <rect x="720" y="170" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#D8D1BF" stroke-width="1.5"/>
+    <rect x="734" y="184" width="44" height="24" rx="5" fill="#2A3F7A"/>
+    <text x="756" y="201" text-anchor="middle" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="13" fill="#FFFFFF">P8</text>
+    <text x="734" y="232" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="600" font-size="15" fill="#171820">TestRunner</text>
+    <text x="734" y="251" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">07-test-report.json</text>
+    <!-- P9（复核门） -->
+    <rect x="720" y="296" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#2A3F7A" stroke-width="1.8"/>
+    <rect x="734" y="310" width="44" height="24" rx="5" fill="#2A3F7A"/>
+    <text x="756" y="327" text-anchor="middle" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="13" fill="#FFFFFF">P9</text>
+    <rect x="874" y="312" width="52" height="20" rx="10" fill="#2A3F7A"/>
+    <text x="900" y="326" text-anchor="middle" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="10.5" fill="#FFFFFF">复核门</text>
+    <text x="734" y="358" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="600" font-size="15" fill="#171820">Reviewer</text>
+    <text x="734" y="377" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">08-review-report.json</text>
+
+    <!-- P11（复核门） -->
+    <rect x="1050" y="170" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#2A3F7A" stroke-width="1.8"/>
+    <rect x="1064" y="184" width="50" height="24" rx="5" fill="#2A3F7A"/>
+    <text x="1089" y="201" text-anchor="middle" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="13" fill="#FFFFFF">P11</text>
+    <rect x="1204" y="186" width="52" height="20" rx="10" fill="#2A3F7A"/>
+    <text x="1230" y="200" text-anchor="middle" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="10.5" fill="#FFFFFF">复核门</text>
+    <text x="1064" y="232" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="600" font-size="15" fill="#171820">PRBuilder + Eval</text>
+    <text x="1064" y="251" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">10-pr-description.md</text>
+
+    <!-- Gate 六项评测 -->
+    <rect x="1050" y="296" width="220" height="180" rx="10" fill="#FBF8F1" stroke="#D8D1BF" stroke-width="1.5"/>
+    <text x="1064" y="320" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="11.5" fill="#2A3F7A">GATE 六项评测</text>
+    <text x="1064" y="336" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="10.5" fill="#A07A1F">11-eval-report.json</text>
+    <g font-size="11.5" fill="#2B2D3A" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+      <text x="1064" y="360" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="10.5" fill="#2A3F7A">ROOT</text><text x="1112" y="360">根因有证据</text>
+      <text x="1064" y="380" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="10.5" fill="#2A3F7A">PATCH</text><text x="1112" y="380">干净应用</text>
+      <text x="1064" y="400" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="10.5" fill="#2A3F7A">TEST</text><text x="1112" y="400">无回归</text>
+      <text x="1064" y="420" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="10.5" fill="#2A3F7A">DIFF</text><text x="1112" y="420">可审查</text>
+      <text x="1064" y="440" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="10.5" fill="#2A3F7A">DESC</text><text x="1112" y="440">说明忠实</text>
+      <text x="1064" y="460" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="10.5" fill="#2A3F7A">ACCEPT</text><text x="1112" y="460">门控通过</text>
+    </g>
+
+    <!-- P10 失败旁路（位于 P8/P9 正下方） -->
+    <rect x="720" y="650" width="220" height="118" rx="10" fill="#F3E1DC" stroke="#A6453A" stroke-width="1.6" stroke-dasharray="6 5"/>
+    <rect x="734" y="664" width="44" height="24" rx="5" fill="#A6453A"/>
+    <text x="756" y="681" text-anchor="middle" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-weight="700" font-size="13" fill="#FFFFFF">P10</text>
+    <text x="734" y="710" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-weight="600" font-size="14.5" fill="#7C362E">失败分类 · 六类归因</text>
+    <text x="734" y="729" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">09-failure-analysis.json</text>
+    <g font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="10.5" fill="#7C362E">
+      <rect x="734" y="740" width="58" height="19" rx="9.5" fill="#FFFFFF" stroke="#A6453A" stroke-width="1"/><text x="763" y="753" text-anchor="middle">重跑</text>
+      <rect x="800" y="740" width="58" height="19" rx="9.5" fill="#FFFFFF" stroke="#A6453A" stroke-width="1"/><text x="829" y="753" text-anchor="middle">回滚</text>
+      <rect x="866" y="740" width="58" height="19" rx="9.5" fill="#FFFFFF" stroke="#A6453A" stroke-width="1"/><text x="895" y="753" text-anchor="middle">转人工</text>
+    </g>
+    <text x="390" y="690" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#6F6B78">v1 仅落盘分类与建议动作后停下，不自动执行；</text>
+    <text x="390" y="710" font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#6F6B78">重跑 / 回滚 / 转人工由人工在运行页确认触发。</text>
+  </g>
+
+  <!-- ===== 底部图例 ===== -->
+  <g font-family="'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#2B2D3A">
+    <path d="M48 786 H80" stroke="#8A8578" stroke-width="1.8" marker-end="url(#i2p-ink)"/>
+    <text x="90" y="790">主流程推进</text>
+    <path d="M180 786 H212" stroke="#A6453A" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#i2p-warn)"/>
+    <text x="222" y="790">失败旁路（仅失败时）</text>
+    <rect x="384" y="777" width="52" height="18" rx="9" fill="#2A3F7A"/>
+    <text x="410" y="790" text-anchor="middle" font-size="10.5" fill="#FFFFFF">复核门</text>
+    <text x="444" y="790">人工复核点</text>
+    <text x="540" y="790" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11" fill="#A07A1F">07-test-report.json</text>
+    <text x="668" y="790">= 该阶段落盘产物（可独立审查、可打回重做）</text>
+  </g>
+  <text x="48" y="816" font-family="'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace" font-size="11.5" fill="#6F6B78">reviewMode：every＝每阶段复核 · key-only＝仅 P5/P6/P9/P11 · auto＝全自动&#160;&#160;|&#160;&#160;P6 执行模式：builtin＝内置多智能体 · session＝外部会话 · claude＝委托 Claude Code CLI</text>
+
+  <defs>
+    <marker id="i2p-ink" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8A8578"/>
+    </marker>
+    <marker id="i2p-warn" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#A6453A"/>
+    </marker>
+  </defs>
+</svg>
