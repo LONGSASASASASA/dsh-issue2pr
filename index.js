@@ -67,7 +67,7 @@ function executorsOf() {
 // 每次调用现读 project 与 run.current，配置修改在下一阶段即时生效
 function buildRcx(ctx, root, runDir, run) {
   const rcx = {
-    runDir, run,
+    runDir, run, dataRoot: root,
     project: loadProject(root, run.project),
     repoDir: runRepoDir(root, run.project, run.id), // per-Run worktree（drive 开工时确保存在，失败兜底基线 repo）
     trigger: run.trigger,
@@ -495,13 +495,22 @@ async function handleApi(ctx, root, req, res) {
     }
     // —— /issue2pr/api/agents/test：委外智能体测试门禁 ——
     // 三步：定位 → --version → headless 认证微任务（真实极小调用，403 IP 白名单/未登录在此拦截）。
-    // body {bin?: string, timeoutMs?: 10000..180000}；ok=false 也回 200（与 connections/test 同约定）。
+    // body {bin?: string, timeoutMs?: 10000..180000, auth?: {preset, baseUrl, token}}；
+    // auth 是认证中转配置（未保存的表单值也可先测），与 P6 委托同一条执行路径。ok=false 也回 200。
     if (parts[2] === "agents" && parts[3] === "test" && !parts[4] && m === "POST") {
       const body = await readBody(req);
       const bin = typeof body?.bin === "string" ? body.bin.trim() : "";
       const t = Number(body?.timeoutMs);
       const timeoutMs = Number.isFinite(t) && t >= 10000 && t <= 180000 ? t : 120000;
-      const gate = await testAgentGate({ bin, timeoutMs, runners: (__testHooks && __testHooks.agentProbes) || {} });
+      const a = body?.auth;
+      const auth = (a && typeof a === "object")
+        ? {
+            preset: ["glm", "custom"].includes(a.preset) ? a.preset : "none",
+            baseUrl: typeof a.baseUrl === "string" ? a.baseUrl : "",
+            token: typeof a.token === "string" ? a.token : "",
+          }
+        : null;
+      const gate = await testAgentGate({ bin, timeoutMs, auth, runners: (__testHooks && __testHooks.agentProbes) || {} });
       return sendJson(res, 200, { ok: gate.ok, gate });
     }
     // —— /issue2pr/api/preflight：环境健康探测（git 二进制 / claude CLI / LLM 默认路由与来源） ——

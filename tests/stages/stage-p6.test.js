@@ -98,6 +98,46 @@ test("claude：执行成功产出 patches/report → externalExec=done（含 sta
   assert.match(ev, /Claude Code 执行完成[^\n]*耗时 1 分钟[^\n]*5 轮[^\n]*\$0\.42/);
 });
 
+test("claude：stream-json 输出 → externalExec 记 sessionId 与归一 stats（执行器折叠）", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
+  const run = { id: "r5", stages: {} };
+  const spawnExternal = async () => {
+    mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+    writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
+    writeFileSync(join(runDir, "06-implementation", "coder-report.json"), '{"mode":"claude-code"}');
+    return {
+      code: 0, stderr: "",
+      stdout: [
+        JSON.stringify({ type: "system", subtype: "init", session_id: "sess-stream-1" }),
+        JSON.stringify({ type: "result", subtype: "success", session_id: "sess-stream-1", is_error: false, result: "完成",
+          duration_ms: 90000, num_turns: 7, total_cost_usd: 0.88, usage: { input_tokens: 900, output_tokens: 200 } }),
+      ].join("\n"),
+    };
+  };
+  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
+  assert.equal(r.external, undefined);
+  assert.equal(run.externalExec.sessionId, "sess-stream-1"); // 为 --resume 重试留钩
+  assert.equal(run.externalExec.stats.turns, 7);
+  assert.equal(run.externalExec.stats.costUsd, 0.88);
+  assert.match(r.summary, /7 轮/);
+});
+
+test("claude：is_error=true（403 类）→ failed 且错误信息含 result 文本与认证引导", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
+  const run = { id: "r6", stages: {} };
+  const spawnExternal = async () => ({
+    code: 0, stderr: "",
+    stdout: JSON.stringify({ type: "result", is_error: true, result: "API Error: 403 ip access denied", usage: { input_tokens: 0, output_tokens: 0 } }),
+  });
+  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
+  assert.equal(r.external, true); // 回退等人工
+  assert.equal(run.externalExec.status, "failed");
+  assert.match(run.externalExec.error, /403/); // 不再漏判：exit 0 但 is_error 也算失败
+  assert.match(run.externalExec.error, /认证|白名单|中转/); // 可操作引导
+});
+
 test("claude：执行失败无产物 → externalExec=failed，external=true 回退等人工", async () => {
   const runDir = mkdtempSync(join(root, "run-"));
   writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
