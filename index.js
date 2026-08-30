@@ -130,6 +130,19 @@ export function failRun(runDir, stageId, message) {
   return run;
 }
 
+// —— 失败分析（P10）结果写回 run.json：此前只落 09-failure-analysis.json 产物，run.json 不记，
+// UI 轮询状态机无从得知"失败已分析/建议动作"。此处读产物合并进 run.failureAnalysis（尽力而为，不阻断主流程）。
+function recordFailureAnalysis(runDir) {
+  try {
+    const run = loadRun(runDir);
+    if (!run || run.status !== "failed") return;
+    const out = JSON.parse(readFileSync(join(runDir, "09-failure-analysis.json"), "utf8"));
+    if (!out || !out.category) return;
+    run.failureAnalysis = { category: out.category, detail: out.detail || "", action: out.action || "", at: new Date().toISOString() };
+    saveRun(runDir, run);
+  } catch { /* 产物缺失/损坏时静默跳过 */ }
+}
+
 // 推进循环：仅 run.status==="running" 时调用 advance（awaiting_review 停手等 applyReview）；
 // 阶段失败自动调 P10 executor 写分类产物后停（v1：不自动 replan）。
 function drive(ctx, root, runDir) {
@@ -152,6 +165,7 @@ function drive(ctx, root, runDir) {
             rcx.run = run;
             try {
               await rcx.executors.P10({ ...rcx, failure: { stage: run.current, error: msg } });
+              recordFailureAnalysis(runDir);
             } catch { /* P10 自身失败不阻断主流程 */ }
           }
           ctx.logger?.warn?.("issue2pr: " + msg);
@@ -175,6 +189,7 @@ function drive(ctx, root, runDir) {
       if (run.status === "failed") {
         try {
           await rcx.executors.P10({ ...rcx, failure: { stage: run.current, error: run.stages[run.current]?.error } });
+          recordFailureAnalysis(runDir);
         } catch { /* P10 自身失败不阻断主流程 */ }
         return;
       }
@@ -239,11 +254,22 @@ async function handleApi(ctx, root, req, res) {
         const prev = loadUiState(root);
         // lastProject：只认本字段；slug 走既有白名单形态，null/空 = 清除
         const lp = body && Object.prototype.hasOwnProperty.call(body, "lastProject") ? body.lastProject : prev.lastProject;
+        // lastRunBySlug：按项目记最近选中的 Run（宿主标签切换会销毁重建插件 webview，选中现场以此恢复）；
+        // 按键合并：值合法则覆盖，null = 清除该项目的记忆，非法条目忽略
+        const lrPrev = (prev.lastRunBySlug && typeof prev.lastRunBySlug === "object") ? { ...prev.lastRunBySlug } : {};
+        if (body && body.lastRunBySlug && typeof body.lastRunBySlug === "object") {
+          for (const [s, rid] of Object.entries(body.lastRunBySlug)) {
+            if (!/^[a-z0-9-]+$/.test(s)) continue;
+            if (rid === null) delete lrPrev[s];
+            else if (/^\d{8}-\d{6}-[a-z0-9-]+$/.test(String(rid))) lrPrev[s] = String(rid);
+          }
+        }
         // 智能助手面板尺寸（跨软件重启兜底）：整数且在合法范围才更新，非法值忽略保留旧值
         const intIn = (v, lo, hi) => (Number.isInteger(v) && v >= lo && v <= hi) ? v : null;
         const state = {
           ...prev,
           lastProject: (typeof lp === "string" && /^[a-z0-9-]+$/.test(lp)) ? lp : null,
+          lastRunBySlug: lrPrev,
           aiW: (body ? intIn(body.aiW, 240, 760) : null) ?? prev.aiW,
           aiH: (body ? intIn(body.aiH, 200, 1800) : null) ?? prev.aiH,
           aiR: (body ? intIn(body.aiR, 0, 4000) : null) ?? prev.aiR,

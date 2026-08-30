@@ -1568,14 +1568,27 @@ body.i2p-dragging{user-select:none}
 			const artRef = React.useRef(null);
 			React.useEffect(function () { artRef.current = selArt; }, [selArt]);
 
-			// run 切换：重置选择（二级菜单回「运行」）
+			// run 切换：重置选择（二级菜单回「运行」）；同一 Run 重挂载（切走一级标签再回来）
+			// 则从模块级 runsViewStore 恢复现场（选中阶段 / 二级菜单 / 产物文件）
 			React.useEffect(function () {
-				setSelArt(null); setArtText(null); setComment(""); setRerunStage(null); setStTab("run");
+				const saved = runsViewStore.runId === p.runId ? runsViewStore : null;
+				setSelArt(saved ? saved.selArt : null);
+				artRef.current = saved ? saved.selArt : null; // 供产物自动选中效果保位（不抢占恢复的文件）
+				setArtText(null); setComment(""); setRerunStage(null);
+				setStTab(saved && saved.stTab ? saved.stTab : "run");
 				setReviews(null); setLedger(null); setEvents(null); setOpenEv(-1); evRef.current = null;
-				if (p.run) setSelStage(p.run.current || "P1");
+				if (saved && saved.selStage) setSelStage(saved.selStage);
+				else if (p.run) setSelStage(p.run.current || "P1");
 				else setSelStage(null);
 				// eslint-disable-next-line react-hooks/exhaustive-deps
 			}, [p.runId]);
+			// 现场写回模块级 store（每次渲染同步；卸载后由重挂载恢复）
+			React.useEffect(function () {
+				runsViewStore.runId = p.runId; runsViewStore.selStage = selStage;
+				runsViewStore.stTab = stTab; runsViewStore.selArt = selArt;
+			});
+			// 重挂载即拉一次最新状态（不等 3s 轮询）：切回「运行」页立刻看到真实进度
+			React.useEffect(function () { if (p.onChanged) p.onChanged(); }, []);
 			// 流水线停住（待复核/失败/停止/完成）时钉到 run.current
 			React.useEffect(function () {
 				if (!p.run) return;
@@ -1612,13 +1625,15 @@ body.i2p-dragging{user-select:none}
 					.catch(function (e) { p.toast("请求失败: " + e, "bad"); });
 			};
 
-			// 阶段或产物文件变化 → 自动选中第一个产物并读取
+			// 阶段或产物文件变化 → 选中产物并读取（恢复上次选中的文件；新产物落盘不抢占已选）
 			React.useEffect(function () {
 				if (!selStage || !p.runId) return;
 				const fs = listFiles(selStage);
 				if (!fs.length) { setSelArt(null); setArtText(null); return; }
-				setSelArt(fs[0].path);
-				fetchArt(fs[0].path);
+				const keep = artRef.current && fs.some(function (f) { return f.path === artRef.current; });
+				const pick = keep ? artRef.current : fs[0].path;
+				setSelArt(pick);
+				fetchArt(pick);
 				// eslint-disable-next-line react-hooks/exhaustive-deps
 			}, [selStage, filesKey, p.runId]);
 
@@ -1747,7 +1762,8 @@ body.i2p-dragging{user-select:none}
 					r.id + "（" + c[1] + " · " + kindLabel(r.trigger && r.trigger.kind) + "）");
 			});
 			if (!options.length) {
-				options.push(h("option", { key: "__none__", value: "" }, "（暂无 Run · 请先在「01 项目」发起）"));
+				options.push(h("option", { key: "__none__", value: "" },
+					p.restoring ? "（恢复 Run 列表…）" : "（暂无 Run · 请先在「01 项目」发起）"));
 			}
 
 			const sDef = STAGES.find(function (x) { return x.id === selStage; });
@@ -1762,7 +1778,8 @@ body.i2p-dragging{user-select:none}
 			const stClaudeRun = selStage === "P6" && stStatus === "running" && !!(ee && ee.status === "running");
 
 			let viewHtml = '<span class="c">点击左侧任一阶段查看产物。</span>';
-			if (!sDef) viewHtml = '<span class="c">点击左侧任一阶段查看产物。</span>';
+			if (p.restoring && !p.run) viewHtml = '<span class="c">正在恢复运行状态…</span>';
+			else if (!sDef) viewHtml = '<span class="c">点击左侧任一阶段查看产物。</span>';
 			else if (artText != null) viewHtml = renderView(artText, selArt);
 			else if (selArt) viewHtml = '<span class="c">读取中…</span>';
 			else if (!stStatus || stStatus === "pending") viewHtml = '<span class="c">该阶段尚未运行，暂无产物。</span>';
@@ -1794,6 +1811,8 @@ body.i2p-dragging{user-select:none}
 				return Object.keys(groups).sort().map(function (g) { return [g, groups[g]]; });
 			})();
 			const curProject = p.projects ? p.projects.find(function (x) { return x.slug === p.slug; }) : null;
+			// 恢复期（重挂载后详情未到位）：阶段徽章统一占位「…」，不渲染误导性的「未开始」
+			const restoringAll = p.restoring && !p.run;
 
 			return h("div", null,
 				h("div", { className: "run-bar" },
@@ -1820,19 +1839,27 @@ body.i2p-dragging{user-select:none}
 					" 五个视图（配置可直接调本阶段参数）；", h("b", null, "待复核"), " 时在「运行」视图通过或打回；",
 					h("b", null, "停止"), " = 当前阶段跑完即停；", h("b", null, "重跑"), " = 从所选阶段重新推进；",
 					h("b", null, "删除"), " = 移除整个 Run 目录。P10 为失败旁路（仅失败时执行）。"),
+				// 失败分析（P10）结果横幅：后端写回 run.failureAnalysis 后台面化，
+				// 失败现场直接给出分类与建议动作，不必再点开 09-failure-analysis.json
+				runStatus === "failed" && p.run && p.run.failureAnalysis ? h("div", { className: "card", style: { margin: "0 0 10px", padding: "10px 14px" } },
+					h("span", { className: "f-label" }, "失败分析（P10 已生成）"),
+					h("div", { style: { marginTop: 6, fontSize: 12.5, lineHeight: 1.7 } },
+						h("span", { className: "tg t-warn" }, p.run.failureAnalysis.category || "未分类"),
+						" ",
+						h("span", null, (p.run.failureAnalysis.detail || "") + "（建议：" + (p.run.failureAnalysis.action || "?") + "）"))) : null,
 				h("div", { className: "pipe-layout" },
 					h("div", { className: "steps", role: "list", "aria-label": "流水线阶段" },
-						STAGES.map(function (s) {
-							const cur = p.run && p.run.stages ? p.run.stages[s.id] : null;
-							const status = cur ? cur.status : "pending";
-							// session/claude 模式的 P6 待复核 = 任务包等外部执行（claude 委托成功后显示正常"待复核"）
-							const eeRow = p.run ? p.run.externalExec : null;
-							const ext = s.id === "P6" && status === "awaiting_review"
-								&& !!(p.run && (p.run.p6Mode === "session" || p.run.p6Mode === "claude"))
-								&& !(eeRow && eeRow.status === "done");
-							// claude 委托执行中：P6 处于 running，徽标准明示由 claude 执行
-							const claudeRun = s.id === "P6" && status === "running" && !!(eeRow && eeRow.status === "running");
-							const c = claudeRun ? ["t-acc", "claude 执行中"] : ext ? ["t-warn", "等外部执行"] : tag(status);
+					STAGES.map(function (s) {
+						const cur = p.run && p.run.stages ? p.run.stages[s.id] : null;
+						const status = restoringAll ? "…" : (cur ? cur.status : "pending");
+						// session/claude 模式的 P6 待复核 = 任务包等外部执行（claude 委托成功后显示正常"待复核"）
+						const eeRow = p.run ? p.run.externalExec : null;
+						const ext = s.id === "P6" && status === "awaiting_review"
+							&& !!(p.run && (p.run.p6Mode === "session" || p.run.p6Mode === "claude"))
+							&& !(eeRow && eeRow.status === "done");
+						// claude 委托执行中：P6 处于 running，徽标准明示由 claude 执行
+						const claudeRun = s.id === "P6" && status === "running" && !!(eeRow && eeRow.status === "running");
+						const c = restoringAll ? ["t-off", "…"] : claudeRun ? ["t-acc", "claude 执行中"] : ext ? ["t-warn", "等外部执行"] : tag(status);
 							const dur = cur ? fmtDur(cur.startedAt, cur.finishedAt) : "";
 							const extra = cur && cur.attempts ? " · 重试" + cur.attempts : "";
 							const xp = (ext || claudeRun) ? p.run.externalProgress : null;
@@ -2634,7 +2661,14 @@ body.i2p-dragging{user-select:none}
 		 * 主 Section：左侧导航 + 共享数据 + 3s 轮询
 		 * ================================================================ */
 		function Section() {
-			const [nav, setNav] = React.useState("projects");
+			// 一级导航记忆：宿主标签切换销毁重建 webview 后回到上次页面（而不是掉回「项目」）
+			const [nav, setNav] = React.useState(function () {
+				const v = localStorage.getItem("i2p.nav");
+				return ["projects", "runs", "artifacts", "config", "guide"].indexOf(v) >= 0 ? v : "projects";
+			});
+			React.useEffect(function () {
+				try { localStorage.setItem("i2p.nav", nav); } catch (e) { /* 忽略 */ }
+			}, [nav]);
 			const [toast, setToast] = React.useState(null);
 			const [projects, setProjects] = React.useState(null);
 			// 选中记忆：进入时恢复上次选中的项目（无记忆则保持未选中）
@@ -2707,6 +2741,7 @@ body.i2p-dragging{user-select:none}
 				}
 				apiGet("/ui-state").then(function (r) {
 					if (!r || !r.ok) return;
+					lastRunStore.adopt(r.state && r.state.lastRunBySlug); // lastRun 记忆兜底并入（仅补缺）
 					const lp = r.state && r.state.lastProject;
 					if (!lp || touchedRef.current || ctxRef.current.slug != null) return;
 					setSelSlug(lp);
@@ -2718,7 +2753,8 @@ body.i2p-dragging{user-select:none}
 			}, []);
 			React.useEffect(function () {
 				if (!toast) return;
-				const t = setTimeout(function () { setToast(null); }, 2600);
+				// 失败类提示停留更久（长文案需要时间读完）
+				const t = setTimeout(function () { setToast(null); }, toast.kind === "bad" ? 5200 : 2600);
 				return function () { clearTimeout(t); };
 			}, [toast]);
 
@@ -2737,7 +2773,8 @@ body.i2p-dragging{user-select:none}
 				if (!projects.some(function (x) { return x.slug === selSlug; })) selectSlug(null);
 			}, [selSlug, projects, selectSlug]);
 
-			// slug 变化 → 重置 run 选择并加载 runs 摘要
+			// slug 变化 → 重置 run 选择并加载 runs 摘要；恢复优先上次选中的 Run
+			// （lastRun 记忆），无记忆/已删除才退回最新 Run
 			React.useEffect(function () {
 				setSelRunId(null); setRun(null); setTree(null);
 				if (!selSlug) { setRuns(null); return; }
@@ -2748,7 +2785,11 @@ body.i2p-dragging{user-select:none}
 					if (ctxRef.current.slug !== slug) return;
 					setRuns(r.runs || []);
 					setSelRunId(function (prev) {
-						return prev || (r.runs && r.runs.length ? r.runs[0].id : null);
+						if (prev) return prev;
+						const list = r.runs || [];
+						if (!list.length) return null;
+						const remembered = lastRunStore.get(slug);
+						return list.some(function (x) { return x.id === remembered; }) ? remembered : list[0].id;
 					});
 				});
 			}, [selSlug]);
@@ -2806,6 +2847,18 @@ body.i2p-dragging{user-select:none}
 				}
 			}, [selSlug, selRunId]);
 
+			// 回到前台立即刷新（不等 3s 轮询）：宿主标签切回 / 窗口聚焦即恢复现场。
+			// 嵌入式 IAB 里 visibilitychange 与 focus 都可能不触发，两个都挂做双保险。
+			React.useEffect(function () {
+				const onVis = function () { if (document.visibilityState === "visible") refreshNow(); };
+				document.addEventListener("visibilitychange", onVis);
+				window.addEventListener("focus", refreshNow);
+				return function () {
+					document.removeEventListener("visibilitychange", onVis);
+					window.removeEventListener("focus", refreshNow);
+				};
+			}, [refreshNow]);
+
 			const onSaved = React.useCallback(function (slug) {
 				selectSlug(slug);
 				loadProjects();
@@ -2815,6 +2868,7 @@ body.i2p-dragging{user-select:none}
 			const onRunDeleted = React.useCallback(function () {
 				setSelRunId(null); setRun(null); setTree(null);
 				const slug = selSlug;
+				lastRunStore.set(slug, null); // 删除后清掉该项目 lastRun 记忆（恢复时退回最新 Run）
 				if (!slug) return;
 				apiGet("/projects/" + slug + "/runs").then(function (r) {
 					if (r && r.ok && ctxRef.current.slug === slug) setRuns(r.runs || []);
@@ -2822,18 +2876,51 @@ body.i2p-dragging{user-select:none}
 			}, [selSlug]);
 
 			const onProjectDeleted = React.useCallback(function () {
+				lastRunStore.set(selSlug, null); // 项目删除后清 lastRun 记忆
 				selectSlug(null); setRuns(null); setSelRunId(null); setRun(null); setTree(null);
 				loadProjects();
-			}, [loadProjects, selectSlug]);
+			}, [loadProjects, selectSlug, selSlug]);
 
 			const onRunStarted = React.useCallback(function (slug, runId) {
 				selectSlug(slug);
 				setSelRunId(runId);
+				lastRunStore.set(slug, runId); // 新发起的 Run 即为现场：重挂载恢复时优先回到它
 				setNav("runs");
 				apiGet("/projects/" + slug + "/runs").then(function (r) {
 					if (r && r.ok && ctxRef.current.slug === slug) setRuns(r.runs || []);
 				});
 			}, [selectSlug]);
+
+			// 选中 Run 统一入口：写 lastRun 记忆（localStorage + 服务端兜底），重挂载恢复现场
+			const selectRun = React.useCallback(function (id) {
+				setSelRunId(id);
+				if (ctxRef.current.slug) lastRunStore.set(ctxRef.current.slug, id || null);
+			}, []);
+
+			// Run 状态跃迁显式提示：从执行态（running/awaiting_review）离开时 toast，
+			// 切标签/合上工作台期间的后台失败/完成/待复核不再静默（首帧加载不算跃迁；
+			// 按 {id,status} 记忆——切换到另一个 Run 不误报跃迁）
+			const runStatusRef = React.useRef(null);
+			React.useEffect(function () {
+				const cur = run && run.id === selRunId ? { id: run.id, status: run.status } : null;
+				const prev = runStatusRef.current;
+				runStatusRef.current = cur;
+				if (!cur || !prev || prev.id !== cur.id || prev.status === cur.status) return;
+				if (prev.status !== "running" && prev.status !== "awaiting_review") return;
+				const s = cur.status;
+				if (s === "awaiting_review") toastFn("Run " + run.id + " 待复核：" + run.current + " 阶段等您确认", "warn");
+				else if (s === "failed") {
+					const st = run.stages ? run.stages[run.current] : null;
+					toastFn("Run " + run.id + " 已失败（" + run.current + (st && st.error ? "：" + st.error : "") + "）", "bad");
+				}
+				else if (s === "completed") toastFn("Run " + run.id + " 已完成——全部阶段通过");
+				else if (s === "stopped") toastFn("Run " + run.id + " 已停止", "warn");
+				// eslint-disable-next-line react-hooks/exhaustive-deps
+			}, [run]);
+
+			// 恢复期（重挂载后 runs 列表/详情未到位）：渲染「恢复中」而非误导性的「未开始」
+			const restoring = !!selSlug && (runs == null
+				|| (!!selRunId && run == null && !!(runs || []).some(function (x) { return x.id === selRunId; })));
 
 			const awaitingCount = (runs || []).filter(function (r) { return r.status === "awaiting_review"; }).length;
 
@@ -2956,7 +3043,8 @@ body.i2p-dragging{user-select:none}
 							projects: projects,
 							defaults: stageDefaults,
 							toast: toastFn,
-							onPickRun: function (id) { setSelRunId(id); },
+							restoring: restoring,
+							onPickRun: selectRun,
 							onChanged: refreshNow,
 							onDeleted: onRunDeleted,
 							onSaved: onSaved,
