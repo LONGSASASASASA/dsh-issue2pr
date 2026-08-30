@@ -1,0 +1,803 @@
+<!doctype html>
+<html lang="zh-CN" data-i2p-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>issue2pr 工作台 · 设计 Demo（Rose + Zinc）</title>
+<style>
+/* ============================================================
+ * 设计 Demo：Rose + Zinc（Linear / Primer 式产品 UI）
+ * 规则：zinc 中性面 / 单一深玫红强调 / 等宽数据 / hairline 分隔
+ * 圆角锁：卡片 10px / 控件 8px / 徽章 999px
+ * ============================================================ */
+:root{
+    --ink:#18181b; --ink-2:#3f3f46; --muted:#71717a; --caption:#8e8e96;
+    --line:#e4e4e7; --line-2:#d4d4d8;
+    --card:#ffffff; --panel:#f7f7f8;
+    --accent:#be3455; --accent-strong:#a12a49; --accent-ink:#ffffff;
+    --hover:rgba(24,24,27,.04); --nav-on:rgba(190,52,85,.08);
+    --acc-soft:rgba(190,52,85,.07);
+    --good:#1a7f4b; --good-bg:rgba(26,127,75,.06);
+    --warn:#9a6700; --warn-bg:rgba(154,103,0,.07);
+    --err:#cf222e;  --err-bg:rgba(207,34,46,.05);
+    --code-bg:#0f1117; --code-line:#1e212b; --code-ink:#dfe3ec;
+    --shadow:0 2px 12px rgba(24,24,27,.06); --shadow-lg:0 12px 32px rgba(24,24,27,.14);
+    --mono:'JetBrains Mono','IBM Plex Mono','Cascadia Code',Consolas,'Liberation Mono',monospace;
+}
+[data-i2p-theme=dark]{
+    --ink:#e8e9ed; --ink-2:#c6c9d2; --muted:#a1a5b0; --caption:#878b95;
+    --line:#2e3138; --line-2:#3a3d45;
+    --card:#1b1d22; --panel:#131417;
+    --accent:#f2a0b5; --accent-strong:#f7bccb; --accent-ink:#33101d;
+    --hover:rgba(255,255,255,.05); --nav-on:rgba(242,160,181,.16);
+    --acc-soft:rgba(242,160,181,.15);
+    --good:#6fca8a; --good-bg:rgba(111,202,138,.12);
+    --warn:#e0b341; --warn-bg:rgba(224,179,65,.13);
+    --err:#f0877a;  --err-bg:rgba(240,135,122,.11);
+    --shadow:0 2px 12px rgba(0,0,0,.28); --shadow-lg:0 12px 32px rgba(0,0,0,.42);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+    margin:0; background:var(--panel); color:var(--ink);
+    font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:var(--mono)}
+.cap{color:var(--muted);font-size:12.5px}
+button{font:inherit;cursor:pointer}
+
+/* ---------- 顶栏 ---------- */
+.topbar{
+    height:48px;display:flex;align-items:center;gap:12px;padding:0 16px;
+    background:var(--card);border-bottom:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:9px;font-size:15px}
+.brand svg{color:var(--accent)}
+.brand b{font-weight:650;letter-spacing:-0.01em}
+.demo-tag{
+    font-size:11px;color:var(--muted);border:1px solid var(--line-2);
+    border-radius:999px;padding:1px 9px;
+}
+.top-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
+
+/* ---------- 框架 ---------- */
+.frame{display:flex;height:calc(100vh - 48px)}
+.nav{
+    width:212px;flex:none;border-right:1px solid var(--line);
+    padding:12px 10px;display:flex;flex-direction:column;gap:2px;
+}
+.nav-title{font-size:11px;color:var(--caption);padding:4px 10px 8px;letter-spacing:.04em}
+.nav-cell{
+    display:flex;align-items:center;gap:10px;width:100%;
+    padding:8px 10px;border:0;border-radius:8px;background:none;
+    color:var(--ink-2);font-size:13.5px;text-align:left;
+    transition:background .15s,color .15s;
+}
+.nav-cell svg{color:var(--muted);flex:none;transition:color .15s}
+.nav-cell:hover{background:var(--hover)}
+.nav-cell.on{background:var(--nav-on);color:var(--accent);font-weight:600}
+.nav-cell.on svg{color:var(--accent)}
+.nav-cell .cnt{
+    margin-left:auto;font:11px var(--mono);color:var(--muted);
+    display:inline-flex;align-items:center;gap:6px;
+}
+.cnt.alert{color:var(--accent)}
+.cnt.alert::before{
+    content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);
+    animation:pulse 1.1s ease-in-out infinite;
+}
+.main{flex:1;min-width:0;overflow:auto;padding:18px 22px 40px}
+
+/* ---------- 页面 ---------- */
+.page{display:none}
+.page.on{display:block;animation:pageIn .25s ease}
+.page-head{margin:2px 2px 16px}
+.page-head h1{margin:0;font-size:17px;font-weight:650;letter-spacing:-0.01em}
+.page-head p{margin:4px 0 0;font-size:13px;color:var(--muted)}
+.cols{display:grid;gap:16px}
+.cols.proj{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)}
+.cols.run{grid-template-columns:200px minmax(0,280px) minmax(0,1fr)}
+.cols.art{grid-template-columns:minmax(0,300px) minmax(0,1fr)}
+.cols.cfg{grid-template-columns:minmax(0,230px) minmax(0,1fr)}
+@media (max-width:1100px){.cols.run,.cols.proj,.cols.art,.cols.cfg{grid-template-columns:1fr}}
+
+/* ---------- 徽章（胶囊 tint，无描边） ---------- */
+.tg{
+    display:inline-flex;align-items:center;gap:6px;
+    font:11px/1.5 var(--mono);padding:2px 9px;border-radius:999px;
+    background:var(--hover);color:var(--ink-2);white-space:nowrap;
+}
+.tg.t-good{color:var(--good);background:var(--good-bg)}
+.tg.t-warn{color:var(--warn);background:var(--warn-bg)}
+.tg.t-err{color:var(--err);background:var(--err-bg)}
+.tg.t-acc{color:var(--accent);background:var(--acc-soft)}
+.tg.run::before{
+    content:"";width:6px;height:6px;border-radius:50%;background:currentColor;
+    animation:pulse 1.1s ease-in-out infinite;
+}
+
+/* ---------- 按钮 ---------- */
+.btn{
+    display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;
+    border-radius:8px;border:1px solid var(--line-2);background:transparent;
+    color:var(--ink);font-size:13px;
+    transition:background .15s,border-color .15s,color .15s,transform .1s;
+}
+.btn:hover{background:var(--hover);border-color:var(--muted)}
+.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.pri:hover{background:var(--accent-strong);border-color:var(--accent-strong)}
+.btn.danger{color:var(--err);border-color:var(--line-2)}
+.btn.danger:hover{background:var(--err-bg);border-color:var(--err)}
+.btn.sm{height:26px;padding:0 9px;font-size:12.5px}
+:is(button,input,select,textarea,[tabindex]):focus-visible{
+    outline:2px solid var(--accent);outline-offset:1px;
+}
+
+/* ---------- 卡片 ---------- */
+.card{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;transition:border-color .16s,box-shadow .16s,transform .16s;
+}
+.card:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.card h4{margin:0 0 8px;font-size:13.5px;font-weight:600}
+.card p{margin:0 0 8px;font-size:13.5px}
+.card p:last-child{margin-bottom:0}
+
+/* ---------- 表单 ---------- */
+.f-label{display:block;font-size:12px;color:var(--muted);margin:12px 0 4px}
+.f-input,.f-select,.f-area{
+    width:100%;border:1px solid var(--line-2);border-radius:8px;
+    background:var(--card);color:var(--ink);font:inherit;font-size:13.5px;
+    padding:6px 10px;transition:border-color .15s;
+}
+.f-input:focus,.f-select:focus,.f-area:focus{border-color:var(--accent)}
+.f-input::placeholder,.f-area::placeholder,.ai-input input::placeholder{color:var(--muted)}
+.f-area{resize:vertical;min-height:76px}
+.f-input.mono,.f-area.mono{font-family:var(--mono);font-size:12.5px}
+.f-row{display:flex;gap:10px;margin-top:14px}
+.f-row .btn{flex:none}
+.switch{position:relative;display:inline-block;width:36px;height:20px;flex:none;margin-top:2px}
+.switch input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:1}
+.switch .tr{
+    position:absolute;inset:0;border-radius:999px;background:var(--line-2);transition:background .15s;
+}
+.switch .kn{
+    position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+    background:#fff;transition:transform .15s;box-shadow:0 1px 3px rgba(0,0,0,.25);
+}
+.switch input:checked ~ .tr{background:var(--accent)}
+.switch input:checked ~ .kn{transform:translateX(16px)}
+.field-inline{display:flex;align-items:flex-start;gap:10px}
+
+/* ---------- 项目页 ---------- */
+.proj-list{display:flex;flex-direction:column;gap:10px}
+.proj{
+    border:1px solid var(--line);border-radius:10px;background:var(--card);
+    padding:12px 14px;text-align:left;transition:border-color .15s,background .15s,transform .16s;
+}
+.proj:hover{border-color:var(--line-2);transform:translateY(-1px);box-shadow:var(--shadow)}
+.proj.on{border-color:var(--accent);background:var(--nav-on)}
+.proj-top{display:flex;align-items:center;gap:10px}
+.proj-top b{font-size:14px;font-weight:650}
+.proj-meta{margin-top:8px;font-size:11.5px;color:var(--muted)}
+.conn-row{
+    display:flex;align-items:center;gap:10px;padding:10px 0;
+    border-top:1px solid var(--line);font-size:13px;
+}
+.conn-row:first-of-type{border-top:0;padding-top:2px}
+.conn-row .host{font-family:var(--mono);font-size:12.5px}
+.conn-row .btn{margin-left:auto}
+
+/* ---------- 运行页 ---------- */
+.run-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.run-id{font-family:var(--mono);font-size:13px;color:var(--ink-2)}
+.run-list{display:flex;flex-direction:column;gap:6px}
+.run-row{
+    display:flex;flex-direction:column;gap:4px;align-items:flex-start;
+    border:1px solid var(--line);border-radius:8px;background:var(--card);
+    padding:8px 10px;text-align:left;transition:border-color .15s,background .15s;
+}
+.run-row:hover{border-color:var(--line-2)}
+.run-row.on{border-color:var(--accent);background:var(--nav-on)}
+.run-row .rid{font:11.5px var(--mono);color:var(--muted)}
+.run-acts{display:flex;gap:8px;margin-top:10px}
+.steps{display:flex;flex-direction:column;gap:2px}
+.step{
+    display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;
+    border:0;background:none;color:var(--ink-2);font-size:13px;text-align:left;
+    transition:background .15s,color .15s;
+}
+.step:hover{background:var(--hover)}
+.step .no{font:11px var(--mono);color:var(--caption);width:26px;flex:none}
+.step .sdot{width:8px;height:8px;border-radius:50%;flex:none;
+    border:1.5px solid var(--line-2);background:transparent}
+.step.done{opacity:.6}
+.step.done .sdot{background:var(--good);border-color:var(--good)}
+[data-i2p-theme=dark] .step.done{opacity:.75}
+.step.on{background:var(--nav-on);color:var(--accent);font-weight:600;box-shadow:inset 2.5px 0 0 var(--accent);border-radius:6px}
+.step.on .sdot{background:var(--warn);border-color:var(--warn)}
+.step .tg{margin-left:auto}
+.detail-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.detail-head h3{margin:0;font-size:15.5px;font-weight:650;letter-spacing:-0.01em}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.tab{
+    padding:7px 12px;border:0;background:none;color:var(--muted);font-size:13px;
+    border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s;
+}
+.tab:hover{color:var(--ink)}
+.tab.on{color:var(--ink);border-color:var(--accent);font-weight:600}
+.ev-list{border:1px solid var(--line);border-radius:10px;background:var(--card);overflow:hidden}
+.ev-row{
+    display:grid;grid-template-columns:66px 46px 1fr 64px;gap:8px;align-items:center;
+    padding:7px 12px;font-size:12.5px;border-top:1px solid var(--line);
+}
+.ev-row:first-child{border-top:0}
+.ev-row:hover{background:var(--hover)}
+.ev-row .t{font:11px var(--mono);color:var(--caption)}
+.ev-row .k{
+    font:10.5px var(--mono);color:var(--ink-2);background:var(--hover);
+    border-radius:4px;padding:1px 5px;text-align:center;
+}
+.ev-row .ms{font:11px var(--mono);color:var(--muted);text-align:right}
+.ev-row.bad .ms,.ev-row.bad .k{color:var(--err)}
+.callout{
+    background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:0 10px 10px 0;padding:12px 14px;margin-top:14px;
+}
+.callout h4{margin:0 0 8px;font-size:13.5px;font-weight:600}
+.callout p{margin:0 0 8px;font-size:13.5px}
+.callout p:last-child{margin-bottom:0}
+.callout.warn{background:var(--warn-bg);border-color:var(--line);border-left:3px solid var(--warn)}
+.callout.warn h4{color:var(--warn)}
+.rev-actions{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.rev-item{display:flex;align-items:center;gap:10px;font-size:12.5px;margin-top:8px}
+.rev-item .at{color:var(--caption);font:11px var(--mono)}
+.rev-item .cm{color:var(--muted)}
+
+/* ---------- 产物页 ---------- */
+.tree{display:flex;flex-direction:column;gap:2px}
+.tgroup{font-size:11px;color:var(--caption);padding:10px 6px 4px;letter-spacing:.04em}
+.tfile{
+    display:flex;align-items:center;gap:8px;border:0;background:none;
+    padding:6px 10px;border-radius:8px;color:var(--ink-2);font-size:13px;text-align:left;
+    transition:background .15s,color .15s;
+}
+.tfile:hover{background:var(--hover)}
+.tfile.on{background:var(--nav-on);color:var(--accent)}
+.tfile .sz{margin-left:auto;font:11px var(--mono);color:var(--caption)}
+.code{
+    border:1px solid var(--code-line);border-radius:10px;overflow:hidden;
+    background:var(--code-bg);color:var(--code-ink);
+}
+.code-bar{
+    display:flex;align-items:center;gap:10px;padding:8px 14px;
+    border-bottom:1px solid var(--code-line);font:12px var(--mono);color:#9aa1b2;
+}
+.code-bar .btn-x{
+    margin-left:auto;border:1px solid #2a2e3a;background:none;color:#9aa1b2;
+    border-radius:6px;font-size:11.5px;padding:2px 9px;cursor:pointer;
+}
+.code-bar .btn-x:hover{color:#dfe3ec;border-color:#3a3f4e}
+.code pre{
+    margin:0;padding:13px 15px;overflow:auto;max-height:430px;
+    font:12.5px/1.7 var(--mono);
+}
+.code .k{color:#ef9ab0}
+.code .s{color:#9ece6a}
+.code .c{color:#6b7382;font-style:italic}
+.code .hunk{color:#e0b341}
+.code .add{display:block;background:rgba(158,206,106,.12);color:#9ece6a}
+.code .del{display:block;background:rgba(240,135,122,.12);color:#f0877a}
+
+/* ---------- 配置页 ---------- */
+.stage-list{display:flex;flex-direction:column;gap:2px}
+.scell{
+    display:flex;align-items:center;gap:8px;border:0;background:none;
+    padding:7px 10px;border-radius:8px;color:var(--ink-2);font-size:13px;text-align:left;
+    transition:background .15s,color .15s;
+}
+.scell:hover{background:var(--hover)}
+.scell.on{background:var(--nav-on);color:var(--accent);font-weight:600}
+.scell .no{font:11px var(--mono);color:var(--caption);width:26px}
+.cfg-note{margin-top:12px;font-size:12.5px;color:var(--muted)}
+.skel{
+    height:12px;border-radius:6px;background:var(--line-2);position:relative;overflow:hidden;
+    margin:10px 0;
+}
+.skel::after{
+    content:"";position:absolute;inset:0;transform:translateX(-100%);
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
+    animation:skel 1.4s ease infinite;
+}
+[data-i2p-theme=dark] .skel::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent)}
+
+/* ---------- 说明页 / 规格 ---------- */
+.doc p{max-width:70ch}
+.spec{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
+.sw{
+    display:flex;align-items:center;gap:8px;border:1px solid var(--line);
+    border-radius:8px;padding:6px 10px;font-size:12px;background:var(--card);
+}
+.sw i{width:14px;height:14px;border-radius:4px;border:1px solid rgba(0,0,0,.08);flex:none}
+.sw .mono{font-size:11px;color:var(--muted)}
+.sw b{font-weight:600;font-size:12px}
+
+/* ---------- AI 助手 ---------- */
+.fab{
+    position:fixed;right:22px;bottom:22px;width:42px;height:42px;border-radius:50%;
+    border:0;background:var(--accent);color:var(--accent-ink);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:var(--shadow-lg);transition:transform .15s,background .15s;z-index:60;
+}
+.fab:hover{transform:scale(1.06);background:var(--accent-strong)}
+.fab:active{transform:scale(.95)}
+.ai{
+    position:fixed;right:22px;bottom:76px;width:min(380px,calc(100vw - 44px));
+    border:1px solid var(--line);border-radius:12px;overflow:hidden;z-index:60;
+    background:rgba(255,255,255,.95);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:var(--shadow-lg);display:none;animation:aiIn .22s ease;
+}
+[data-i2p-theme=dark] .ai{background:rgba(27,29,34,.94)}
+.ai.open{display:flex;flex-direction:column}
+.ai-head{
+    display:flex;align-items:center;gap:8px;padding:10px 14px;
+    border-bottom:1px solid var(--line);font-size:13px;font-weight:600;
+}
+.ai-head .ctx{font:10.5px var(--mono);color:var(--muted);margin-left:auto;font-weight:400}
+.ai-x{border:0;background:none;color:var(--muted);padding:2px;border-radius:6px;cursor:pointer}
+.ai-x:hover{color:var(--ink);background:var(--hover)}
+.ai-body{padding:12px 14px;display:flex;flex-direction:column;gap:10px;max-height:320px;overflow:auto}
+.msg{font-size:13px;line-height:1.65}
+.msg.user{align-self:flex-end;background:var(--nav-on);color:var(--ink);
+    border-radius:12px 12px 3px 12px;padding:7px 12px;max-width:85%}
+.msg.bot{align-self:flex-start;max-width:95%}
+.msg.bot .chip{
+    display:inline-block;font:11px var(--mono);color:var(--accent);
+    background:var(--acc-soft);border-radius:4px;padding:1px 6px;margin:2px 2px 0;
+}
+.ai-input{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);align-items:flex-end}
+.ai-input textarea{
+    flex:1;min-height:38px;max-height:150px;resize:none;overflow-y:auto;
+    border:1px solid var(--line-2);border-radius:8px;background:var(--card);
+    color:var(--ink);font:13px/1.55 inherit;padding:8px 11px;
+}
+.ai-input textarea:focus{border-color:var(--accent);outline:none}
+.ai-send{
+    border:0;background:var(--accent);color:var(--accent-ink);border-radius:8px;
+    width:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;
+    transition:background .15s,transform .1s;
+}
+.ai-send:hover{background:var(--accent-strong)}
+.ai-send:active{transform:scale(.94)}
+
+/* ---------- 动效 ---------- */
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+@keyframes pageIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes aiIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes skel{to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+    <div class="brand">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+        <b>issue2pr</b>
+        <span class="cap">Issue → PR 流水线工作台</span>
+    </div>
+    <div class="top-actions">
+        <span class="demo-tag">静态设计稿 · 未接真实数据</span>
+        <button id="themeBtn" class="btn sm">切换深色</button>
+    </div>
+</header>
+
+<div class="frame">
+    <nav class="nav" aria-label="目录">
+        <div class="nav-title">工作台</div>
+        <button class="nav-cell on" data-page="projects">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+            01 项目
+        </button>
+        <button class="nav-cell" data-page="runs">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4.5v15l12-7.5z" fill="currentColor" stroke="none"/></svg>
+            02 运行 <span class="cnt alert">1</span>
+        </button>
+        <button class="nav-cell" data-page="artifacts">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+            03 产物
+        </button>
+        <button class="nav-cell" data-page="config">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg>
+            04 配置
+        </button>
+        <button class="nav-cell" data-page="docs">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            05 说明
+        </button>
+    </nav>
+
+    <main class="main">
+
+        <!-- ================= 01 项目 ================= -->
+        <section class="page on" id="page-projects">
+            <div class="page-head">
+                <h1>项目</h1>
+                <p>配置仓库与触发源，所有 Run 从这里发起。</p>
+            </div>
+            <div class="cols proj">
+                <div class="proj-list">
+                    <button class="proj on">
+                        <div class="proj-top"><b>pay-gw</b><span class="tg t-warn">待复核</span></div>
+                        <p class="cap" style="margin:6px 0 0">github.com/me-bank/pay-gw · 触发 issue · 复核 会话</p>
+                        <div class="proj-meta mono">最近 Run 20260830-093012 · 6/11 阶段 · 23m</div>
+                    </button>
+                    <button class="proj">
+                        <div class="proj-top"><b>ledger-core</b><span class="tg t-acc run">执行中</span></div>
+                        <p class="cap" style="margin:6px 0 0">github.com/me-bank/ledger-core · 触发 manual · 复核 自动</p>
+                        <div class="proj-meta mono">最近 Run 20260830-091208 · 3/11 阶段 · 8m</div>
+                    </button>
+                    <button class="proj">
+                        <div class="proj-top"><b>dsh-issue2pr</b><span class="tg t-good">已完成</span></div>
+                        <p class="cap" style="margin:6px 0 0">本地目录 · 触发 manual · 复核 会话</p>
+                        <div class="proj-meta mono">最近 Run 20260829-100215 · 11/11 阶段 · 41m</div>
+                    </button>
+                    <div class="card">
+                        <h4>Git 托管连接</h4>
+                        <div class="conn-row">
+                            <span class="host">github.com</span>
+                            <span class="tg t-good">已验证</span>
+                            <button class="btn sm">测试</button>
+                        </div>
+                        <p class="cap" style="margin:8px 0 0">只用公开仓库或本机 SSH 密钥时无需配置连接。</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <h4>编辑项目 · pay-gw</h4>
+                    <label class="f-label" for="f-name">名称</label>
+                    <input class="f-input" id="f-name" value="pay-gw">
+                    <label class="f-label" for="f-repo">仓库</label>
+                    <input class="f-input mono" id="f-repo" value="github.com/me-bank/pay-gw">
+                    <label class="f-label" for="f-trig">触发源</label>
+                    <select class="f-select" id="f-trig">
+                        <option selected>GitHub issue 评论触发</option>
+                        <option>手动触发</option>
+                    </select>
+                    <label class="f-label" for="f-mode">复核模式</label>
+                    <select class="f-select" id="f-mode">
+                        <option selected>会话复核（P6 委外，人工过门）</option>
+                        <option>自动复核</option>
+                    </select>
+                    <div class="f-row">
+                        <button class="btn pri">保存</button>
+                        <button class="btn">取消</button>
+                        <button class="btn danger" style="margin-left:auto">删除项目</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= 02 运行 ================= -->
+        <section class="page" id="page-runs">
+            <div class="page-head">
+                <h1>运行</h1>
+                <p>11 阶段流水线：逐段查看产物与调用记录，复核门在这里通过或打回。</p>
+            </div>
+            <div class="run-head">
+                <span class="run-id">20260830-093012-tuikuan-chongfu</span>
+                <span class="tg t-warn">待复核</span>
+                <span class="cap">#412 退款重复入账</span>
+                <span class="cap mono">23m 41s</span>
+            </div>
+            <div class="cols run">
+                <div>
+                    <div class="run-list">
+                        <button class="run-row on"><span class="tg t-warn">待复核</span><span class="rid">0930-tuikuan</span></button>
+                        <button class="run-row"><span class="tg t-acc run">执行中</span><span class="rid">0912-ledger</span></button>
+                        <button class="run-row"><span class="tg t-good">已完成</span><span class="rid">0829-chongfu</span></button>
+                        <button class="run-row"><span class="tg t-err">失败</span><span class="rid">0828-hongbao</span></button>
+                    </div>
+                    <div class="run-acts">
+                        <button class="btn sm">回退重跑</button>
+                        <button class="btn sm danger">删除</button>
+                    </div>
+                </div>
+                <div class="steps" id="steps">
+                    <button class="step done"><span class="no">P1</span><span class="sdot"></span>议题解析</button>
+                    <button class="step done"><span class="no">P2</span><span class="sdot"></span>代码检索</button>
+                    <button class="step done"><span class="no">P3</span><span class="sdot"></span>代码理解</button>
+                    <button class="step done"><span class="no">P4</span><span class="sdot"></span>假设推演</button>
+                    <button class="step done"><span class="no">P5</span><span class="sdot"></span>规划设计</button>
+                    <button class="step on" data-title="P6 · 代码优化" data-tag="待复核" data-cls="t-warn">
+                        <span class="no">P6</span><span class="sdot"></span>代码优化<span class="tg t-warn">门</span>
+                    </button>
+                    <button class="step"><span class="no">P7</span><span class="sdot"></span>补丁应用</button>
+                    <button class="step"><span class="no">P8</span><span class="sdot"></span>测试执行</button>
+                    <button class="step"><span class="no">P9</span><span class="sdot"></span>复核审计</button>
+                    <button class="step"><span class="no">P10</span><span class="sdot"></span>失败分析</button>
+                    <button class="step"><span class="no">P11</span><span class="sdot"></span>PR 生成</button>
+                </div>
+                <div>
+                    <div class="detail-head">
+                        <h3 id="detailTitle">P6 · 代码优化</h3>
+                        <span class="tg t-warn" id="detailTag">待复核</span>
+                    </div>
+                    <div class="tabs">
+                        <button class="tab">项目</button>
+                        <button class="tab on">运行</button>
+                        <button class="tab">产物</button>
+                        <button class="tab">配置</button>
+                        <button class="tab">说明</button>
+                    </div>
+                    <div class="card">
+                        <h4>调用记录</h4>
+                        <div class="ev-list" style="border:0;border-radius:0;margin:-6px -16px 0">
+                            <div class="ev-row"><span class="t">09:24:05</span><span class="k">EXEC</span><span>claude code 会话结束 · 24 轮</span><span class="ms">6m02s</span></div>
+                            <div class="ev-row"><span class="t">09:18:41</span><span class="k">LLM</span><span>p6.coder 第 12 轮提问</span><span class="ms">1.2s</span></div>
+                            <div class="ev-row"><span class="t">09:17:02</span><span class="k">GIT</span><span>worktree 快照</span><span class="ms">96ms</span></div>
+                            <div class="ev-row"><span class="t">09:16:58</span><span class="k">INFO</span><span>任务包已投递 external-session</span><span class="ms">2ms</span></div>
+                            <div class="ev-row bad"><span class="t">09:15:12</span><span class="k">EXEC</span><span>bin 探活失败，已自动回退 cli 路径</span><span class="ms">410ms</span></div>
+                        </div>
+                    </div>
+                    <div class="callout">
+                        <h4>外部执行 · Claude Code</h4>
+                        <p><span class="tg t-good">已完成</span> · 耗时 6 分钟 · 24 轮 · $1.84</p>
+                        <p class="cap mono" style="font-size:11.5px">bin claude.cmd · patch 3/3 · report 已写</p>
+                    </div>
+                    <div class="callout warn">
+                        <h4>P6 · 待人工复核</h4>
+                        <p>任务包已由外部 Claude Code 执行完成，产出补丁 3 份、报告 1 份。通过后进入 P7 补丁应用；打回将把意见注入本阶段重跑。</p>
+                        <div class="rev-actions">
+                            <textarea class="f-area" placeholder="复核意见（打回必填，通过可选）" aria-label="复核意见"></textarea>
+                            <div class="f-row" style="margin-top:0">
+                                <button class="btn pri">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                                    通过，继续
+                                </button>
+                                <button class="btn danger">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                                    打回重跑
+                                </button>
+                            </div>
+                        </div>
+                        <div class="rev-item">
+                            <span class="tg t-good">通过 P5</span>
+                            <span class="at">09:14</span>
+                            <span class="cm">规划合理，按任务包执行</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= 03 产物 ================= -->
+        <section class="page" id="page-artifacts">
+            <div class="page-head">
+                <h1>产物</h1>
+                <p>当前 Run <span class="mono">20260830-093012</span> · Run 的完整产物目录，证据链都在这里。</p>
+            </div>
+            <div class="cols art">
+                <div class="tree">
+                    <div class="tgroup">04-implementation/</div>
+                    <button class="tfile on">patches/fix-double-refund.diff <span class="sz">2.1K</span></button>
+                    <button class="tfile">patches/lock-refund-idempotency.diff <span class="sz">1.4K</span></button>
+                    <button class="tfile">coder-report.json <span class="sz">3.8K</span></button>
+                    <button class="tfile">external-exec.log <span class="sz">12K</span></button>
+                    <div class="tgroup">05-plan/</div>
+                    <button class="tfile">implementation-plan.md <span class="sz">6.2K</span></button>
+                    <div class="tgroup">trace/</div>
+                    <button class="tfile">events.jsonl <span class="sz">48K</span></button>
+                    <button class="tfile">spans.jsonl <span class="sz">132K</span></button>
+                    <div class="tgroup">reviews/</div>
+                    <button class="tfile">2026-08-30T09-14-P5.json <span class="sz">0.4K</span></button>
+                </div>
+                <div class="code">
+                    <div class="code-bar">
+                        <span>patches/fix-double-refund.diff</span>
+                        <span style="opacity:.6">2.1K · 200KB 内直接预览</span>
+                        <button class="btn-x">复制</button>
+                    </div>
+                    <pre><span class="c">diff --git a/src/main/java/com/mebank/paygw/refund/RefundService.java b/src/main/java/com/mebank/paygw/refund/RefundService.java
+index 8f3a1c2..d41b2e9 100644</span>
+<span class="hunk">@@ -42,9 +42,13 @@ public RefundResult refund(RefundReq req) {</span>
+    var existing = refundRepo.findByOrderId(req.orderId());
+<span class="del">-    if (existing != null) return RefundResult.duplicate();</span>
+<span class="add">+    if (existing != null) {</span>
+<span class="add">+        audit.warn(<span class="s">"duplicate refund blocked"</span>, req.orderId());</span>
+<span class="add">+        return RefundResult.duplicate();</span>
+<span class="add">+    }</span>
+    var tx = ledger.begin(TX_IDEMPOTENT);
+    try {
+<span class="add">+        lockRegistry.acquire(<span class="s">"refund:"</span> + req.orderId());</span>
+        var entry = tx.post(req.toEntry());
+<span class="c">// 以下省略 14 行…</span></pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= 04 配置 ================= -->
+        <section class="page" id="page-config">
+            <div class="page-head">
+                <h1>配置</h1>
+                <p>按阶段覆盖提示词、模型路由、超时与专属参数；留空使用默认值。</p>
+            </div>
+            <div class="cols cfg">
+                <div class="stage-list">
+                    <button class="scell"><span class="no">P1</span>议题解析</button>
+                    <button class="scell"><span class="no">P2</span>代码检索</button>
+                    <button class="scell"><span class="no">P3</span>代码理解</button>
+                    <button class="scell"><span class="no">P4</span>假设推演</button>
+                    <button class="scell"><span class="no">P5</span>规划设计</button>
+                    <button class="scell on"><span class="no">P6</span>代码优化</button>
+                    <button class="scell"><span class="no">P7</span>补丁应用</button>
+                    <button class="scell"><span class="no">P8</span>测试执行</button>
+                    <button class="scell"><span class="no">P9</span>复核审计</button>
+                    <button class="scell"><span class="no">P10</span>失败分析</button>
+                    <button class="scell"><span class="no">P11</span>PR 生成</button>
+                </div>
+                <div>
+                    <div class="card">
+                        <h4>P6 · 代码优化 · 项目覆盖</h4>
+                        <label class="f-label" for="c-prompt">提示词模板</label>
+                        <textarea class="f-area mono" id="c-prompt" rows="3">你是资深 Java 工程师。依据 05-implementation-plan.md 的任务包，
+在 pay-gw 仓库中修复退款重复入账问题。
+保持改动最小，遵循现有代码风格。</textarea>
+                        <label class="f-label" for="c-model">模型路由</label>
+                        <select class="f-select" id="c-model">
+                            <option selected>glm-4.7 · 默认（编码）</option>
+                            <option>claude-sonnet-4 · 委外</option>
+                        </select>
+                        <div style="display:flex;gap:12px">
+                            <div style="flex:1">
+                                <label class="f-label" for="c-llm">LLM 超时 (ms)</label>
+                                <input class="f-input mono" id="c-llm" value="120000">
+                            </div>
+                            <div style="flex:1">
+                                <label class="f-label" for="c-test">测试超时 (ms)</label>
+                                <input class="f-input mono" id="c-test" value="300000">
+                            </div>
+                        </div>
+                        <label class="f-label">委托外部智能体</label>
+                        <div class="field-inline">
+                            <span class="switch"><input type="checkbox" checked aria-label="委托外部智能体"><span class="tr"></span><span class="kn"></span></span>
+                            <div style="flex:1">
+                                <div style="font-size:13px">P6 由外部 Claude Code 会话执行任务包</div>
+                                <div class="cap">产出进入 patches/ 后需人工过复核门</div>
+                            </div>
+                        </div>
+                        <div class="f-row">
+                            <button class="btn pri">保存</button>
+                            <button class="btn">恢复默认</button>
+                        </div>
+                        <p class="cfg-note">保存后仅对项目 pay-gw 的 P6 生效；全局默认值见 stage-defaults。</p>
+                    </div>
+                    <div class="card" style="margin-top:16px">
+                        <h4>数据加载态</h4>
+                        <p class="cap" style="margin-bottom:2px">取数时以骨架屏代替「加载中…」文案：</p>
+                        <div class="skel" style="width:38%"></div>
+                        <div class="skel" style="width:86%"></div>
+                        <div class="skel" style="width:64%"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= 05 说明 ================= -->
+        <section class="page" id="page-docs">
+            <div class="page-head">
+                <h1>说明</h1>
+                <p>三步上手：建项目 → 发起 Run → 复核门通过后自动产出 PR。</p>
+            </div>
+            <div class="cols proj">
+                <div class="card doc">
+                    <h4>这版设计稿改了什么（相对纸面档案版）</h4>
+                    <p>去掉暖纸底与印章红、赭黄（taste-skill 判定为最高频 AI 默认解）；标题全部回到无衬线，层级靠字重与颜色；徽章从印章描边改为 tint 胶囊；卡片去掉双线描边，以 hairline 分隔与留白建立层级；全站唯一强调色：深玫红。</p>
+                    <p>数据一律等宽字体（时间、耗时、路径、金额）；动效只保留反馈型：按压回弹、骨架屏、执行中脉冲。</p>
+                </div>
+                <div class="card">
+                    <h4>设计规格（对比度实测）</h4>
+                    <div class="spec">
+                        <span class="sw"><i style="background:#f7f7f8"></i><b>面板</b><span class="mono">#f7f7f8</span></span>
+                        <span class="sw"><i style="background:#fff"></i><b>卡面</b><span class="mono">#ffffff</span></span>
+                        <span class="sw"><i style="background:#18181b"></i><b>正文</b><span class="mono">17.7:1</span></span>
+                        <span class="sw"><i style="background:#71717a"></i><b>次要</b><span class="mono">4.8:1</span></span>
+                        <span class="sw"><i style="background:#be3455"></i><b>强调</b><span class="mono">5.5:1</span></span>
+                        <span class="sw"><i style="background:#1a7f4b"></i><b>成功</b><span class="mono">5.0:1</span></span>
+                        <span class="sw"><i style="background:#9a6700"></i><b>警示</b><span class="mono">4.8:1</span></span>
+                        <span class="sw"><i style="background:#cf222e"></i><b>错误</b><span class="mono">5.3:1</span></span>
+                    </div>
+                    <p class="cap">深色（zinc-950 基）：面板 #131417 · 卡面 #1b1d22 · 强调 #f2a0b5（8.4:1）· 次要 #a1a5b0（6.8:1）</p>
+                    <p class="cap">圆角锁：卡片 10px / 控件 8px / 徽章 999px · 字体：系统无衬线 + JetBrains Mono · 单一强调色</p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+</div>
+
+<!-- AI 助手 -->
+<button class="fab" id="fab" aria-label="智能助手">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
+</button>
+<div class="ai" id="aiPanel">
+    <div class="ai-head">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
+        智能助手
+        <span class="ctx">pay-gw · P6 待复核</span>
+        <button class="ai-x" id="aiClose" aria-label="收起">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+    </div>
+    <div class="ai-body">
+        <div class="msg user">P6 为什么停了？</div>
+        <div class="msg bot">
+            P6 已完成外部执行（24 轮，$1.84），当前停在复核门，需要你在「运行」页通过或打回。<span class="chip">patches 3/3</span><span class="chip">report 已写</span>
+        </div>
+    </div>
+    <div class="ai-input">
+        <textarea id="aiTa" rows="1" placeholder="问运行进度、失败原因、复核门…（Enter 发送，Shift+Enter 换行）" aria-label="提问"></textarea>
+        <button class="ai-send" aria-label="发送">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
+        </button>
+    </div>
+</div>
+
+<script>
+(function () {
+    var root = document.documentElement;
+    var themeBtn = document.getElementById("themeBtn");
+    themeBtn.addEventListener("click", function () {
+        var dark = root.dataset.i2pTheme === "dark";
+        root.dataset.i2pTheme = dark ? "light" : "dark";
+        themeBtn.textContent = dark ? "切换深色" : "切换浅色";
+    });
+
+    document.querySelectorAll(".nav-cell").forEach(function (cell) {
+        cell.addEventListener("click", function () {
+            document.querySelectorAll(".nav-cell").forEach(function (c) { c.classList.remove("on"); });
+            document.querySelectorAll(".page").forEach(function (p) { p.classList.remove("on"); });
+            cell.classList.add("on");
+            document.getElementById("page-" + cell.dataset.page).classList.add("on");
+        });
+    });
+
+    var title = document.getElementById("detailTitle");
+    var tag = document.getElementById("detailTag");
+    document.querySelectorAll("#steps .step").forEach(function (row) {
+        row.addEventListener("click", function () {
+            document.querySelectorAll("#steps .step").forEach(function (r) { r.classList.remove("on"); });
+            row.classList.add("on");
+            title.textContent = row.dataset.title || title.textContent;
+            if (row.dataset.tag) {
+                tag.textContent = row.dataset.tag;
+                tag.className = "tg " + row.dataset.cls;
+            }
+        });
+    });
+
+    var panel = document.getElementById("aiPanel");
+    document.getElementById("fab").addEventListener("click", function () {
+        panel.classList.toggle("open");
+    });
+    document.getElementById("aiClose").addEventListener("click", function () {
+        panel.classList.remove("open");
+    });
+
+    // 助手输入框：高度随内容自适应，Enter 发送 / Shift+Enter 换行，输入法组词期 Enter 不发送
+    var ta = document.getElementById("aiTa");
+    ta.addEventListener("input", function () {
+        ta.style.height = "auto";
+        ta.style.height = Math.min(ta.scrollHeight, 150) + "px";
+    });
+    ta.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && !e.shiftKey && !e.isComposing) e.preventDefault();
+    });
+})();
+</script>
+</body>
+</html>

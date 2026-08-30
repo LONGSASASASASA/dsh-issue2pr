@@ -309,29 +309,59 @@ window.__ModuleLoader__.load({
 .i2p,.i2p-page{
   --ink:var(--dsw-alias-label-primary,#17181f);
   --ink-2:var(--dsw-alias-label-secondary,#414351);
-  --muted:var(--dsw-alias-label-tertiary,#82848f);
+  --muted:var(--dsw-alias-label-tertiary,#6f6b78);
   --caption:var(--dsw-alias-label-caption,#9b9da8);
-  --line:var(--dsw-alias-border-l1,#e5e6ec);
-  --line-2:var(--dsw-alias-border-l2,#d8dae3);
-  --card:var(--dsw-alias-bg-base,#ffffff);
-  --panel:var(--dsw-alias-bg-layer-2,#ffffff);
-  --accent:var(--dsw-alias-state-business-primary,#2a5ddc);
-  --hover:var(--dsw-alias-interactive-bg-hover,rgba(9,12,20,.055));
-  --nav-on:var(--dsw-specific-sidebar-nav-item-active,var(--dsw-alias-interactive-bg-hover,rgba(9,12,20,.09)));
-  --good:var(--dsw-alias-state-success-primary,#1c7c43);
-  --good-bg:var(--dsw-alias-state-success-tertiary,rgba(28,124,67,.12));
-  --warn:var(--dsw-alias-state-warn-label,#9a6700);
-  --warn-bg:var(--dsw-alias-state-warn-tertiary,rgba(154,103,0,.12));
-  --err:var(--dsw-alias-state-error-primary,#d5463a);
-  --err-bg:rgba(213,70,58,.10);
-  --code-bg:#10141d; --code-line:#1d2330;
+  /* Rose + Zinc 色板（taste-skill 纪律：zinc 中性面 + 单一深玫红强调 + 浅 tint 胶囊）：
+     浅色 = 暖灰白底 + 深玫红；深色 = zinc-950 墨底 + 亮玫红，见下方 [data-i2p-theme=dark] 覆盖块。
+     文字色仍取宿主令牌（随宿主明暗自动换），底/线/强调走本套令牌 */
+  --line:#e4e4e7;
+  --line-2:#d4d4d8;
+  --card:#ffffff;
+  --panel:#f7f7f8;
+  --accent:#be3455;
+  --accent-strong:#a12a49;
+  --accent-ink:#ffffff;
+  --hover:rgba(24,24,27,.04);
+  --nav-on:rgba(190,52,85,.08);
+  --acc-soft:rgba(190,52,85,.07);
+  --good:#1a7f4b;
+  --good-bg:rgba(26,127,75,.06);
+  --warn:#9a6700;
+  --warn-bg:rgba(154,103,0,.07);
+  --err:#cf222e;
+  --err-bg:rgba(207,34,46,.05);
+  --code-bg:#0f1117; --code-line:#1e212b;
   --mono:'JetBrains Mono','IBM Plex Mono','Cascadia Code',Consolas,'Liberation Mono',monospace;
   --fs-xs:11.5px; --fs-sm:12.5px; --fs-md:13.5px; --fs-lg:14.5px; /* 字号 scale：AI 面板段统一走 token */
   /* 字体必须显式声明：不声明则继承宿主→系统默认字体（Win 雅黑/Mac 苹方/Linux Noto
      度量差异大），同一字号在不同电脑上观感"一大一小"——跨平台栈保证同类字形 */
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC','Source Han Sans SC',sans-serif;
   color:var(--ink); font-size:14.5px; line-height:1.7;
+  background:var(--panel);
   flex:1; min-height:0; display:flex; flex-direction:column;
+}
+/* Rose + Zinc · 墨底版：宿主深色主题时由 watchArchTheme() 给 <html> 打 data-i2p-theme=dark。
+   说明级小字（--muted/--caption）不链宿主令牌而在此显式亮化：宿主深色灰在墨底上
+   对比不足 4.5:1（截图审查实测发灰），工作台内文字以可读性优先 */
+[data-i2p-theme=dark] .i2p,[data-i2p-theme=dark] .i2p-page{
+  --muted:#a1a5b0;
+  --caption:#878b95;
+  --line:#2e3138;
+  --line-2:#3a3d45;
+  --card:#1b1d22;
+  --panel:#131417;
+  --accent:#f2a0b5;
+  --accent-strong:#f7bccb;
+  --accent-ink:#33101d;
+  --hover:rgba(255,255,255,.05);
+  --nav-on:rgba(242,160,181,.16);
+  --acc-soft:rgba(242,160,181,.15);
+  --good:#6fca8a;
+  --good-bg:rgba(111,202,138,.12);
+  --warn:#e0b341;
+  --warn-bg:rgba(224,179,65,.13);
+  --err:#f0877a;
+  --err-bg:rgba(240,135,122,.11);
 }
 .i2p *{box-sizing:border-box}
 .i2p button{font-family:inherit;cursor:pointer;color:inherit}
@@ -347,7 +377,7 @@ window.__ModuleLoader__.load({
   transition:width .2s cubic-bezier(.2,.8,.2,1)}
 .i2p-nav.no-anim{transition:none}
 .i2p-nav-title{display:flex;align-items:center;gap:8px;min-width:0;padding:0 12px}
-.i2p-nav-title .tt{flex:none;font-size:16px;font-weight:600;color:var(--ink)}
+.i2p-nav-title .tt{flex:none;font-size:16px;font-weight:600;color:var(--ink);letter-spacing:-0.01em}
 .i2p-nav-list{display:flex;flex-direction:column;gap:2px;list-style:none;padding:0;margin:0}
 .i2p-nav-cell{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border:none;
   background:none;border-radius:10px;font-size:14.5px;color:var(--ink-2);text-align:left;width:100%;
@@ -355,12 +385,9 @@ window.__ModuleLoader__.load({
   animation:i2p-cell-in .3s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*45ms);
   transition:background .14s,color .14s}
 .i2p-nav-cell svg{flex:none}
-.i2p-nav-cell::before{content:"";position:absolute;left:0;top:26%;bottom:26%;width:2.5px;border-radius:3px;
-  background:var(--accent);transform:scaleY(0);transform-origin:center;
-  transition:transform .18s cubic-bezier(.2,.8,.2,1)}
 .i2p-nav-cell:hover{background:var(--hover)}
-.i2p-nav-cell.on{background:var(--nav-on);color:var(--ink);font-weight:600}
-.i2p-nav-cell.on::before{transform:scaleY(1)}
+.i2p-nav-cell.on{background:var(--nav-on);color:var(--accent);font-weight:600}
+.i2p-nav-cell.on svg{color:var(--accent)}
 .i2p-nav-cell .cnt{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--muted);transition:color .14s}
 .i2p-nav-cell .cnt.alert{color:var(--warn);font-weight:600;animation:i2p-breathe 1.8s ease-in-out infinite}
 .i2p-nav-note{margin-top:auto;padding:0 12px;font-size:12.5px;color:var(--muted);line-height:1.6}
@@ -392,15 +419,15 @@ body.i2p-dragging{user-select:none}
   .i2p-main{padding:16px 16px 32px}
 }
 
-/* ===== 区块标题（工具式：标题 + 一行说明） ===== */
+/* ===== 区块标题（无衬线 600 + 一行说明，层级靠字重与颜色） ===== */
 .i2p .sec{margin-bottom:6px}
-.i2p .sec h2{font-size:17px;font-weight:600;margin:0 0 2px;color:var(--ink)}
+.i2p .sec h2{font-size:18px;font-weight:600;margin:0 0 2px;color:var(--ink);letter-spacing:-0.01em}
 .i2p .sec .sub{margin:0 0 16px;font-size:13.5px;color:var(--muted)}
 .i2p .sec .sub b{color:var(--ink-2);font-weight:600}
 
-/* ===== 卡片 / callout ===== */
-.i2p .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-.i2p .card h4{font-size:13px;text-transform:none;letter-spacing:0;color:var(--muted);
+/* ===== 卡片 / callout（白面 + hairline 边，层级靠留白与分隔线） ===== */
+.i2p .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.i2p .card h4{font-size:13.5px;color:var(--ink-2);
   margin:0 0 10px;font-weight:600}
 .i2p .card p{margin:0 0 8px;font-size:14px}
 .i2p .card ul{margin:6px 0 0;padding-left:18px;font-size:14px}
@@ -415,6 +442,9 @@ body.i2p-dragging{user-select:none}
 .i2p .callout.good h4{color:var(--good)}
 .i2p .callout.err{border-left-color:var(--err);background:var(--err-bg);border-color:transparent;border-left-color:var(--err)}
 .i2p .callout.err h4{color:var(--err)}
+/* 复核门：标准警示卡（左粗条 + 浅警示底），去签章化 */
+.i2p .callout.gate{border:1px solid var(--line);border-left:3px solid var(--warn);background:var(--warn-bg)}
+.i2p .callout.gate h4{color:var(--warn)}
 
 /* ===== 表格 ===== */
 .i2p .tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin:12px 0}
@@ -425,14 +455,15 @@ body.i2p-dragging{user-select:none}
 .i2p .tbl code{font-family:var(--mono);background:var(--hover);padding:1px 6px;border-radius:4px;
   font-size:12px;color:var(--ink-2)}
 
-/* ===== 状态 tag ===== */
-.i2p .tg{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;
-  padding:1px 8px;border-radius:5px;letter-spacing:.02em;border:1px solid;white-space:nowrap;vertical-align:middle}
-.i2p .tg.t-good{color:var(--good);border-color:transparent;background:var(--good-bg)}
-.i2p .tg.t-warn{color:var(--warn);border-color:transparent;background:var(--warn-bg)}
-.i2p .tg.t-err{color:var(--err);border-color:transparent;background:var(--err-bg)}
-.i2p .tg.t-acc{color:var(--accent);border-color:var(--accent);background:none}
-.i2p .tg.t-off{color:var(--muted);border-color:var(--line-2);background:none}
+/* ===== 状态 tag（tint 胶囊：无边框浅色底 + 语义色文字；running 保留语义脉冲点） ===== */
+.i2p .tg{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
+  padding:2px 9px;border-radius:999px;background:var(--hover);color:var(--ink-2);
+  white-space:nowrap;vertical-align:middle}
+.i2p .tg.t-good{color:var(--good);background:var(--good-bg)}
+.i2p .tg.t-warn{color:var(--warn);background:var(--warn-bg)}
+.i2p .tg.t-err{color:var(--err);background:var(--err-bg)}
+.i2p .tg.t-acc{color:var(--accent);background:var(--acc-soft)}
+.i2p .tg.t-off{color:var(--muted);background:none}
 .i2p .tg.run::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
   background:var(--accent);animation:i2p-pulse 1.1s ease-in-out infinite}
 @keyframes i2p-pulse{0%,100%{opacity:1}50%{opacity:.25}}
@@ -441,11 +472,11 @@ body.i2p-dragging{user-select:none}
 /* ===== 按钮 ===== */
 .i2p .btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;
   border:1px solid var(--line-2);background:none;color:var(--ink-2);font-size:13.5px;transition:background .15s,border-color .15s}
-.i2p .btn:hover{background:var(--hover);color:var(--ink)}
-.i2p .btn.pri{background:var(--ink);border-color:var(--ink);color:var(--panel);font-weight:600}
-.i2p .btn.pri:hover{opacity:.88;background:var(--ink)}
-.i2p .btn.danger{border-color:transparent;color:var(--err)}
-.i2p .btn.danger:hover{background:var(--err-bg)}
+.i2p .btn:hover{background:var(--hover);color:var(--ink);border-color:var(--muted)}
+.i2p .btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.i2p .btn.pri:hover{background:var(--accent-strong);border-color:var(--accent-strong);color:var(--accent-ink)}
+.i2p .btn.danger{border-color:var(--line-2);color:var(--err)}
+.i2p .btn.danger:hover{background:var(--err-bg);border-color:var(--err)}
 .i2p .btn:disabled{opacity:.45;cursor:not-allowed}
 .i2p .btn.sm{height:26px;padding:0 9px;font-size:12.5px;gap:5px}
 
@@ -510,7 +541,7 @@ body.i2p-dragging{user-select:none}
 .i2p .step-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
   width:100%;text-align:left;background:none;border:none;padding:7px 9px;border-radius:10px;transition:background .15s}
 .i2p .step-row:hover{background:var(--hover)}
-.i2p .step-row.on{background:var(--nav-on)}
+.i2p .step-row.on{background:var(--nav-on);box-shadow:inset 3px 0 0 var(--accent)}
 .i2p .sdot{width:10px;height:10px;border-radius:50%;border:2px solid var(--line-2);background:none;flex:none}
 .i2p .step-row.approved .sdot{border-color:var(--good);background:var(--good)}
 .i2p .step-row.failed .sdot,.i2p .step-row.stopped .sdot{border-color:var(--err);background:var(--err)}
@@ -527,7 +558,7 @@ body.i2p-dragging{user-select:none}
 
 /* ===== 阶段详情 ===== */
 .i2p .detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-.i2p .detail-head h3{font-size:15.5px;font-weight:600;margin:0}
+.i2p .detail-head h3{font-size:16px;font-weight:600;margin:0;letter-spacing:-0.01em}
 .i2p .detail-head .path{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:3px;word-break:break-all}
 .i2p .a-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
 .i2p .a-tab{background:none;border:1px solid var(--line);color:var(--ink-2);border-radius:6px;
@@ -535,15 +566,15 @@ body.i2p-dragging{user-select:none}
 .i2p .a-tab.on{border-color:var(--accent);color:var(--accent)}
 
 /* ===== 代码 / 产物预览（固定深底，等价嵌入式终端） ===== */
-.i2p pre.view{background:var(--code-bg);color:#e8e6df;padding:13px 15px;border-radius:10px;overflow-x:auto;
+.i2p pre.view{background:var(--code-bg);color:#dfe3ec;padding:13px 15px;border-radius:10px;overflow-x:auto;
   margin:0;font-family:var(--mono);font-size:13px;line-height:1.6;max-height:420px;overflow-y:auto;
   border:1px solid var(--code-line)}
-.i2p pre.view .k{color:#c2a26f}
-.i2p pre.view .s{color:#9bc28b}
-.i2p pre.view .c{color:#7a7785;font-style:italic}
-.i2p pre.view .hunk{color:#d9a55b}
-.i2p pre.view .add{color:#9bc28b;background:rgba(155,194,139,.13);display:inline-block;width:100%}
-.i2p pre.view .del{color:#e0a49c;background:rgba(213,70,58,.18);display:inline-block;width:100%}
+.i2p pre.view .k{color:#ef9ab0}
+.i2p pre.view .s{color:#9ece6a}
+.i2p pre.view .c{color:#6b7382;font-style:italic}
+.i2p pre.view .hunk{color:#e0b341}
+.i2p pre.view .add{color:#9ece6a;background:rgba(158,206,106,.12);display:inline-block;width:100%}
+.i2p pre.view .del{color:#f0877a;background:rgba(240,135,122,.12);display:inline-block;width:100%}
 
 /* .md 产物走宿主官方 MarkdownText（全套样式在宿主全局样式表，与聊天区 1:1）；此处只做滚动容器 */
 .i2p .md-view{max-height:420px;overflow-y:auto;padding:2px}
@@ -740,11 +771,11 @@ body.i2p-dragging{user-select:none}
 /* ---- 主区整页工作台：贴合 conversation 列（JS 实时测量 rect 定位，随
    sidebar 拖动/窗口缩放跟随），无遮罩非模态，视觉上即"右边的框" ---- */
 .i2p-page{position:fixed;display:flex;flex-direction:column;overflow:hidden;
-  background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary)}
+  background:var(--panel);color:var(--ink)}
 .i2p-head{flex:none;display:flex;align-items:center;justify-content:center;gap:14px;position:relative;
-  height:52px;padding:0 10px 0 20px;border-bottom:1px solid var(--dsw-alias-border-l1,#e5e6ec)}
+  height:52px;padding:0 10px 0 20px;border-bottom:1px solid var(--line);background:var(--card)}
 .i2p-head .brand{display:flex;align-items:baseline;gap:10px;min-width:0}
-.i2p-head .brand b{font-size:16px;font-weight:600}
+.i2p-head .brand b{font-size:16.5px;font-weight:600;letter-spacing:-0.01em}
 .i2p-head .brand span{font-family:var(--mono);font-size:11.5px;color:var(--dsw-alias-label-tertiary,#82848f);letter-spacing:.08em}
 .i2p-head .om{font-family:var(--mono);font-size:11.5px;color:var(--dsw-alias-label-tertiary,#82848f)}
 /* right:78px 避开宿主右上角的悬浮按钮排（better-sidebar：底部面板/侧边栏展开钮占右缘约 70px） */
@@ -755,36 +786,36 @@ body.i2p-dragging{user-select:none}
 .i2p-close:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .i2p-page-body{flex:1;min-height:0;display:flex}
 
-/* ===== 悬浮智能助手（瑞士极简：去气泡、去 AI 符号，天蓝只做强调色系） ===== */
+/* ===== 悬浮智能助手（瑞士极简：去气泡、去 AI 符号，玫红只做强调色系） ===== */
 .i2p-ai{position:absolute;inset:0;pointer-events:none;z-index:9999}
 .i2p-ai button{font-family:inherit;cursor:pointer;color:inherit}
 /* 入口 = 中性工具钮（非"AI 球"）：描边消息图标，hover 才显底；开启态反色 */
 .i2p-ai-fab{pointer-events:auto;position:absolute;top:64px;right:88px;width:30px;height:30px;border-radius:9px;
   border:1px solid var(--line-2,#d8dae3);
-  border:1px solid color-mix(in srgb,#3aa0f5 24%,var(--line-2,#d8dae3));
+  border:1px solid color-mix(in srgb,var(--accent,#be3455) 24%,var(--line-2,#d8dae3));
   background:var(--panel,#fff);
-  background:color-mix(in srgb,#3aa0f5 9%,var(--panel,#fff));color:var(--ink-2,#414351);
+  background:color-mix(in srgb,var(--accent,#be3455) 9%,var(--panel,#fff));color:var(--ink-2,#414351);
   display:inline-flex;align-items:center;justify-content:center;
   box-shadow:0 1px 4px rgba(9,12,20,.08);
   transition:background .18s,color .18s,border-color .18s,transform .12s}
-.i2p-ai-fab:hover{background:var(--hover);background:color-mix(in srgb,#3aa0f5 16%,var(--panel,#fff));color:var(--ink);transform:translateY(-1px)}
+.i2p-ai-fab:hover{background:var(--hover);background:color-mix(in srgb,var(--accent,#be3455) 16%,var(--panel,#fff));color:var(--ink);transform:translateY(-1px)}
 .i2p-ai-fab:active{transform:scale(.95)}
 .i2p-ai-fab.on{background:var(--ink,#17181f);color:var(--card,#fff);border-color:var(--ink,#17181f)}
 @keyframes i2p-ai-in{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
-/* 面板：轻天蓝底（color-mix 混主题底色，浅色=淡天蓝/深色=深蓝调，官方 Markdown 文字两主题可读），
-   全部强调（边框/focus/hover/chip 圆点）统一同一天蓝色系，避免杂色。
+/* 面板：轻玫红底（color-mix 混主题底色，浅色=淡蓝纸感/深色=墨蓝调，官方 Markdown 文字两主题可读），
+   全部强调（边框/focus/hover/chip 圆点）统一同一玫红色系，避免杂色。
    每处 color-mix 前都有一行传统语法兜底：旧内核（Chromium<111）把不认识的值整条丢弃、
-   保留兜底行——面板退化为"无天蓝染色但结构完整"，而不是无背景无边框 */
+   保留兜底行——面板退化为"无玫红染色但结构完整"，而不是无背景无边框 */
 .i2p-ai-panel{pointer-events:auto;position:absolute;top:60px;width:400px;height:calc(100% - 76px);
   min-width:240px;min-height:200px;
   display:flex;flex-direction:column;
   background:var(--panel,#fff);
-  background:color-mix(in srgb,#3aa0f5 7%,var(--panel,#fff));
+  background:color-mix(in srgb,var(--accent,#be3455) 7%,var(--panel,#fff));
   border:1px solid var(--line-2,#d8dae3);
-  border:1px solid color-mix(in srgb,#3aa0f5 20%,var(--line-2,#d8dae3));border-radius:12px;
+  border:1px solid color-mix(in srgb,var(--accent,#be3455) 20%,var(--line-2,#d8dae3));border-radius:12px;
   box-shadow:0 6px 28px rgba(9,12,20,.12);overflow:hidden;
   animation:i2p-ai-in .2s cubic-bezier(.2,.8,.2,1)}
-/* 自由窗口 resize 层：四边+四角，hover 显天蓝；角命中区 24×24（WCAG 2.2 目标尺寸），
+/* resize 层：四边+四角，hover 显玫红；角命中区 24×24（WCAG 2.2 目标尺寸），
    贴面板内侧（外伸会被 overflow:hidden 裁剪点不到）；双击任一处恢复默认位置与尺寸 */
 .i2p-ai-rz{position:absolute;z-index:4;touch-action:none}
 .i2p-ai-rz.n{top:0;left:24px;right:24px;height:7px;cursor:ns-resize}
@@ -795,11 +826,11 @@ body.i2p-dragging{user-select:none}
 .i2p-ai-rz.ne{top:0;right:0;width:24px;height:24px;cursor:nesw-resize}
 .i2p-ai-rz.sw{bottom:0;left:0;width:24px;height:24px;cursor:nesw-resize}
 .i2p-ai-rz.se{bottom:0;right:0;width:24px;height:24px;cursor:nwse-resize}
-.i2p-ai-rz:hover{background:var(--hover);background:color-mix(in srgb,#3aa0f5 35%,transparent)}
+.i2p-ai-rz:hover{background:var(--hover);background:color-mix(in srgb,var(--accent,#be3455) 35%,transparent)}
 /* 头部：标题 + 小字副题 + 关闭，细分割线（无图标） */
 .i2p-ai-head{flex:none;display:flex;align-items:baseline;gap:8px;padding:11px 14px;cursor:move;
   border-bottom:1px solid var(--line,#e5e6ec);
-  border-bottom:1px solid color-mix(in srgb,#3aa0f5 14%,var(--line,#e5e6ec))}
+  border-bottom:1px solid color-mix(in srgb,var(--accent,#be3455) 14%,var(--line,#e5e6ec))}
 .i2p-ai-title{font-size:var(--fs-md,13.5px);font-weight:600;color:var(--ink);letter-spacing:.01em}
 .i2p-ai-sub{font-size:var(--fs-xs,11.5px);color:var(--muted)}
 .i2p-ai-close{margin-left:auto;align-self:center;width:26px;height:26px;border:none;border-radius:7px;background:none;
@@ -821,16 +852,16 @@ body.i2p-dragging{user-select:none}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   transition:background .15s,color .15s}
 .i2p-ai-chip::before{content:"";flex:none;width:5px;height:5px;border-radius:50%;
-  background:#3aa0f5;
-  background:color-mix(in srgb,#3aa0f5 70%,var(--muted,#82848f))}
-.i2p-ai-chip:hover:not(:disabled){background:var(--hover);background:color-mix(in srgb,#3aa0f5 12%,var(--panel,#fff));color:var(--ink)}
+  background:var(--accent,#be3455);
+  background:color-mix(in srgb,var(--accent,#be3455) 70%,var(--muted,#82848f))}
+.i2p-ai-chip:hover:not(:disabled){background:var(--hover);background:color-mix(in srgb,var(--accent,#be3455) 12%,var(--panel,#fff));color:var(--ink)}
 .i2p-ai-chip:disabled{opacity:.5;cursor:default}
 /* 用户问题：半透明卡色块（在蓝底上呈更浅的蓝白），全宽不挤字 */
 .i2p-ai-m{max-width:100%;font-size:var(--fs-md,13.5px);line-height:1.65}
 .i2p-ai-m.user .i2p-ai-t{background:var(--card,#fff);
   background:color-mix(in srgb,var(--card,#fff) 62%,transparent);
   border:1px solid var(--line,#e5e6ec);
-  border:1px solid color-mix(in srgb,#3aa0f5 12%,var(--line,#e5e6ec));
+  border:1px solid color-mix(in srgb,var(--accent,#be3455) 12%,var(--line,#e5e6ec));
   border-radius:10px;padding:8px 12px;color:var(--ink);white-space:pre-wrap;word-break:break-word}
 .i2p-ai-m.assistant{overflow-wrap:break-word}
 .i2p-ai-m.assistant.err .i2p-ai-t{color:var(--err);font-size:var(--fs-sm,12.5px);
@@ -868,24 +899,24 @@ body.i2p-dragging{user-select:none}
 /* 输入区：半透明卡色输入框 + 图标钮（生成中变停止，可中断） */
 .i2p-ai-input{flex:none;display:flex;gap:8px;align-items:flex-end;padding:10px 12px 12px;
   border-top:1px solid var(--line,#e5e6ec);
-  border-top:1px solid color-mix(in srgb,#3aa0f5 14%,var(--line,#e5e6ec))}
-.i2p-ai-input textarea{flex:1;min-height:40px;max-height:120px;resize:none;
+  border-top:1px solid color-mix(in srgb,var(--accent,#be3455) 14%,var(--line,#e5e6ec))}
+.i2p-ai-input textarea{flex:1;min-height:38px;max-height:150px;resize:none;overflow-y:auto;
   background:var(--card,#fff);
   background:color-mix(in srgb,var(--card,#fff) 66%,transparent);
   border:1px solid var(--line-2,#d8dae3);
-  border:1px solid color-mix(in srgb,#3aa0f5 16%,var(--line-2,#d8dae3));
+  border:1px solid color-mix(in srgb,var(--accent,#be3455) 16%,var(--line-2,#d8dae3));
   border-radius:9px;color:var(--ink);padding:8px 11px;font-size:var(--fs-md,13.5px);
   line-height:1.55;font-family:inherit;transition:border-color .15s}
-.i2p-ai-input textarea:focus{border-color:var(--accent);border-color:color-mix(in srgb,#3aa0f5 55%,var(--line-2,#d8dae3))}
+.i2p-ai-input textarea:focus{border-color:var(--accent);border-color:color-mix(in srgb,var(--accent,#be3455) 55%,var(--line-2,#d8dae3))}
 .i2p-ai-input textarea::placeholder{color:var(--muted)}
 .i2p-ai-send{flex:none;width:38px;height:38px;border-radius:9px;
   border:1px solid var(--line-2,#d8dae3);
-  border:1px solid color-mix(in srgb,#3aa0f5 30%,var(--line-2,#d8dae3));
+  border:1px solid color-mix(in srgb,var(--accent,#be3455) 30%,var(--line-2,#d8dae3));
   background:var(--panel,#fff);
-  background:color-mix(in srgb,#3aa0f5 12%,var(--panel,#fff));color:var(--ink-2);
+  background:color-mix(in srgb,var(--accent,#be3455) 12%,var(--panel,#fff));color:var(--ink-2);
   display:inline-flex;align-items:center;justify-content:center;
   transition:background .15s,border-color .15s,color .15s,transform .1s}
-.i2p-ai-send:hover:not(:disabled){border-color:var(--accent);border-color:color-mix(in srgb,#3aa0f5 55%,var(--line-2,#d8dae3));color:var(--ink)}
+.i2p-ai-send:hover:not(:disabled){border-color:var(--accent);border-color:color-mix(in srgb,var(--accent,#be3455) 55%,var(--line-2,#d8dae3));color:var(--ink)}
 .i2p-ai-send:active:not(:disabled){transform:scale(.95)}
 .i2p-ai-send:disabled{opacity:.4;cursor:default}
 @media (max-width:880px){
@@ -904,7 +935,7 @@ body.i2p-dragging{user-select:none}
 .i2p .tg.run{animation:i2p-breathe 1.6s ease-in-out infinite}
 /* 卡片：hover 浮起一线 + 边框加重 */
 .i2p .card{transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
-.i2p .card:hover{border-color:var(--line-2);transform:translateY(-1px);box-shadow:0 2px 12px rgba(9,12,20,.05)}
+.i2p .card:hover{border-color:var(--line-2);transform:translateY(-1px);box-shadow:0 2px 12px rgba(24,24,27,.06)}
 /* 按钮：按压回弹 */
 .i2p .btn{cursor:pointer;transition:background .15s,border-color .15s,color .15s,transform .1s}
 .i2p .btn:active{transform:scale(.97)}
@@ -920,8 +951,18 @@ body.i2p-dragging{user-select:none}
   transition:background .14s,color .14s}
 .i2p-nav-collapse:hover{background:var(--hover);color:var(--ink)}
 .i2p-nav-collapse:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-/* 空状态：虚线卡片化，引导感 */
-.i2p .empty-hint{border:1.5px dashed var(--line-2);border-radius:12px;padding:22px 16px;text-align:center}
+/* 空状态：虚线卡片化，引导感（线稿档案盒图标 + 一句引导） */
+.i2p .empty-hint{border:1.5px dashed var(--line-2);border-radius:12px;padding:26px 16px;text-align:center}
+.i2p .empty-hint .eh-ic{color:var(--caption);margin-bottom:8px}
+.i2p .empty-hint .eh-t{margin:0;color:var(--muted);font-size:13.5px}
+/* 数据加载骨架：shimmer 扫过代替"加载中…"文案；reduce-motion 时静止 */
+.i2p .skel-box{padding:10px 2px}
+.i2p .skel{height:12px;border-radius:6px;background:var(--line-2);position:relative;overflow:hidden;margin:9px 0}
+.i2p .skel::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
+  animation:i2p-skel 1.4s ease infinite}
+[data-i2p-theme=dark] .i2p .skel::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent)}
+@keyframes i2p-skel{to{transform:translateX(100%)}}
 /* 细滚动条 */
 .i2p-main::-webkit-scrollbar,.i2p-nav::-webkit-scrollbar{width:6px;height:6px}
 .i2p-main::-webkit-scrollbar-thumb,.i2p-nav::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
@@ -932,7 +973,7 @@ body.i2p-dragging{user-select:none}
 @media (prefers-reduced-motion:reduce){
   .i2p-page,.i2p-nav-cell,.i2p-nav{animation:none!important;transition:none!important}
   .i2p .card,.i2p .btn,.i2p .proj-item,.i2p .tbl tbody tr,.i2p .tg.run,
-  .i2p-nav-cell .cnt.alert,.i2p-nav-grip,.i2p-nav-collapse{animation:none!important;transition:none!important}
+  .i2p-nav-cell .cnt.alert,.i2p-nav-grip,.i2p-nav-collapse,.i2p .skel::after{animation:none!important;transition:none!important}
   .i2p-ai-panel,.i2p-ai-fab,.i2p-ai-send,.i2p-ai-dots i{animation:none!important;transition:none!important}
 }
 `;
@@ -944,6 +985,25 @@ body.i2p-dragging{user-select:none}
 			tag.dataset.pluginCss = tagId;
 			tag.textContent = css;
 			document.head.appendChild(tag);
+		}
+		// 档案色板明暗跟随：宿主 dsw 令牌的值随宿主主题变化但没有属性可直接查询，
+		// 轮询宿主底色亮度给 <html> 打 data-i2p-theme，CSS 据此切换纸底/墨底两套令牌
+		if (typeof document !== "undefined" && document.documentElement
+			&& !document.documentElement.dataset.i2pThemeWatch) {
+			document.documentElement.dataset.i2pThemeWatch = "1";
+			const detectArchTheme = function () {
+				let dark = document.documentElement.dataset.theme === "dark";
+				try {
+					const v = getComputedStyle(document.documentElement).getPropertyValue("--dsw-alias-bg-base") || "";
+					const nums = (v.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+					if (nums.length === 3 && nums.every(function (n) { return Number.isFinite(n); })) {
+						dark = (nums[0] * 299 + nums[1] * 587 + nums[2] * 114) / 1000 < 128;
+					}
+				} catch (err) { /* 取值失败时退回 data-theme 判断 */ }
+				document.documentElement.dataset.i2pTheme = dark ? "dark" : "light";
+			};
+			detectArchTheme();
+			setInterval(detectArchTheme, 1000);
 		}
 
 		/* ================================================================
@@ -1071,6 +1131,14 @@ body.i2p-dragging{user-select:none}
 				strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true",
 				dangerouslySetInnerHTML: { __html: ICONS[name] || "" },
 			});
+		}
+
+		// 数据加载骨架（shimmer 扫过；reduce-motion 下 CSS 已将其静止）
+		function Skel(props) {
+			return h("div", Object.assign({ className: "skel-box", role: "status", "aria-label": "加载中" }, props),
+				h("div", { className: "skel", style: { width: "38%" } }),
+				h("div", { className: "skel", style: { width: "86%" } }),
+				h("div", { className: "skel", style: { width: "64%" } }));
 		}
 
 		/* ================================================================
@@ -1451,7 +1519,7 @@ body.i2p-dragging{user-select:none}
 				(pr.triggers || []).forEach(function (t) { checkLocal(t.uri); }); // 载入即查本地触发源存在性
 			}, [p.slug, p.projects]);
 
-			if (!form) return h("p", { className: "empty-hint" }, "加载中…");
+			if (!form) return h(Skel);
 
 			const setField = function (k, v) { setForm(function (f) { return Object.assign({}, f, { [k]: v }); }); };
 			const setRepo = function (i, uri) { setForm(function (f) { const r = f.repos.slice(); r[i] = { uri: uri }; return Object.assign({}, f, { repos: r }); }); };
@@ -2147,11 +2215,9 @@ body.i2p-dragging{user-select:none}
 							h("button", { type: "button", className: "btn sm", title: "该阶段及其后全部重跑", onClick: rerunFrom }, Ic("redo", 12), " 重跑")) : null,
 					p.runId ? h("button", { type: "button", className: "btn sm", onClick: openDir }, Ic("folder", 13), " 打开目录") : null,
 					p.runId ? h("button", { type: "button", className: "btn sm danger", onClick: deleteRun }, Ic("trash", 12), " 删除") : null),
-				h("p", { className: "run-hint" },
-					"点击阶段查看详情——每个阶段内含 ", h("b", null, "项目 / 运行 / 产物 / 配置 / 说明"),
-					" 五个视图（配置可直接调本阶段参数）；", h("b", null, "待复核"), " 时在「运行」视图通过或打回；",
-					h("b", null, "停止"), " = 当前阶段跑完即停；", h("b", null, "重跑"), " = 从所选阶段重新推进；",
-					h("b", null, "删除"), " = 移除整个 Run 目录。P10 为失败旁路（仅失败时执行）。"),
+				h("p", { className: "run-hint", title: "停止 = 当前阶段跑完即停；重跑 = 从所选阶段重新推进；删除 = 移除整个 Run 目录。P10 为失败旁路（仅失败时执行）。" },
+					"点击阶段查看详情（每阶段含 ", h("b", null, "项目 / 运行 / 产物 / 配置 / 说明"), " 五视图，配置可直接调参）；",
+					h("b", null, "待复核"), " 时在「运行」视图通过或打回。"),
 				// 失败分析（P10）结果横幅：后端写回 run.failureAnalysis 后台面化，
 				// 失败现场直接给出分类与建议动作，不必再点开 09-failure-analysis.json
 				runStatus === "failed" && p.run && p.run.failureAnalysis ? h("div", { className: "card", style: { margin: "0 0 10px", padding: "10px 14px" } },
@@ -2298,10 +2364,10 @@ body.i2p-dragging{user-select:none}
 									: null);
 						})() : null,
 						// 复核门（session 模式的 P6：先外部执行任务包，未就绪不能通过）
-						showReview ? (function () {
-							const xp = p.run ? p.run.externalProgress : null;
-							const extReady = !stExternal || !!(xp && (xp.patches > 0 || xp.report));
-							return h("div", { className: "callout warn", style: { marginTop: 14 } },
+							showReview ? (function () {
+								const xp = p.run ? p.run.externalProgress : null;
+								const extReady = !stExternal || !!(xp && (xp.patches > 0 || xp.report));
+								return h("div", { className: "callout warn gate", style: { marginTop: 14 } },
 								stExternal
 									? h("div", null,
 										h("h4", null, ee && (ee.status === "failed" || ee.status === "skipped")
@@ -2396,8 +2462,10 @@ body.i2p-dragging{user-select:none}
 			}, [p.runId]);
 
 			if (!p.runId) {
-				return h("p", { className: "empty-hint" },
-					"请先在「01 项目」发起 Run，或在「02 运行」选择一个 Run，再查看其产物树。");
+				return h("div", { className: "empty-hint" },
+					h("div", { className: "eh-ic", "aria-hidden": "true" }, Ic("box", 30)),
+					h("p", { className: "eh-t" },
+						"还没有产物可查看。先在「项目」发起 Run，或在「运行」选择一个 Run，产物树会出现在这里。"));
 			}
 
 			const pick = function (path) {
@@ -2474,9 +2542,9 @@ body.i2p-dragging{user-select:none}
 			const fileMd = fileText != null && /\.md$/i.test(selFile || "");
 
 			return h("div", null,
-				h("p", { className: "run-hint" },
-					"当前 Run：", h("b", { style: { fontFamily: "var(--mono)", fontSize: 13 } }, p.runId),
-					"（在「02 运行」切换；.md 产物按 Markdown 排版渲染；以下为该 Run 的完整产物目录，含 trace / reviews / ledger）"),
+			h("p", { className: "run-hint", title: ".md 产物按 Markdown 排版渲染；目录树含 trace / reviews / ledger 全部过程证据。" },
+				"当前 Run：", h("b", { style: { fontFamily: "var(--mono)", fontSize: 13 } }, p.runId),
+				"（在「02 运行」切换；目录含 trace / reviews / ledger）"),
 				h("div", { className: "art-layout" },
 					h("div", { className: "card" },
 						p.tree && p.tree.length
@@ -2546,12 +2614,14 @@ body.i2p-dragging{user-select:none}
 			// eslint-disable-next-line react-hooks/exhaustive-deps
 		}, [p.defaults, p.projects, p.slug]);
 
-			if (!p.defaults || !p.projects) return h("p", { className: "empty-hint" }, "加载中…");
+			if (!p.defaults || !p.projects) return h(Skel);
 			if (!p.slug) {
-				return h("p", { className: "empty-hint" },
-					"请先在「项目」保存一个项目，再为它的 11 个阶段分别配置参数。");
+				return h("div", { className: "empty-hint" },
+					h("div", { className: "eh-ic", "aria-hidden": "true" }, Ic("box", 30)),
+					h("p", { className: "eh-t" },
+						"还没有可配置的项目。先在「项目」保存一个项目，即可为它的 11 个阶段分别配置参数。"));
 			}
-			if (!edit) return h("p", { className: "empty-hint" }, "加载中…");
+			if (!edit) return h(Skel);
 
 			const stageId = p.selStage || "P1";
 			const sDef = STAGES.find(function (x) { return x.id === stageId; });
@@ -3541,6 +3611,10 @@ body.i2p-dragging{user-select:none}
 				const el = scrollRef.current;
 				if (el) el.scrollTop = el.scrollHeight;
 			}, [msgs]);
+			// 输入清空（发送/清屏）后把自适应高度收回去，输入框回到单行基准
+			React.useEffect(function () {
+				if (!input && taRef.current) taRef.current.style.height = "";
+			}, [input]);
 
 			const send = React.useCallback(async function (q) {
 				const question = String(q != null ? q : input).trim();
@@ -3741,11 +3815,20 @@ body.i2p-dragging{user-select:none}
 						})),
 					h("div", { className: "i2p-ai-input" },
 						h("textarea", {
-							ref: taRef, value: input, rows: 2,
-							placeholder: busy ? "回答生成中…" : "问运行状态、阶段含义、失败原因…（Enter 发送）",
-							onChange: function (e) { setInput(e.target.value); },
+							ref: taRef, value: input, rows: 1,
+							placeholder: busy ? "回答生成中…" : "问运行状态、阶段含义、失败原因…（Enter 发送，Shift+Enter 换行）",
+							onChange: function (e) {
+								setInput(e.target.value);
+								// 高度随内容自适应：先归零再量 scrollHeight，封顶后内部滚动
+								const el = e.target;
+								el.style.height = "auto";
+								el.style.height = Math.min(el.scrollHeight, 150) + "px";
+							},
 							onKeyDown: function (e) {
-								if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+								// isComposing：中文输入法组词期按 Enter 是"上屏候选词"，不能当发送
+								if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+									e.preventDefault(); send();
+								}
 							},
 						}),
 						h("button", {
