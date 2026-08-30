@@ -2,6 +2,7 @@
   <img src="docs/assets/banner.svg" alt="dsh-issue2pr — 从一条 Issue 到一份被合并的 PR，中间不能跳步" width="100%">
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2A3F7A?style=flat-square" alt="License: MIT"></a>
+    <a href="https://www.npmjs.com/package/dsh-issue2pr"><img src="https://img.shields.io/npm/v/dsh-issue2pr?style=flat-square&color=506B3A" alt="npm version"></a>
     <img src="https://img.shields.io/badge/node-%E2%89%A5%2018-506B3A?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node ≥ 18">
     <img src="https://img.shields.io/badge/host-DSH%20%E6%8F%92%E4%BB%B6-A07A1F?style=flat-square" alt="DSH 插件">
     <img src="https://img.shields.io/badge/pipeline-11%20stages%20%C2%B7%204%20gates-2A3F7A?style=flat-square" alt="11 stages · 4 review gates">
@@ -97,16 +98,22 @@
 
 ### 安装
 
-把本插件克隆进 DSH 插件目录，然后重启 DSH：
+已发布到 npm（推荐——预构建包，无需授权构建脚本）：
+
+```bash
+dsh plugin --profile web add dsh-issue2pr
+```
+
+或从源码安装——把本插件克隆进 DSH 插件目录，然后重启 DSH：
 
 ```bash
 # Windows: C:\Users\<you>\.dsh\plugins\
 # macOS / Linux: ~/.dsh/plugins/
 cd ~/.dsh/plugins
-git clone https://github.com/LONGSASASASASA/dsh-issue2PR.git dsh-issue2pr
+git clone https://github.com/LONGSASASASASA/dsh-issue2pr.git dsh-issue2pr
 ```
 
-> 也可以通过 [dsh-plugin-manager](https://github.com/LONGSASASASASA) 插件安装与管理。数据默认存放在 `~/.dsh/issue2pr/`（与插件目录分离，升级插件不丢数据）。
+> 也可以通过 [dsh-plugin-manager](https://github.com/LONGSASASASASA) 插件安装与管理；审阅源码后可用 `dsh plugin --profile web add github:LONGSASASASASA/dsh-issue2pr#<commit>` 锁定 commit 安装。数据默认存放在 `~/.dsh/issue2pr/`（与插件目录分离，升级插件不丢数据）。
 
 ### 五分钟跑通第一单
 
