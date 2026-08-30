@@ -96,7 +96,7 @@ window.__ModuleLoader__.load({
 
 /* ===== 主体：左侧导航列 + 内容区（一律靠左） ===== */
 .i2p-body{flex:1;min-height:0;display:flex;align-items:stretch}
-.i2p-nav{flex:none;width:var(--i2p-nav-w,240px);border-right:1px solid var(--line);padding:18px 14px 18px 14px;
+.i2p-nav{flex:none;width:var(--i2p-nav-w,180px);border-right:1px solid var(--line);padding:18px 14px 18px 14px;
   display:flex;flex-direction:column;gap:16px;position:relative;overflow:hidden;
   transition:width .2s cubic-bezier(.2,.8,.2,1)}
 .i2p-nav.no-anim{transition:none}
@@ -833,7 +833,8 @@ body.i2p-dragging{user-select:none}
 		 * ================================================================ */
 		const navStore = {
 			open: localStorage.getItem("i2p.navOpen") !== "0",
-			width: (function (v) { return v >= 180 && v <= 460 ? v : 240; })(parseInt(localStorage.getItem("i2p.navW") || "", 10)),
+			// 默认取拖宽下限 180：目录列只有五个菜单项，更宽只是留白；拖过/双击手柄仍走 180–460
+			width: (function (v) { return v >= 180 && v <= 460 ? v : 180; })(parseInt(localStorage.getItem("i2p.navW") || "", 10)),
 			listeners: new Set(),
 			setOpen(v) {
 				this.open = v;
@@ -3044,7 +3045,7 @@ body.i2p-dragging{user-select:none}
 					window.addEventListener("pointerup", up);
 				};
 				const dbl = function (e) {
-					if (gripOf(e.target)) navStore.setWidth(240, true);
+					if (gripOf(e.target)) navStore.setWidth(180, true); // 双击恢复默认=最小宽，与初始默认一致
 				};
 				document.addEventListener("pointerdown", down);
 				document.addEventListener("dblclick", dbl);
