@@ -59,6 +59,17 @@ test("P6 结构验证：空补丁 / 非 diff 内容 / 坏 report / 清单缺文�
   assert.equal(v.ok, false); assert.match(v.errors.join("；"), /gone\.diff 不存在/);
 });
 
+test("P6 验证：清单路径越界返回结构化失败而非抛异常", async () => {
+  const runDir = mkRun();
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"),
+    JSON.stringify({ patches: [{ patch: "../../outside.diff" }] }));
+
+  const v = await verifyDelegateResult({ runDir }, "P6");
+
+  assert.equal(v.ok, false);
+  assert.match(v.errors.join("；"), /非法路径|越界/);
+});
+
 test("P6 验证：无仓库环境仅结构验证（补丁形态合法即过，不演练）", async () => {
   const runDir = mkRun();
   writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n");

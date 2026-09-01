@@ -1,11 +1,11 @@
 // tests/stages-p7-p8-p10.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
-import p7, { rollbackLedger } from "../../lib/stages/p7-patch.js";
+import p7, { hashRepo, rollbackLedger } from "../../lib/stages/p7-patch.js";
 import p8 from "../../lib/stages/p8-test-runner.js";
 import p10 from "../../lib/stages/p10-failure.js";
 
@@ -77,12 +77,32 @@ test("P7：session 模式回退——无 coder-report.json 时扫 patches/ 目�
   assert.match(r.summary, /1 份 patch/);
   assert.match(readFileSync(join(repoDir, "a.txt"), "utf8"), /session/);
   const ledger = readFileSync(join(runDir, "ledger", "patch-ledger.jsonl"), "utf8").trim().split("\n");
-  assert.equal(JSON.parse(ledger[0]).patch, "06-implementation/patches/0001-a.diff");
+  const firstLedger = JSON.parse(ledger[0]);
+  assert.equal(firstLedger.patch, "06-implementation/patches/0001-a.diff");
+  assert.match(firstLedger.patchSha256, /^[a-f0-9]{64}$/);
+  assert.equal(firstLedger.sha256, firstLedger.patchSha256);
 });
 
 test("P7：无任何 patch 时明确报错", async () => {
   const runDir = mkdtempSync(join(root, "run-"));
   await assert.rejects(() => p7({ runDir, repoDir: root, llm: null }), /无 patch 可应用/);
+});
+
+test("P7：git hash 失败返回明确 null，不使用 nogit 伪哈希", async () => {
+  const notGit = mkdtempSync(join(root, "not-git-"));
+  assert.equal(await hashRepo(notGit), null);
+});
+
+test("P7：patch 清单路径越界时拒绝读取 Run 目录外文件", async () => {
+  const repoDir = gitRepo();
+  const runDir = mkdtempSync(join(root, "run-"));
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  const outside = join(dirname(runDir), "outside.diff");
+  writeFileSync(outside, "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1\n+escaped\n");
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"),
+    JSON.stringify({ patches: [{ patch: "../../outside.diff" }] }));
+
+  await assert.rejects(() => p7({ runDir, repoDir, llm: null }), /非法路径/);
 });
 
 // claude 委托产出的 report：tasks 字段 + patch 路径相对 06-implementation/（P7 需归一化后按序应用）
@@ -153,4 +173,91 @@ test("A1/A2 修复：P7 重跑前自动重置工作区（打回/回退后 re-app
   assert.match(readFileSync(join(repoDir, "a.txt"), "utf8"), /patched/, "基线重置后重新应用一次");
   const ledger = readFileSync(join(runDir, "ledger", "patch-ledger.jsonl"), "utf8").trim().split("\n");
   assert.equal(ledger.length, 2, "两次应用各记一行 ledger");
+});
+
+test("B2：重复回滚同一 ledger 行幂等，并记录 rolled_back 状态", async () => {
+  const repoDir = gitRepo();
+  const runDir = mkdtempSync(join(root, "run-"));
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  mkdirSync(join(runDir, "ledger"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-a.diff"),
+    "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1\n+line1-b2\n");
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"),
+    JSON.stringify({ patches: [{ patch: "06-implementation/patches/0001-a.diff" }] }));
+
+  await p7({ runDir, repoDir, llm: null });
+  const first = await rollbackLedger(runDir, repoDir, 0);
+  const second = await rollbackLedger(runDir, repoDir, 0);
+
+  assert.equal(first.status, "rolled_back");
+  assert.equal(second.status, "already_rolled_back");
+  assert.equal(readFileSync(join(repoDir, "a.txt"), "utf8"), "line1\n");
+  const lines = readFileSync(join(runDir, "ledger", "patch-ledger.jsonl"), "utf8")
+    .trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(lines.length, 2, "重复请求不得追加第二条回滚动作");
+  assert.deepEqual(lines[1].status, "rolled_back");
+  assert.equal(lines[1].rollbackOf, 0);
+});
+
+test("B2：工作区已被其他改动时回滚前置校验失败且不写回滚记录", async () => {
+  const repoDir = gitRepo();
+  const runDir = mkdtempSync(join(root, "run-"));
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  mkdirSync(join(runDir, "ledger"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-a.diff"),
+    "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1\n+line1-b2-check\n");
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"),
+    JSON.stringify({ patches: [{ patch: "06-implementation/patches/0001-a.diff" }] }));
+
+  await p7({ runDir, repoDir, llm: null });
+  writeFileSync(join(repoDir, "a.txt"), "user-edit\n");
+
+  await assert.rejects(
+    () => rollbackLedger(runDir, repoDir, 0),
+    /回滚前置校验失败/,
+  );
+  assert.equal(readFileSync(join(repoDir, "a.txt"), "utf8"), "user-edit\n");
+  const lines = readFileSync(join(runDir, "ledger", "patch-ledger.jsonl"), "utf8")
+    .trim().split("\n");
+  assert.equal(lines.length, 1, "前置校验失败不得追加回滚状态");
+  assert.equal(readdirSync(join(runDir, "ledger")).length, 1);
+});
+
+test("B2：patch 文件被篡改时回滚前按 SHA-256 拒绝", async () => {
+  const repoDir = gitRepo();
+  const runDir = mkdtempSync(join(root, "run-tampered-"));
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  mkdirSync(join(runDir, "ledger"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-a.diff"),
+    "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1\n+line1-original\n");
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"), JSON.stringify({
+    patches: [{ patch: "06-implementation/patches/0001-a.diff" }],
+  }));
+  await p7({ runDir, repoDir, llm: null });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-a.diff"), "not a patch\n");
+
+  await assert.rejects(() => rollbackLedger(runDir, repoDir, 0), /SHA-256/);
+  assert.equal(readFileSync(join(repoDir, "a.txt"), "utf8"), "line1-original\n");
+});
+
+test("B2：回滚只允许当前最新 P7 batch，历史 ledger 行明确拒绝", async () => {
+  const repoDir = gitRepo();
+  const runDir = mkdtempSync(join(root, "run-old-batch-"));
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  mkdirSync(join(runDir, "ledger"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-a.diff"),
+    "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1\n+line1-first\n");
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"), JSON.stringify({
+    patches: [{ patch: "06-implementation/patches/0001-a.diff" }],
+  }));
+  await p7({ runDir, repoDir, llm: null });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0002-a.diff"),
+    "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1\n+line1-second\n");
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"), JSON.stringify({
+    patches: [{ patch: "06-implementation/patches/0002-a.diff" }],
+  }));
+  await p7({ runDir, repoDir, llm: null });
+
+  await assert.rejects(() => rollbackLedger(runDir, repoDir, 0), /当前.*批次|活动批次/);
+  assert.equal(readFileSync(join(repoDir, "a.txt"), "utf8"), "line1-second\n");
 });

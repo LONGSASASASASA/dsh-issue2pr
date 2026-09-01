@@ -1,7 +1,7 @@
 // tests/api.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -72,6 +72,44 @@ test("API 全链路：建项目 → 发起 run → 待复核 → approve 推进"
   await new Promise((res2) => setTimeout(res2, 300));
   r = await call(handler2, "GET", `/issue2pr/api/projects/demo/runs/${runId}`);
   assert.equal(r.body.stages.P1.status, "approved");
+});
+
+test("API：复核次数超限返回明确错误、Run failed，并触发 P10", async () => {
+  let p10Calls = 0;
+  __setTestHooks({
+    dataRoot: root,
+    executors: {
+      P1: async () => ({ artifact: "01-issue-analysis.json" }),
+      P10: async () => { p10Calls += 1; return { artifact: "09-failure-analysis.json" }; },
+    },
+  });
+  const h = handlerOf();
+  let r = await call(h, "POST", "/issue2pr/api/projects", {
+    name: "复核上限", slug: "review-limit", repos: ["r"], triggers: [],
+    reviewMode: "every", p6Mode: "builtin", maxReviewAttempts: 1,
+  });
+  assert.equal(r.status, 200);
+  const issueFile = join(root, "review-limit.md");
+  writeFileSync(issueFile, "触发");
+  r = await call(h, "POST", "/issue2pr/api/projects/review-limit/runs", {
+    kind: "issue", uri: issueFile,
+  });
+  assert.equal(r.status, 200);
+  const runId = r.body.runId;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  r = await call(h, "POST", "/issue2pr/api/projects/review-limit/runs/" + runId + "/review", {
+    decision: "reject", comment: "无法继续修复",
+  });
+
+  assert.equal(r.status, 400);
+  assert.equal(r.body.ok, false);
+  assert.match(r.body.message, /P1/);
+  assert.match(r.body.message, /最大复核次数/);
+  r = await call(h, "GET", "/issue2pr/api/projects/review-limit/runs/" + runId);
+  assert.equal(r.body.status, "failed");
+  assert.equal(r.body.stages.P1.status, "failed");
+  assert.equal(p10Calls, 1);
 });
 
 test("API：非法 slug / 缺字段 400；artifact 防 ..", async () => {
@@ -277,6 +315,88 @@ test("failRun：running 的 run 落盘 failed + 阶段 error；非 running 不�
   const again = failRun(runDir, "P1", "再失败");
   assert.equal(again.status, "failed");
   assert.equal(again.stages.P1.error, onDisk.stages.P1.error);
+});
+
+test("API：drive 顶层 rejection 可见化并把结构损坏的 running Run 置 failed", async () => {
+  const logs = [];
+  __setTestHooks({ dataRoot: root, executors: {} });
+  const rs = [];
+  const c2 = fakeCtx();
+  c2.logger = {
+    info() {},
+    warn(message) { logs.push(String(message)); },
+    error(message) { logs.push(String(message)); },
+  };
+  c2.webServer.register = (spec) => rs.push(spec);
+  apply(c2);
+  const h = rs[0].handler;
+
+  let r = await call(h, "POST", "/issue2pr/api/projects", {
+    name: "驱动异常", slug: "drive-error", repos: ["r"], triggers: [],
+    reviewMode: "auto", p6Mode: "builtin",
+  });
+  assert.equal(r.status, 200);
+  const issueFile = join(root, "drive-error.md");
+  writeFileSync(issueFile, "触发");
+  r = await call(h, "POST", "/issue2pr/api/projects/drive-error/runs", {
+    kind: "issue", uri: issueFile,
+  });
+  assert.equal(r.status, 200);
+  const runId = r.body.runId;
+  const runDir = join(root, "projects", "drive-error", "runs", runId);
+  writeFileSync(join(runDir, "run.json"), JSON.stringify({
+    id: runId, project: "drive-error", status: "running", current: "P1",
+    trigger: { kind: "issue", uri: issueFile }, reviewMode: "auto", p6Mode: "builtin",
+    stages: {},
+  }));
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  r = await call(h, "GET", "/issue2pr/api/projects/drive-error/runs/" + runId);
+  assert.equal(r.body.status, "failed");
+  assert.equal(r.body.stages.P1.status, "failed");
+  assert.match(r.body.stages.P1.error, /运行驱动异常/);
+  assert.ok(logs.some((message) => message.includes("运行驱动异常")));
+});
+
+test("API：半截 run.json 可恢复为 failed；P10 失败也不吞掉主错误", async () => {
+  const logs = [];
+  __setTestHooks({
+    dataRoot: root,
+    executors: { P10: async () => { throw new Error("P10 自身失败"); } },
+  });
+  const rs = [];
+  const c2 = fakeCtx();
+  c2.logger = {
+    info() {},
+    warn(message) { logs.push(String(message)); },
+    error(message) { logs.push(String(message)); },
+  };
+  c2.webServer.register = (spec) => rs.push(spec);
+  apply(c2);
+  const h = rs[0].handler;
+
+  let r = await call(h, "POST", "/issue2pr/api/projects", {
+    name: "半截状态", slug: "corrupt-run", repos: ["r"], triggers: [],
+    reviewMode: "auto", p6Mode: "builtin",
+  });
+  assert.equal(r.status, 200);
+  const issueFile = join(root, "corrupt-run.md");
+  writeFileSync(issueFile, "触发");
+  r = await call(h, "POST", "/issue2pr/api/projects/corrupt-run/runs", {
+    kind: "issue", uri: issueFile,
+  });
+  assert.equal(r.status, 200);
+  const runId = r.body.runId;
+  const runDir = join(root, "projects", "corrupt-run", "runs", runId);
+  writeFileSync(join(runDir, "run.json"), "{\"id\":\"" + runId + "\",\"status\":\"running\"");
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  r = await call(h, "GET", "/issue2pr/api/projects/corrupt-run/runs/" + runId);
+  assert.equal(r.body.status, "failed");
+  assert.equal(r.body.stages.P1.status, "failed");
+  assert.match(r.body.stages.P1.error, /运行驱动异常/);
+  assert.ok(readdirSync(runDir).some((name) => name.startsWith("run.json.corrupt-")));
+  assert.ok(logs.some((message) => message.includes("P10 自身失败")));
 });
 
 test("saveProject：repos 字符串形态规范化为 { uri } 落盘", async () => {
@@ -532,6 +652,12 @@ test("API：connections CRUD — POST 保存 / GET 脱敏 / DELETE 删除 / 非�
   assert.equal(r.status, 200);
   assert.equal(r.body.connection.id, "github.com");
   assert.equal(r.body.connection.token, "ghp_…1234", "token 返回 UI 必须脱敏");
+  assert.doesNotMatch(JSON.stringify(r.body), /ghp_secret1234/);
+  assert.ok(["keychain", "file-fallback"].includes(r.body.connection.secretStorage));
+  if (r.body.connection.secretStorage === "file-fallback") {
+    assert.equal(r.body.connection.secretEncrypted, false);
+    assert.match(r.body.connection.secretWarning, /非加密/);
+  }
   r = await call(h, "POST", "/issue2pr/api/connections", { kind: "codearts", host: "codehub.example.com", token: "pw", username: "tenant/iam" });
   assert.equal(r.status, 200);
   assert.equal(r.body.connection.username, "tenant/iam");
@@ -541,6 +667,7 @@ test("API：connections CRUD — POST 保存 / GET 脱敏 / DELETE 删除 / 非�
   r = await call(h, "GET", "/issue2pr/api/connections");
   assert.equal(r.body.connections.length, 2);
   assert.ok(r.body.connections.every((c) => !c.token.includes("secret")));
+  assert.ok(r.body.connections.every((c) => !JSON.stringify(c).includes("ghp_secret1234")));
   r = await call(h, "DELETE", "/issue2pr/api/connections/github.com");
   assert.equal(r.body.ok, true);
   r = await call(h, "DELETE", "/issue2pr/api/connections/github.com");
@@ -579,7 +706,7 @@ test("API：connections/test-repo — 匹配连接注入凭据跑 ls-remote；�
   const gitCalls = [];
   __setTestHooks({
     dataRoot: root, executors: {},
-    runGit: (args, opts, cb) => { gitCalls.push(args); cb(null, "ref1\nref2\n", ""); },
+    runGit: (args, opts, cb) => { gitCalls.push({ args, opts }); cb(null, "ref1\nref2\n", ""); },
   });
   const h = handlerOf();
   await call(h, "POST", "/issue2pr/api/connections", { kind: "github", host: "github.com", token: "ghp_secret" });
@@ -587,8 +714,11 @@ test("API：connections/test-repo — 匹配连接注入凭据跑 ls-remote；�
   assert.equal(r.body.ok, true);
   assert.equal(r.body.matched, "github.com");
   assert.match(r.body.message, /2 个分支/);
-  assert.deepEqual(gitCalls[0].slice(0, 2), ["ls-remote", "--heads"]);
-  assert.equal(gitCalls[0][2], "https://x-access-token:ghp_secret@github.com/org/repo.git", "凭据注入后跑 ls-remote");
+  assert.deepEqual(gitCalls[0].args.slice(0, 2), ["ls-remote", "--heads"]);
+  assert.equal(gitCalls[0].args[2], "https://github.com/org/repo.git", "Git argv 不得含凭据");
+  assert.equal(gitCalls[0].args.some((arg) => String(arg).includes("ghp_secret")), false);
+  assert.match(gitCalls[0].opts.env.GIT_CONFIG_VALUE_0, /Basic /);
+  assert.match(gitCalls[0].opts.env.GIT_CONFIG_VALUE_0, /Z2hwX3NlY3JldA/);
   // 失败路径：stderr 带注入凭据也必须脱敏
   __setTestHooks({
     dataRoot: root, executors: {},

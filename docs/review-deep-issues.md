@@ -2,7 +2,7 @@
 
 > 审查范围:README.md、issue2pr-research.html、index.js、lib/(pipeline / llm / store / connections / stageConfig / assistant / agents / repoState)、lib/stages/(P1-P11)、client.js、tests/
 > 审查视角:高级开发专家,以 README/HTML 两个目标交付物为锚点,找"实现撑不住承诺"的深层问题。
-> 状态标记:🔴 A 类四项已于 2026-08-30 修复(见文末【修复记录】),其余项待排期。
+> 状态标记:🔴 A 类四项、B/C/D 修复项均已落地(见文末【修复记录】);剩余内容是已知边界与后续增强方向。
 
 ---
 
@@ -60,33 +60,33 @@ P6 session 模式只写任务包就返回,全自动模式下直接 approved → 
 
 ---
 
-## 🟠 B 类:可靠性(待修复)
+## 🟠 B 类:可靠性(已修复)
 
 ### B1. drive 循环异常被静默吞掉 + 产物写入非原子
 `s.lock = task.then(() => {}, () => {})` 吞掉 drive 内一切异常(典型:`loadRun` 的 `JSON.parse` 遇到半截 run.json)→ Run 永远停在 running,UI 僵死。根因放大器:`writeArtifact` 直接 `writeFileSync` 非原子(两行之外的 `saveProject` 用了 tmp+rename)。
-**建议**:catch 中 `logger.error` + `failRun` 兜底;`writeArtifact` 统一 tmp+rename。
+**修复**: `writeArtifact` 使用唯一临时文件写后替换并清理;drive 顶层记录错误,将仍为 running 的 Run 置为 `failed`,并尝试写入 P10 失败归因。
 
-### B2. rollbackLedger 无幂等、无前置校验
+### B2. rollbackLedger 无幂等、无前置校验(已修复)
 重复回滚同一行 → `git apply -R` 直接失败;不检查当前 repo 是否仍处于"补丁已应用"状态;ledger 追加 `rollbackOf` 但原行不做标记。
-**建议**:回滚前 `git apply -R --check`;ledger 行增加 status 字段。
+**修复**:回滚前执行 `git apply -R --check`,成功后追加 `rolled_back` 记录;同一行重复请求幂等,并限制回滚目标属于当前活动 batch。
 
-### B3. attempts 无上限
-打回循环无最大次数保护,P6 builtin 每次重跑都是真实 LLM 成本;attempts 记录了但没有任何决策消费它。**建议**:超限转 failed 并提示人工介入。
+### B3. attempts 无上限(已修复)
+打回循环无最大次数保护,P6 builtin 每次重跑都是真实 LLM 成本;attempts 记录了但没有任何决策消费它。**修复**:项目级最大复核次数达到后,Run 转 `failed`,并写入 P10 失败归因。
 
 ---
 
-## 🟡 C 类:安全(待修复)
+## 🟡 C 类:安全(已修复，仍有边界)
 
 ### C1. 令牌泄露到进程 argv(被 redactUrl 掩盖的盲区)
 `execFile("git", ["clone", uri])` 中 uri 含 `user:token@` —— 日志侧 `redactUrl` 做得很好,但 Linux 多用户环境下 `ps` / `/proc/<pid>/cmdline` 直接可见令牌。
-**建议**:改用 `GIT_ASKPASS` 临时脚本、`http.extraHeader` 配置或 credential helper 走 stdin。
+**修复**:Git `clone` / `ls-remote` 的 URI/argv 不携带 token,认证只通过子进程环境中的临时 `http.extraheader` 传递;仅用户名且无密码的 URL 保留原认证流程。
 
-### C2. connections.json 明文存储令牌
-磁盘明文落盘。README 应补数据安全说明(目录权限建议、备份风险);长期考虑系统 keychain。
+### C2. connections.json 明文存储令牌(已修复，Windows 有明确降级边界)
+磁盘明文落盘。**修复**: `connections.json`/`relay-auth.json` 只保留 `secretRef` 等元数据,SecretStore 先尝试系统 keychain;不可用时才写入无新增依赖的 fallback 文件。fallback 是**未加密**存储,只做权限收紧尝试,不标记为“已安全”;Windows 当前没有内置 Credential Manager 适配器,其 ACL/chmod 权限隔离不保证。旧明文配置首次读取时迁移,并在 API/UI 显示降级警告。
 
 ### C3. 委托模式的证据链是"自证"
 外部 agent 对 runDir 有完整写权限,可直接写 coder-report.json、patches(甚至 run.json);P9 复核与 P11 Gate 评测基于这些自报产物。diff 本身可验证(apply 成功),但 report 里的通过声明不可验证——这是 HTML「可验证产物」理念与实现的真实差距。
-**建议**:ledger 记录每份 diff 的 sha256;P11 Gate 增加"patch 内容 == repo 实际 diff"的机械校验(可自动验却不验,是最可惜的一环)。
+**修复**:ledger 为每份 diff 记录 SHA-256 与 `batchId`;P11 Gate、人工 approve、全自动 watcher 和委外验证统一核对实际工作区 diff。该机制是 fail-closed 的本地证据校验,不等同于签名或不可篡改审计。
 
 ---
 
@@ -94,8 +94,8 @@ P6 session 模式只写任务包就返回,全自动模式下直接 approved → 
 
 1. ~~**"打回重跑"语义未写透**(README L42):reject 只重跑当前阶段~~ → A2 修复后行为一致(打回即清场重生成),README 已补说明。
 2. **"全自动"模式是文档陷阱**(L26):~~与委托 P6 组合必然失败~~ → A4 修复后改为"挂起等待外部产出",README 已补说明;同时建议 HTML 正面论述"全自动跳过的是人工验证而非阶段"这一张力。
-3. **routeInfo 部分覆盖被静默忽略**(`lib/llm.js`):`ov.provider && ov.model` 必须同时存在才生效,只配一个会静默落到宿主默认,preflight 展示与用户配置直觉不符。**建议**配置校验时报错而非静默。
-4. **hashRepo 失败返回 `"nogit"` 字符串**混入 ledger,与真实哈希不可区分,削弱"可追溯"。**建议**失败时显式报错或记录 null。
+3. ~~**routeInfo 部分覆盖被静默忽略**~~(`lib/llm.js`):阶段级 `provider` / `model` 现在必须成对配置,不完整覆盖会显式报错。
+4. ~~**hashRepo 失败返回 `"nogit"` 字符串**~~:现在失败返回 `null`,P7 在无法读取 HEAD 时拒绝写入 ledger。
 
 ---
 
@@ -105,9 +105,9 @@ P6 session 模式只写任务包就返回,全自动模式下直接 approved → 
 |---|---|---|
 | P0 | A1 + A2(数据正确性根基) | ✅ 已修复 |
 | P0 | A3 / A4(并发损坏 / 必败组合) | ✅ 已修复 |
-| P0 | B1(僵死 Run 是用户可直接感知的故障) | ⬜ 待办 |
-| P1 | B2, B3, C1 | ⬜ 待办 |
-| P2 | C2, C3, D3, D4 | ⬜ 待办 |
+| P0 | B1(僵死 Run 是用户可直接感知的故障) | ✅ 已修复 |
+| P1 | B2, B3, C1 | ✅ 已修复 |
+| P2 | C2, C3, D3, D4 | ✅ 已修复 |
 
 ---
 
@@ -161,3 +161,23 @@ P6 session 模式只写任务包就返回,全自动模式下直接 approved → 
 - 全自动监听的容错窗口（3 次 × 5s）是为「外部会话可能仍在写产物」留的稳定窗口；产物被外部反复改写时可能多等几轮，但绝不空手放行。
 - 演练用 `git apply --cached`（非 `--3way`）：与 P7 实际应用策略一致，不做三方合并的「侥幸通过」。
 - 有人工门的模式（key-only 的 P6）不自动放行——机器验证只是守门员，关键门仍由人决策；验证防止人被「文件存在」误导。
+
+---
+
+## 【状态更新】B/C/D 修复与 C3 收口（2026-08-31）
+
+本轮在原有修复记录上补齐了最后一条证据旁路，并按红测→实现→回归完成验证（`npm test`: 209/209）：
+
+- B1：`writeArtifact` 使用唯一临时文件原子替换；drive 顶层异常会记录日志、落 `failed` Run 并尝试 P10 归因。
+- B2/B3：回滚前 `git apply -R --check`、重复回滚幂等并记 `rolled_back`；复核次数达到上限后 Run/P10 明确失败。
+- C1：Git URI/argv 不携带 token，认证只进入 Git 子进程环境；日志与 API 做脱敏。
+- C2：SecretStore 按 keychain-first 工作；不可用时才使用无新增依赖的权限收紧 fallback。fallback 始终标记为非加密；Windows warning 明确说明 ACL/chmod 权限收紧不保证，并在 API/UI/README 展示降级边界，不把明文文件标为“已安全”。
+- C3：`lib/infra/patchEvidence.js` 统一供内置 P11、人工 approve、全自动 watcher 和委外验证使用；逐份核对 ledger SHA-256，并用临时 index 将 patch 预期 diff 与实际工作区 diff 比较。P7 每个应用批次写入同一 `batchId`;回滚与 P11 只接受当前活动批次。缺少 `repoDir`、ledger 活动记录不在当前清单、旧 ledger 缺 SHA-256、P11 eval 缺项或 fail 均拒绝放行；P11 打回/重跑同时清理说明与 eval 旧产物。
+- D3/D4：阶段级 provider/model 必须成对配置；Git HEAD hash 读取失败返回 `null` 并阻止写入伪哈希。
+
+**仍需明确的边界**：
+
+- Windows 当前没有 Credential Manager 适配器；fallback 文件未加密，目录/文件权限收紧在 NTFS ACL 上不保证隔离，备份、管理员权限或同机高权限进程仍可能读取。
+- 委外执行方对 Run 目录仍有写权限，无法仅靠本地文件 hash 防止其同时篡改 patch、ledger 与工作区；当前机制能阻止过期/额外工作区修改和格式伪造，但不等同于签名或不可篡改审计。
+- `batchId` 选择当前 ledger 中最后出现的 applied 批次；不完整或被篡改的当前批次会在清单、SHA-256 或实际 diff 校验处 fail-closed，但实现没有防伪造签名。
+- ledger 读取会忽略空行并使用逻辑行号；旧 ledger 可读取，但缺 SHA-256 的旧 applied 记录不能通过 P11 证据门，需要重跑 P7 生成带指纹台账。人工 approve 在证据校验后到状态落盘之间仍存在极短 TOCTOU 窗口，最终门禁会 fail-closed。

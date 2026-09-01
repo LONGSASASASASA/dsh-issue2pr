@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { apply, __setTestHooks, delegateWatchTick, DELEGATE_VERIFY_MAX_FAILS } from "../../index.js";
 import { saveProject } from "../../lib/core/store.js";
 import { initRun, saveRun, loadRun } from "../../lib/core/pipeline.js";
+import p7 from "../../lib/stages/p7-patch.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-dwatch-"));
 const SLUG = "wtest";
@@ -67,6 +68,42 @@ function seedRepoWithPatch(repoDir, runDir, { bad = false } = {}) {
     bad ? diff.replace(/line1/g, "no-such-line") : diff);
   writeFileSync(join(runDir, "06-implementation", "coder-report.json"),
     JSON.stringify({ mode: "session", patches: [{ node: "T1", patch: "06-implementation/patches/0001-T1.diff" }], summary: "外部会话完成" }));
+}
+
+function freshP11Case() {
+  seq += 1;
+  const slug = "wtest-p11";
+  const runId = "20260830-1300" + String(seq).padStart(2, "0") + "-w";
+  const runDir = join(root, "projects", slug, "runs", runId);
+  const repoDir = join(root, "projects", slug, "worktrees", runId);
+  const run = initRun({ runId, slug, trigger: { kind: "issue", uri: "x.md" }, reviewMode: "auto", p6Mode: "builtin" });
+  for (const id of ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9"]) {
+    run.stages[id] = { status: "approved", attempts: 0 };
+  }
+  run.stages.P11 = { status: "awaiting_review", attempts: 0, external: true };
+  run.current = "P11";
+  run.status = "awaiting_review";
+  saveRun(runDir, run);
+  saveProject(root, {
+    name: "P11 监听", slug, repos: ["r1"], triggers: [], reviewMode: "auto", p6Mode: "builtin",
+    stageConfig: { P11: { delegate: { mode: "session" } } },
+  });
+  return { runDir, repoDir };
+}
+
+async function seedP11Evidence(repoDir, runDir) {
+  const git = gitInit(repoDir);
+  writeFileSync(join(repoDir, "a.txt"), "line1\n");
+  git(["add", "."]); git(["commit", "-m", "init"]);
+  writeFileSync(join(repoDir, "a.txt"), "line1-fixed\n");
+  const diff = execFileSync("git", ["diff", "--", "a.txt"], { cwd: repoDir }).toString();
+  execFileSync("git", ["checkout", "--", "a.txt"], { cwd: repoDir, stdio: "pipe" });
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), diff);
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"), JSON.stringify({
+    mode: "builtin", patches: [{ node: "T1", patch: "06-implementation/patches/0001-T1.diff" }],
+  }));
+  await p7({ runDir, repoDir, llm: null });
 }
 
 saveProject(root, { name: "监听", slug: SLUG, repos: ["r1"], triggers: [], reviewMode: "auto", p6Mode: "session" });
@@ -140,4 +177,47 @@ test("容错窗口语义：验证失败后产物被修正 → 下一次 tick 直
   const run = loadRun(runDir);
   assert.equal(run.stages.P6.status, "approved");
   assert.equal(run.delegateVerifyFails, undefined, "成功即清容错计数");
+});
+
+test("委外 P11：合法自报 eval 但仓库有额外改动时不得自动放行", async () => {
+  const { runDir, repoDir } = freshP11Case();
+  await seedP11Evidence(repoDir, runDir);
+  writeFileSync(join(repoDir, "a.txt"), "unexpected\n");
+  writeFileSync(join(runDir, "10-pr-description.md"), "# PR\n说明");
+  writeFileSync(join(runDir, "11-eval-report.json"), JSON.stringify({
+    ROOT: "pass", PATCH: "pass", TEST: "pass", DIFF: "pass", DESC: "pass", ACCEPT: "pass",
+  }));
+
+  const result = await delegateWatchTick(fakeCtx(), root, runDir);
+
+  assert.equal(result, "verify-fail");
+  assert.equal(loadRun(runDir).status, "awaiting_review");
+});
+
+test("委外 P11：patch 证据与六项 eval 全通过时自动放行", async () => {
+  const { runDir, repoDir } = freshP11Case();
+  await seedP11Evidence(repoDir, runDir);
+  writeFileSync(join(runDir, "10-pr-description.md"), "# PR\n说明");
+  writeFileSync(join(runDir, "11-eval-report.json"), JSON.stringify({
+    ROOT: "pass", PATCH: "pass", TEST: "pass", DIFF: "pass", DESC: "pass", ACCEPT: "pass",
+  }));
+
+  const result = await delegateWatchTick(fakeCtx(), root, runDir);
+
+  assert.equal(result, "advanced");
+  assert.equal(loadRun(runDir).stages.P11.status, "approved");
+});
+
+test("委外 P11：eval 任一门控为 fail 时不得自动放行", async () => {
+  const { runDir, repoDir } = freshP11Case();
+  await seedP11Evidence(repoDir, runDir);
+  writeFileSync(join(runDir, "10-pr-description.md"), "# PR\n说明");
+  writeFileSync(join(runDir, "11-eval-report.json"), JSON.stringify({
+    ROOT: "pass", PATCH: "pass", TEST: "fail", DIFF: "pass", DESC: "pass", ACCEPT: "pass",
+  }));
+
+  const result = await delegateWatchTick(fakeCtx(), root, runDir);
+
+  assert.equal(result, "verify-fail");
+  assert.equal(loadRun(runDir).status, "awaiting_review");
 });

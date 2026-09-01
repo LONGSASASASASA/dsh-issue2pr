@@ -93,6 +93,16 @@ test("validateStageConfig：合法配置通过；未知阶段/字段类型错误
   assert.equal(validateStageConfig({ P3: { params: { deepReadFiles: 0 } } })[0], false);
 });
 
+test("validateStageConfig：provider 与 model 必须成对配置", () => {
+  const [providerOnly, providerMessage] = validateStageConfig({ P1: { provider: "p-only" } });
+  const [modelOnly, modelMessage] = validateStageConfig({ P1: { model: "m-only" } });
+  assert.equal(providerOnly, false);
+  assert.equal(modelOnly, false);
+  assert.match(providerMessage, /provider.*model|成对/);
+  assert.match(modelMessage, /provider.*model|成对/);
+  assert.equal(validateStageConfig({ P1: { provider: "p", model: "m" } })[0], true);
+});
+
 test("stageDelegated：P6 读 rcx 或 run 上的 p6Mode；其余阶段读 stageCfgOf；裸 rcx 安全回落", () => {
   assert.equal(stageDelegated({ p6Mode: "session" }, "P6"), true);
   assert.equal(stageDelegated({ run: { p6Mode: "claude" } }, "P6"), true);
@@ -115,6 +125,14 @@ test("delegateReady：非 P6 看产物文件；P6 看 patches/coder-report 口�
   assert.equal(delegateReady(runDir2, "P6"), true);
 });
 
+test("delegateReady：P11 必须同时有 PR 说明与 eval 报告", () => {
+  const runDir = mkdtempSync(join(root, "ready11-"));
+  writeFileSync(join(runDir, "10-pr-description.md"), "# PR");
+  assert.equal(delegateReady(runDir, "P11"), false);
+  writeFileSync(join(runDir, "11-eval-report.json"), "{}");
+  assert.equal(delegateReady(runDir, "P11"), true);
+});
+
 test("purgeDelegateArtifacts：P6 清 coder-report 与 patches/*.diff（保留任务包）；非 P6 清产物文件", () => {
   const d = mkdtempSync(join(root, "purge-"));
   mkdirSync(join(d, "06-implementation", "patches"), { recursive: true });
@@ -132,6 +150,19 @@ test("purgeDelegateArtifacts：P6 清 coder-report 与 patches/*.diff（保留�
   assert.deepEqual(purgeDelegateArtifacts(d, "P5"), ["05-task-graph.json"]);
   assert.equal(existsSync(join(d, "05-task-graph.json")), false);
   assert.deepEqual(purgeDelegateArtifacts(d, "P7"), [], "无委托产物定义的阶段不动");
+});
+
+test("purgeDelegateArtifacts：P11 同时清理 PR 说明与 eval 报告", () => {
+  const runDir = mkdtempSync(join(root, "purge11-"));
+  writeFileSync(join(runDir, "10-pr-description.md"), "旧说明");
+  writeFileSync(join(runDir, "11-eval-report.json"), "旧评测");
+
+  const removed = purgeDelegateArtifacts(runDir, "P11");
+
+  assert.ok(removed.includes("10-pr-description.md"));
+  assert.ok(removed.includes("11-eval-report.json"));
+  assert.equal(existsSync(join(runDir, "10-pr-description.md")), false);
+  assert.equal(existsSync(join(runDir, "11-eval-report.json")), false);
 });
 
 test("maybeDelegate：off 返回 null 走本机；session 生成任务包并 external", async () => {

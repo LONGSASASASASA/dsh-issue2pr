@@ -241,6 +241,8 @@ test("API：agents/test 认证中转 — 表单 token 优先，留空回落已�
   let r = await call(h, "PUT", "/issue2pr/api/relay-auth", { token: "sk-relay-saved-token" });
   assert.equal(r.body.ok, true);
   assert.ok(r.body.masked && r.body.masked.length < "sk-relay-saved-token".length, "返回打码（比原文短）");
+  assert.ok(["keychain", "file-fallback"].includes(r.body.storage));
+  if (r.body.storage === "file-fallback") assert.match(r.body.warning, /非加密/);
   r = await call(h, "POST", "/issue2pr/api/agents/test", { auth: { preset: "glm", token: "" } });
   assert.equal(r.body.ok, true);
   assert.equal(seen[seen.length - 1].token, "sk-relay-saved-token", "留空回落已存 token（门禁测保存后的真实路径）");
@@ -250,6 +252,7 @@ test("API：agents/test 认证中转 — 表单 token 优先，留空回落已�
   r = await call(h, "GET", "/issue2pr/api/relay-auth");
   assert.equal(r.body.exists, true);
   assert.ok(!String(r.body.masked).includes("sk-relay-saved-token"), "打码不得包含完整 token");
+  assert.doesNotMatch(JSON.stringify(r.body), /sk-relay-saved-token/);
   r = await call(h, "DELETE", "/issue2pr/api/relay-auth");
   assert.equal(r.body.exists, false);
   r = await call(h, "POST", "/issue2pr/api/agents/test", { auth: { preset: "glm", token: "" } });

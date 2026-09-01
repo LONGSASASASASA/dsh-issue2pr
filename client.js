@@ -65,26 +65,27 @@ window.__ModuleLoader__.load({
   --ink-2:var(--dsw-alias-label-secondary,#414351);
   --muted:var(--dsw-alias-label-tertiary,#6f6b78);
   --caption:var(--dsw-alias-label-caption,#9b9da8);
-  /* Rose + Zinc 色板（taste-skill 纪律：zinc 中性面 + 单一深玫红强调 + 浅 tint 胶囊）：
-     浅色 = 暖灰白底 + 深玫红；深色 = zinc-950 墨底 + 亮玫红，见下方 [data-i2p-theme=dark] 覆盖块。
-     文字色仍取宿主令牌（随宿主明暗自动换），底/线/强调走本套令牌 */
-  --line:#e4e4e7;
-  --line-2:#d4d4d8;
-  --card:#ffffff;
-  --panel:#f7f7f8;
-  --accent:#be3455;
-  --accent-strong:#a12a49;
-  --accent-ink:#ffffff;
-  --hover:rgba(24,24,27,.04);
-  --nav-on:rgba(190,52,85,.08);
-  --acc-soft:rgba(190,52,85,.07);
-  --good:#1a7f4b;
-  --good-bg:rgba(26,127,75,.06);
-  --warn:#9a6700;
-  --warn-bg:rgba(154,103,0,.07);
-  --err:#cf222e;
-  --err-bg:rgba(207,34,46,.05);
-  --code-bg:#0f1117; --code-line:#1e212b;
+	  /* 暖灰瓷面 + 单一绿色强调：状态色只表达语义，结构色不抢证据入口。 */
+	  --shell:#ecebe6;
+	  --porcelain:#f5f5f2;
+	  --porcelain-strong:#ffffff;
+	  --line:#deddd6;
+	  --line-2:#cfcfc7;
+	  --card:#ffffff;
+	  --panel:rgba(255,255,255,.84);
+	  --accent:#177b62;
+	  --accent-strong:#12644f;
+	  --accent-ink:#ffffff;
+	  --hover:rgba(32,33,31,.05);
+	  --nav-on:#e5f0eb;
+	  --acc-soft:#e5f0eb;
+	  --good:#27703d;
+	  --good-bg:rgba(39,112,61,.10);
+	  --warn:#90620b;
+	  --warn-bg:rgba(144,98,11,.10);
+	  --err:#a43c34;
+	  --err-bg:rgba(164,60,52,.10);
+	  --code-bg:#151816; --code-line:#2b302d;
   --mono:'JetBrains Mono','IBM Plex Mono','Cascadia Code',Consolas,'Liberation Mono',monospace;
   --fs-xs:11.5px; --fs-sm:12.5px; --fs-md:13.5px; --fs-lg:14.5px; /* 字号 scale：AI 面板段统一走 token */
   /* 字体必须显式声明：不声明则继承宿主→系统默认字体（Win 雅黑/Mac 苹方/Linux Noto
@@ -92,30 +93,33 @@ window.__ModuleLoader__.load({
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC','Source Han Sans SC',sans-serif;
   color:var(--ink); font-size:14.5px; line-height:1.7;
   background:var(--panel);
-  flex:1; min-height:0; display:flex; flex-direction:column;
+  flex:1; min-width:0; min-height:0; display:flex; flex-direction:column;
 }
-/* Rose + Zinc · 墨底版：宿主深色主题时由 watchArchTheme() 给 <html> 打 data-i2p-theme=dark。
+/* 深色瓷面版：宿主深色主题时由 watchArchTheme() 给 <html> 打 data-i2p-theme=dark。
    说明级小字（--muted/--caption）不链宿主令牌而在此显式亮化：宿主深色灰在墨底上
    对比不足 4.5:1（截图审查实测发灰），工作台内文字以可读性优先 */
 [data-i2p-theme=dark] .i2p,[data-i2p-theme=dark] .i2p-page{
   --muted:#a1a5b0;
   --caption:#878b95;
-  --line:#2e3138;
-  --line-2:#3a3d45;
-  --card:#1b1d22;
-  --panel:#131417;
-  --accent:#f2a0b5;
-  --accent-strong:#f7bccb;
-  --accent-ink:#33101d;
-  --hover:rgba(255,255,255,.05);
-  --nav-on:rgba(242,160,181,.16);
-  --acc-soft:rgba(242,160,181,.15);
-  --good:#6fca8a;
-  --good-bg:rgba(111,202,138,.12);
-  --warn:#e0b341;
-  --warn-bg:rgba(224,179,65,.13);
-  --err:#f0877a;
-  --err-bg:rgba(240,135,122,.11);
+	  --shell:#101110;
+	  --porcelain:#151614;
+	  --porcelain-strong:#1b1d1a;
+	  --line:#343731;
+	  --line-2:#454941;
+	  --card:#1b1d1a;
+	  --panel:rgba(21,22,20,.88);
+	  --accent:#67b79d;
+	  --accent-strong:#84c9b1;
+	  --accent-ink:#10251e;
+	  --hover:rgba(255,255,255,.05);
+	  --nav-on:rgba(103,183,157,.16);
+	  --acc-soft:rgba(103,183,157,.14);
+	  --good:#85c99a;
+	  --good-bg:rgba(133,201,154,.14);
+	  --warn:#d9ab62;
+	  --warn-bg:rgba(217,171,98,.15);
+	  --err:#e59b91;
+	  --err-bg:rgba(229,155,145,.14);
 }
 .i2p *{box-sizing:border-box}
 .i2p button{font-family:inherit;cursor:pointer;color:inherit}
@@ -125,7 +129,7 @@ window.__ModuleLoader__.load({
 .i2p pre code,.i2p pre{font-family:var(--mono)}
 
 /* ===== 主体：左侧导航列 + 内容区（一律靠左） ===== */
-.i2p-body{flex:1;min-height:0;display:flex;align-items:stretch}
+.i2p-body{flex:1;min-width:0;min-height:0;display:flex;align-items:stretch}
 .i2p-nav{flex:none;width:var(--i2p-nav-w,180px);border-right:1px solid var(--line);padding:18px 14px 18px 14px;
   display:flex;flex-direction:column;gap:16px;position:relative;overflow:hidden;
   transition:width .2s cubic-bezier(.2,.8,.2,1)}
@@ -134,7 +138,7 @@ window.__ModuleLoader__.load({
 .i2p-nav-title .tt{flex:none;font-size:16px;font-weight:600;color:var(--ink);letter-spacing:-0.01em}
 .i2p-nav-list{display:flex;flex-direction:column;gap:2px;list-style:none;padding:0;margin:0}
 .i2p-nav-cell{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border:none;
-  background:none;border-radius:10px;font-size:14.5px;color:var(--ink-2);text-align:left;width:100%;
+  background:none;border-radius:3px;font-size:14.5px;color:var(--ink-2);text-align:left;width:100%;
   position:relative;cursor:pointer;
   animation:i2p-cell-in .3s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*45ms);
   transition:background .14s,color .14s}
@@ -161,7 +165,7 @@ body.i2p-dragging{user-select:none}
 .i2p-nav.rail .i2p-nav-cell .lb,.i2p-nav.rail .i2p-nav-cell .cnt{display:none}
 .i2p-nav.rail .i2p-nav-note{display:none}
 .i2p-nav.rail .i2p-nav-grip{display:none}
-.i2p-main{flex:1;min-width:0;overflow-y:auto;padding:24px 32px 48px}
+.i2p-main{flex:1;min-width:0;overflow-y:auto;padding:22px clamp(16px,3vw,36px) 48px}
 @media (max-width:880px){
   .i2p-body{flex-direction:column}
   .i2p-nav{width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px;
@@ -172,22 +176,30 @@ body.i2p-dragging{user-select:none}
   .i2p-nav-note{display:none}
   .i2p-main{padding:16px 16px 32px}
 }
+@media (max-width:560px){
+  .i2p-page-body,.i2p,.i2p-body{min-width:0;width:100%}
+  .i2p-nav{min-width:0;max-width:100%;box-sizing:border-box;flex:0 1 auto}
+  .i2p-nav-title,.i2p-nav-title .tt{min-width:0}
+  .i2p-nav-title .tt{overflow:hidden;text-overflow:ellipsis}
+  .i2p-main{min-width:0;overflow-x:hidden;padding-left:12px;padding-right:12px}
+  .i2p .run-bar .f-select{flex:1 1 180px;min-width:0;max-width:100%}
+}
 
 /* ===== 区块标题（无衬线 600 + 一行说明，层级靠字重与颜色） ===== */
 .i2p .sec{margin-bottom:6px}
-.i2p .sec h2{font-size:18px;font-weight:600;margin:0 0 2px;color:var(--ink);letter-spacing:-0.01em}
+.i2p .sec h2{font-size:24px;line-height:1.25;font-weight:680;margin:0 0 4px;color:var(--ink);letter-spacing:0}
 .i2p .sec .sub{margin:0 0 16px;font-size:13.5px;color:var(--muted)}
 .i2p .sec .sub b{color:var(--ink-2);font-weight:600}
 
 /* ===== 卡片 / callout（白面 + hairline 边，层级靠留白与分隔线） ===== */
-.i2p .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.i2p .card{background:var(--card);border:1px solid var(--line);border-radius:3px;padding:16px 18px}
 .i2p .card h4{font-size:13.5px;color:var(--ink-2);
   margin:0 0 10px;font-weight:600}
 .i2p .card p{margin:0 0 8px;font-size:14px}
 .i2p .card ul{margin:6px 0 0;padding-left:18px;font-size:14px}
 .i2p .card ul li{margin-bottom:4px}
 .i2p .callout{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--card);
-  border-radius:0 10px 10px 0;padding:12px 14px}
+  border-radius:0 3px 3px 0;padding:12px 14px}
 .i2p .callout h4{margin:0 0 8px}
 .i2p .callout.acc{border-left-color:var(--accent)}
 .i2p .callout.warn{border-left-color:var(--warn);background:var(--warn-bg);border-color:transparent;border-left-color:var(--warn)}
@@ -224,7 +236,7 @@ body.i2p-dragging{user-select:none}
 @media (prefers-reduced-motion:reduce){.i2p .tg.run::before{animation:none}}
 
 /* ===== 按钮 ===== */
-.i2p .btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;
+.i2p .btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:3px;
   border:1px solid var(--line-2);background:none;color:var(--ink-2);font-size:13.5px;transition:background .15s,border-color .15s}
 .i2p .btn:hover{background:var(--hover);color:var(--ink);border-color:var(--muted)}
 .i2p .btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
@@ -232,12 +244,12 @@ body.i2p-dragging{user-select:none}
 .i2p .btn.danger{border-color:var(--line-2);color:var(--err)}
 .i2p .btn.danger:hover{background:var(--err-bg);border-color:var(--err)}
 .i2p .btn:disabled{opacity:.45;cursor:not-allowed}
-.i2p .btn.sm{height:26px;padding:0 9px;font-size:12.5px;gap:5px}
+.i2p .btn.sm{height:28px;padding:0 9px;font-size:12.5px;gap:5px}
 
 /* ===== 表单 ===== */
 .i2p label.f-label,span.f-label{display:block;font-size:12px;color:var(--muted);margin:0 0 5px;font-weight:600}
 .i2p .f-input,.i2p .f-select{width:100%;background:var(--card);border:1px solid var(--line-2);
-  border-radius:8px;color:var(--ink);padding:6px 10px;font-size:14px;font-family:inherit;transition:border-color .15s}
+  border-radius:3px;color:var(--ink);padding:7px 10px;font-size:14px;font-family:inherit;transition:border-color .15s}
 .i2p textarea.f-input{resize:vertical}
 .i2p .f-input.mono,.i2p .f-select.mono{font-family:var(--mono);font-size:13px}
 .i2p .f-input:focus,.i2p .f-select:focus{border-color:var(--accent)}
@@ -248,15 +260,15 @@ body.i2p-dragging{user-select:none}
 .i2p .dyn-row{display:flex;gap:6px;margin-bottom:6px;align-items:center}
 .i2p .dyn-row .f-input{flex:1}
 .i2p .dyn-row .rm{flex:none;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);
-  border:1px solid var(--line-2);background:none;border-radius:8px;width:30px;height:30px}
+  border:1px solid var(--line-2);background:none;border-radius:3px;width:30px;height:30px}
 .i2p .dyn-row .rm:hover{color:var(--err);border-color:var(--err)}
 .i2p .add-row{display:inline-flex;align-items:center;gap:5px;background:none;border:1px dashed var(--line-2);
-  color:var(--accent);border-radius:8px;padding:4px 11px;font-size:13px;margin-top:2px}
+  color:var(--accent);border-radius:3px;padding:5px 11px;font-size:13px;margin-top:2px}
 .i2p .add-row:hover{border-color:var(--accent)}
 .i2p .run-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
-  border-radius:8px;border:1px solid var(--good);color:var(--good);background:none}
+  border-radius:3px;border:1px solid var(--good);color:var(--good);background:none}
 .i2p .run-btn:hover{background:var(--good-bg)}
-.i2p fieldset.trig-src{border:1px solid var(--line);border-radius:10px;padding:12px 14px 14px;margin:0 0 13px}
+.i2p fieldset.trig-src{border:1px solid var(--line);border-radius:3px;padding:12px 14px 14px;margin:0 0 13px}
 .i2p .trig-head{font-size:14px;font-weight:600;color:var(--ink-2);margin:10px 0 7px;
   display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .i2p .trig-head .hint{font-weight:400;font-size:12.5px;color:var(--muted)}
@@ -266,7 +278,7 @@ body.i2p-dragging{user-select:none}
 
 /* 单选组（chip 式） */
 .i2p .radio-group{display:flex;gap:8px;flex-wrap:wrap}
-.i2p .radio-chip{display:flex;align-items:center;gap:7px;border:1px solid var(--line-2);border-radius:8px;
+.i2p .radio-chip{display:flex;align-items:center;gap:7px;border:1px solid var(--line-2);border-radius:3px;
   padding:5px 11px;font-size:13.5px;color:var(--ink-2);cursor:pointer;user-select:none;background:var(--card)}
 .i2p .radio-chip input{accent-color:var(--accent);margin:0}
 .i2p .radio-chip.on{border-color:var(--accent);color:var(--accent)}
@@ -274,18 +286,53 @@ body.i2p-dragging{user-select:none}
 
 /* ===== 项目列表 ===== */
 .i2p .proj-list{display:flex;flex-direction:column;gap:6px}
-.i2p .proj-item{text-align:left;background:none;border:1px solid var(--line);border-radius:10px;
+.i2p .proj-item{text-align:left;background:none;border:1px solid var(--line);border-radius:3px;
   padding:9px 12px;color:var(--ink);transition:border-color .15s,background .15s}
 .i2p .proj-item:hover{border-color:var(--line-2);background:var(--hover)}
 .i2p .proj-item.on{border-color:var(--accent)}
 .i2p .proj-item .p-name{font-weight:600;font-size:14px}
 .i2p .proj-item .p-meta{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:2px}
+.i2p .project-layout{display:grid;grid-template-columns:310px minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:880px){.i2p .project-layout{grid-template-columns:1fr}}
 
 /* ===== 运行页布局 ===== */
 .i2p .run-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
 .i2p .run-bar .f-select{width:auto;min-width:300px}
-.i2p .pipe-layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px;align-items:start;margin-top:14px}
-@media (max-width:960px){.i2p .pipe-layout{grid-template-columns:1fr}}
+.i2p .pipe-layout{display:block;margin-top:18px}
+.i2p .pipe-layout > .steps{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:0 0 16px}
+.i2p .pipe-layout > .steps .step-row{min-height:112px;display:flex;flex-direction:column;align-items:stretch;
+  gap:8px;padding:12px;border:1px solid var(--line);border-radius:3px;background:var(--card);
+  transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
+.i2p .pipe-layout > .steps .step-row.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent);background:var(--accent-soft)}
+@media (hover:hover) and (pointer:fine){
+  .i2p .pipe-layout > .steps .step-row:hover{
+    border-color:var(--line-2);background:var(--card);transform:translateY(-2px);
+    box-shadow:0 4px 12px rgba(24,24,27,.08)}
+  .i2p .pipe-layout > .steps .step-row.on:hover{
+    border-color:var(--accent);background:var(--accent-soft);
+    box-shadow:inset 3px 0 0 var(--accent),0 4px 12px rgba(24,24,27,.08)}
+  .i2p .pipe-layout > .steps .step-row:active{transform:translateY(0);box-shadow:none}
+  .i2p .pipe-layout > .steps .step-row.on:active{box-shadow:inset 3px 0 0 var(--accent)}
+}
+@media (prefers-reduced-motion:reduce){
+  .i2p .pipe-layout > .steps .step-row{transition:none}
+  .i2p .pipe-layout > .steps .step-row:hover{transform:none}
+}
+.i2p .pipe-layout > .steps .step-row .sdot{align-self:flex-end;order:-1;margin-bottom:-16px}
+.i2p .pipe-layout > .steps .step-row .s-main{gap:4px;padding-right:0}
+.i2p .pipe-layout > .steps .step-row .s-name,.i2p .pipe-layout > .steps .step-row .s-desc{white-space:normal;overflow:visible;text-overflow:clip}
+.i2p .pipe-layout > .steps .step-row .s-name{font-size:13px;line-height:1.35}
+.i2p .pipe-layout > .steps .step-row .s-desc{font-size:10.5px;line-height:1.4}
+.i2p .pipe-layout > .steps .step-row .s-side{margin-top:auto;flex-direction:row;align-items:center;justify-content:space-between;gap:5px}
+@media (max-width:880px){
+  .i2p .pipe-layout > .steps{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (max-width:560px){
+  .i2p .pipe-layout > .steps{grid-template-columns:1fr}
+}
+@media (max-width:560px){
+  .i2p .run-bar .f-select{width:100%;min-width:0;max-width:100%}
+}
 
 .i2p .run-hint{font-size:13.5px;color:var(--muted);margin:0 0 4px}
 .i2p .run-hint b{color:var(--ink-2);font-weight:600}
@@ -293,7 +340,7 @@ body.i2p-dragging{user-select:none}
 /* ===== 阶段时间线（行式列表 + 状态点） ===== */
 .i2p .steps{display:flex;flex-direction:column;gap:1px}
 .i2p .step-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
-  width:100%;text-align:left;background:none;border:none;padding:7px 9px;border-radius:10px;transition:background .15s}
+  width:100%;text-align:left;background:none;border:none;padding:7px 9px;border-radius:3px;transition:background .15s}
 .i2p .step-row:hover{background:var(--hover)}
 .i2p .step-row.on{background:var(--nav-on);box-shadow:inset 3px 0 0 var(--accent)}
 .i2p .sdot{width:10px;height:10px;border-radius:50%;border:2px solid var(--line-2);background:none;flex:none}
@@ -315,12 +362,12 @@ body.i2p-dragging{user-select:none}
 .i2p .detail-head h3{font-size:16px;font-weight:600;margin:0;letter-spacing:-0.01em}
 .i2p .detail-head .path{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:3px;word-break:break-all}
 .i2p .a-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
-.i2p .a-tab{background:none;border:1px solid var(--line);color:var(--ink-2);border-radius:6px;
+.i2p .a-tab{background:none;border:1px solid var(--line);color:var(--ink-2);border-radius:3px;
   padding:2px 9px;font-size:12.5px;font-family:var(--mono)}
 .i2p .a-tab.on{border-color:var(--accent);color:var(--accent)}
 
 /* ===== 代码 / 产物预览（固定深底，等价嵌入式终端） ===== */
-.i2p pre.view{background:var(--code-bg);color:#dfe3ec;padding:13px 15px;border-radius:10px;overflow-x:auto;
+.i2p pre.view{background:var(--code-bg);color:#dfe3ec;padding:13px 15px;border-radius:3px;overflow-x:auto;
   margin:0;font-family:var(--mono);font-size:13px;line-height:1.6;max-height:420px;overflow-y:auto;
   border:1px solid var(--code-line)}
 .i2p pre.view .k{color:#ef9ab0}
@@ -347,7 +394,7 @@ body.i2p-dragging{user-select:none}
 .i2p .ev-head{display:flex;align-items:baseline;gap:8px;margin-top:14px;flex-wrap:wrap}
 .i2p .ev-head .f-label{margin:0}
 .i2p .ev-head .hint{font-size:12px;color:var(--muted)}
-.i2p .ev-list{border:1px solid var(--line);border-radius:10px;margin-top:6px;max-height:280px;overflow-y:auto}
+.i2p .ev-list{border:1px solid var(--line);border-radius:3px;margin-top:6px;max-height:280px;overflow-y:auto}
 .i2p .ev-row{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;gap:8px;align-items:center;
   width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--line);padding:6px 10px;font-size:13px}
 .i2p .ev-row:hover{background:var(--hover)}
@@ -375,14 +422,16 @@ body.i2p-dragging{user-select:none}
 .i2p .ledger-row .at{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
 
 /* ===== 产物 tab ===== */
-.i2p .art-layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start;margin-top:14px}
-@media (max-width:900px){.i2p .art-layout{grid-template-columns:1fr}}
+.i2p .art-layout{display:grid;grid-template-columns:310px minmax(0,1fr);gap:16px;align-items:start;margin-top:18px}
+@media (max-width:880px){.i2p .art-layout{grid-template-columns:1fr}}
+.i2p .art-layout > .artifact-tree-card{border:0;transition:none}
+.i2p .art-layout > .artifact-tree-card:hover{border-color:transparent;transform:none;box-shadow:none}
 .i2p .tree{font-family:var(--mono);font-size:14.5px;color:var(--ink-2);overflow-x:auto}
 .i2p .tree .dir{display:flex;width:100%;text-align:left;background:var(--hover);border:none;color:var(--ink);font-weight:600;
-  font-family:inherit;font-size:inherit;padding:4px 8px;border-radius:6px;cursor:pointer}
+  font-family:inherit;font-size:inherit;padding:6px 8px;border-radius:3px;cursor:pointer}
 .i2p .tree .dir:hover{background:var(--nav-on)}
 .i2p .tree .file{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;
-  border:none;color:var(--ink-2);padding:4px 8px;border-radius:6px;font-family:inherit;font-size:inherit}
+  border:none;color:var(--ink-2);padding:6px 8px;border-radius:3px;font-family:inherit;font-size:inherit}
 .i2p .tree .file:hover{background:var(--hover)}
 .i2p .tree .file.on{background:var(--nav-on);color:var(--accent)}
 .i2p .tree .ts{color:var(--muted);font-size:12px;flex:none}
@@ -392,7 +441,7 @@ body.i2p-dragging{user-select:none}
 .i2p ol.tight{padding-left:20px;margin:8px 0 16px;font-size:14px}
 .i2p ol.tight li{margin-bottom:5px}
 .i2p ol.tight li b{color:var(--ink-2)}
-.i2p .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 12px}
+.i2p .grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 0 12px}
 @media (max-width:760px){.i2p .grid-2{grid-template-columns:1fr}}
 .i2p .hint-line{font-size:13px;color:var(--muted);margin:12px 0 0}
 .i2p .hint-line code{font-family:var(--mono);background:var(--hover);padding:1px 6px;border-radius:4px;font-size:12px;color:var(--ink-2)}
@@ -424,11 +473,11 @@ body.i2p-dragging{user-select:none}
 .i2p .kv .v.mono{font-family:var(--mono);font-size:12.5px}
 
 /* ===== 配置页 ===== */
-.i2p .cfg-layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px;align-items:start;margin-top:14px}
-@media (max-width:960px){.i2p .cfg-layout{grid-template-columns:1fr}}
+.i2p .cfg-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:16px;align-items:start;margin-top:18px}
+@media (max-width:880px){.i2p .cfg-layout{grid-template-columns:1fr}}
 /* 阶段选择行：已自定义 → 名字后跟一枚小蓝点；委托开启 → 右侧"委"标 */
 .i2p .cfg-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
-  width:100%;text-align:left;background:none;border:none;padding:7px 9px;border-radius:10px;transition:background .15s}
+  width:100%;text-align:left;background:none;border:none;padding:8px 9px;border-radius:3px;transition:background .15s}
 .i2p .cfg-row:hover{background:var(--hover)}
 .i2p .cfg-row.on{background:var(--nav-on)}
 .i2p .cfg-row .cdot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--accent);
@@ -442,7 +491,7 @@ body.i2p-dragging{user-select:none}
 .i2p .pr-head .mark{font-family:var(--mono);font-size:10.5px;color:var(--accent);border:1px solid var(--accent);
   border-radius:4px;padding:0 5px}
 .i2p textarea.pr-input{width:100%;min-height:88px;resize:vertical;background:var(--card);border:1px solid var(--line-2);
-  border-radius:8px;color:var(--ink);padding:7px 10px;font-size:12.5px;line-height:1.6;
+  border-radius:3px;color:var(--ink);padding:7px 10px;font-size:12.5px;line-height:1.6;
   font-family:var(--mono);transition:border-color .15s}
 .i2p textarea.pr-input:focus{border-color:var(--accent)}
 /* 委托开关行 */
@@ -466,25 +515,28 @@ body.i2p-dragging{user-select:none}
 .i2p-toast.t-warn{border-left-color:var(--dsw-alias-state-warn-label,#9a6700)}
 
 /* ===== Git 托管连接（项目页）：host 徽章 + 连接列表 ===== */
-.i2p .host-badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:1px 9px;
-  border-radius:999px;border:1px solid var(--line);color:var(--muted);max-width:100%}
+.i2p .host-badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:2px 8px;
+  border-radius:3px;border:1px solid var(--line);color:var(--muted);max-width:100%}
 .i2p .host-badge.ok{color:var(--good);border-color:transparent;background:var(--good-bg)}
 .i2p .host-badge.warn{color:var(--warn);border-color:transparent;background:var(--warn-bg)}
 .i2p .host-badge .hb-host{font-family:var(--mono);font-size:11.5px}
 .i2p .repo-row-2{display:flex;gap:6px;margin:-2px 0 8px;align-items:center;flex-wrap:wrap}
 .i2p .conn-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 10px}
-.i2p .conn-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);
-  border-radius:10px;flex-wrap:wrap}
+.i2p .conn-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);
+  border-radius:3px;flex-wrap:wrap}
 .i2p .conn-row .cn-kind{flex:none;font-size:12px;font-weight:600;color:var(--accent)}
 .i2p .conn-row .cn-host{font-family:var(--mono);font-size:12.5px;color:var(--ink)}
 .i2p .conn-row .cn-tok{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.i2p .conn-row .cn-store{font-size:11px;color:var(--muted);border-left:1px solid var(--line);padding-left:7px}
+.i2p .conn-row .cn-store.warn{color:var(--warn)}
+.i2p .conn-row .cn-store-warning{flex:1 0 100%;font-size:11px;color:var(--warn);overflow-wrap:anywhere}
 .i2p .conn-row .cn-act{margin-left:auto;display:flex;gap:6px}
 
 /* ===== 委外智能体绑定卡（项目页 P6=claude / 配置页 P6 共用）：多方式发现 + 测试门禁 ===== */
-.i2p .agent-bind{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px}
+.i2p .agent-bind{border:1px solid var(--line);border-radius:3px;padding:10px 12px;margin-top:10px}
 .i2p .agent-cands{display:flex;flex-direction:column;gap:5px;margin:8px 0 2px}
 .i2p .agent-cand{display:flex;align-items:center;gap:10px;width:100%;text-align:left;cursor:pointer;
-  background:none;border:1px solid var(--line);border-radius:9px;padding:5px 10px;
+  background:none;border:1px solid var(--line);border-radius:3px;padding:5px 10px;
   transition:border-color .15s,background .15s;font-family:inherit;font-size:inherit;color:inherit}
 .i2p .agent-cand:hover{background:var(--hover)}
 .i2p .agent-cand.on{border-color:var(--accent);background:var(--nav-on)}
@@ -504,7 +556,7 @@ body.i2p-dragging{user-select:none}
 .i2p .agent-gate .ag-hint{margin:6px 0 0;color:var(--warn)}
 /* 发现扫描走马灯：滚动展示解析全过程（各来源阶段）；标记位当前阶段文字轮播 */
 .i2p .scan-ticker{margin:8px 0 0;overflow:hidden;white-space:nowrap;border:1px dashed var(--line-2);
-  border-radius:8px;background:var(--card)}
+  border-radius:3px;background:var(--card)}
 .i2p .scan-ticker .tk{display:inline-block;padding-left:100%;line-height:22px;font-size:12px;
   color:var(--muted);animation:i2p-tk 12s linear infinite}
 @keyframes i2p-tk{from{transform:translateX(0)}to{transform:translateX(-100%)}}
@@ -514,7 +566,7 @@ body.i2p-dragging{user-select:none}
 
 /* ---- 侧边栏入口按钮：1:1 复刻宿主设置按钮（settings-general VOzbGW_trigger 配方） ---- */
 .i2p-entry{box-sizing:border-box;cursor:pointer;width:calc(100% + 4px);height:42px;
-  color:var(--dsw-alias-label-primary);background:none;border:none;border-radius:12px;
+  color:var(--dsw-alias-label-primary);background:none;border:none;border-radius:3px;
   flex:none;align-items:center;gap:8px;margin:4px -2px;padding:0 10px 0 8px;
   font-family:inherit;font-size:14px;line-height:22px;display:flex;overflow:hidden;text-align:left}
 .i2p-entry:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -526,50 +578,53 @@ body.i2p-dragging{user-select:none}
    sidebar 拖动/窗口缩放跟随），无遮罩非模态，视觉上即"右边的框" ---- */
 .i2p-page{position:fixed;display:flex;flex-direction:column;overflow:hidden;
   background:var(--panel);color:var(--ink)}
-.i2p-head{flex:none;display:flex;align-items:center;justify-content:center;gap:14px;position:relative;
-  height:52px;padding:0 10px 0 20px;border-bottom:1px solid var(--line);background:var(--card)}
-.i2p-head .brand{display:flex;align-items:baseline;gap:10px;min-width:0}
-.i2p-head .brand b{font-size:16.5px;font-weight:600;letter-spacing:-0.01em}
-.i2p-head .brand span{font-family:var(--mono);font-size:11.5px;color:var(--dsw-alias-label-tertiary,#82848f);letter-spacing:.08em}
-.i2p-head .om{font-family:var(--mono);font-size:11.5px;color:var(--dsw-alias-label-tertiary,#82848f)}
+.i2p-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:14px;position:relative;
+  height:56px;padding:0 20px;border-bottom:1px solid var(--line);background:var(--panel);
+  backdrop-filter:blur(14px)}
+.i2p-head .brand{display:flex;align-items:center;gap:10px;min-width:0}
+.i2p-head .brand b{font-size:16.5px;font-weight:680;letter-spacing:.3px}
+	.i2p-head .brand .brand-mark{display:block;flex:0 0 auto;width:24px;height:24px;color:var(--ink-2)}
+	.i2p-head .brand .brand-copy{display:flex;align-items:baseline;gap:10px;min-width:0}
+	.i2p-head .brand span{font-family:var(--mono);font-size:11.5px;color:var(--dsw-alias-label-tertiary,#82848f);letter-spacing:.08em}
+	.i2p-head .om{font-family:var(--mono);font-size:11.5px;color:var(--dsw-alias-label-tertiary,#82848f)}
 /* right:78px 避开宿主右上角的悬浮按钮排（better-sidebar：底部面板/侧边栏展开钮占右缘约 70px） */
-.i2p-close{position:absolute;right:78px;top:50%;transform:translateY(-50%);
+.i2p-close{position:relative;right:auto;top:auto;transform:none;
   display:inline-flex;align-items:center;justify-content:center;cursor:pointer;width:28px;height:28px;
-  color:var(--dsw-alias-label-primary);background:none;border:none;border-radius:28px}
+  color:var(--dsw-alias-label-primary);background:none;border:none;border-radius:3px}
 .i2p-close:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .i2p-close:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.i2p-page-body{flex:1;min-height:0;display:flex}
+.i2p-page-body{flex:1;min-width:0;min-height:0;display:flex}
 
-/* ===== 悬浮智能助手（瑞士极简：去气泡、去 AI 符号，玫红只做强调色系） ===== */
+/* ===== 悬浮智能助手（轻量工具面板，绿色只做强调色） ===== */
 .i2p-ai{position:absolute;inset:0;pointer-events:none;z-index:9999}
 .i2p-ai button{font-family:inherit;cursor:pointer;color:inherit}
-/* 入口 = 中性工具钮（非"AI 球"）：描边消息图标，hover 才显底；开启态反色 */
-.i2p-ai-fab{pointer-events:auto;position:absolute;top:64px;right:88px;width:30px;height:30px;border-radius:9px;
+/* 入口 = 中性工具钮（非"AI 球"）：sparkle 图标，hover 才显底；开启态反色 */
+.i2p-ai-fab{pointer-events:auto;position:absolute;top:64px;right:88px;width:30px;height:30px;border-radius:3px;
   border:1px solid var(--line-2,#d8dae3);
-  border:1px solid color-mix(in srgb,var(--accent,#be3455) 24%,var(--line-2,#d8dae3));
+  border:1px solid color-mix(in srgb,var(--accent,#177b62) 24%,var(--line-2,#d8dae3));
   background:var(--panel,#fff);
-  background:color-mix(in srgb,var(--accent,#be3455) 9%,var(--panel,#fff));color:var(--ink-2,#414351);
+  background:color-mix(in srgb,var(--accent,#177b62) 9%,var(--panel,#fff));color:var(--ink-2,#414351);
   display:inline-flex;align-items:center;justify-content:center;
   box-shadow:0 1px 4px rgba(9,12,20,.08);
   transition:background .18s,color .18s,border-color .18s,transform .12s}
-.i2p-ai-fab:hover{background:var(--hover);background:color-mix(in srgb,var(--accent,#be3455) 16%,var(--panel,#fff));color:var(--ink);transform:translateY(-1px)}
+.i2p-ai-fab:hover{background:var(--hover);background:color-mix(in srgb,var(--accent,#177b62) 16%,var(--panel,#fff));color:var(--ink);transform:translateY(-1px)}
 .i2p-ai-fab:active{transform:scale(.95)}
 .i2p-ai-fab.on{background:var(--ink,#17181f);color:var(--card,#fff);border-color:var(--ink,#17181f)}
 @keyframes i2p-ai-in{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
-/* 面板：轻玫红底（color-mix 混主题底色，浅色=淡蓝纸感/深色=墨蓝调，官方 Markdown 文字两主题可读），
-   全部强调（边框/focus/hover/chip 圆点）统一同一玫红色系，避免杂色。
+/* 面板：轻绿色底（color-mix 混主题底色，官方 Markdown 文字两主题可读），
+   全部强调（边框/focus/hover/chip 圆点）统一同一绿色系，避免杂色。
    每处 color-mix 前都有一行传统语法兜底：旧内核（Chromium<111）把不认识的值整条丢弃、
-   保留兜底行——面板退化为"无玫红染色但结构完整"，而不是无背景无边框 */
+   保留兜底行——面板退化为"无绿色染色但结构完整"，而不是无背景无边框 */
 .i2p-ai-panel{pointer-events:auto;position:absolute;top:60px;width:400px;height:calc(100% - 76px);
   min-width:240px;min-height:200px;
   display:flex;flex-direction:column;
   background:var(--panel,#fff);
-  background:color-mix(in srgb,var(--accent,#be3455) 7%,var(--panel,#fff));
+  background:color-mix(in srgb,var(--accent,#177b62) 7%,var(--panel,#fff));
   border:1px solid var(--line-2,#d8dae3);
-  border:1px solid color-mix(in srgb,var(--accent,#be3455) 20%,var(--line-2,#d8dae3));border-radius:12px;
+  border:1px solid color-mix(in srgb,var(--accent,#177b62) 20%,var(--line-2,#d8dae3));border-radius:3px;
   box-shadow:0 6px 28px rgba(9,12,20,.12);overflow:hidden;
   animation:i2p-ai-in .2s cubic-bezier(.2,.8,.2,1)}
-/* resize 层：四边+四角，hover 显玫红；角命中区 24×24（WCAG 2.2 目标尺寸），
+/* resize 层：四边+四角，hover 显绿色；角命中区 24×24（WCAG 2.2 目标尺寸），
    贴面板内侧（外伸会被 overflow:hidden 裁剪点不到）；双击任一处恢复默认位置与尺寸 */
 .i2p-ai-rz{position:absolute;z-index:4;touch-action:none}
 .i2p-ai-rz.n{top:0;left:24px;right:24px;height:7px;cursor:ns-resize}
@@ -580,11 +635,11 @@ body.i2p-dragging{user-select:none}
 .i2p-ai-rz.ne{top:0;right:0;width:24px;height:24px;cursor:nesw-resize}
 .i2p-ai-rz.sw{bottom:0;left:0;width:24px;height:24px;cursor:nesw-resize}
 .i2p-ai-rz.se{bottom:0;right:0;width:24px;height:24px;cursor:nwse-resize}
-.i2p-ai-rz:hover{background:var(--hover);background:color-mix(in srgb,var(--accent,#be3455) 35%,transparent)}
+.i2p-ai-rz:hover{background:var(--hover);background:color-mix(in srgb,var(--accent,#177b62) 35%,transparent)}
 /* 头部：标题 + 小字副题 + 关闭，细分割线（无图标） */
 .i2p-ai-head{flex:none;display:flex;align-items:baseline;gap:8px;padding:11px 14px;cursor:move;
   border-bottom:1px solid var(--line,#e5e6ec);
-  border-bottom:1px solid color-mix(in srgb,var(--accent,#be3455) 14%,var(--line,#e5e6ec))}
+  border-bottom:1px solid color-mix(in srgb,var(--accent,#177b62) 14%,var(--line,#e5e6ec))}
 .i2p-ai-title{font-size:var(--fs-md,13.5px);font-weight:600;color:var(--ink);letter-spacing:.01em}
 .i2p-ai-sub{font-size:var(--fs-xs,11.5px);color:var(--muted)}
 .i2p-ai-close{margin-left:auto;align-self:center;width:26px;height:26px;border:none;border-radius:7px;background:none;
@@ -596,7 +651,7 @@ body.i2p-dragging{user-select:none}
   scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
 .i2p-ai-msgs::-webkit-scrollbar{width:6px}
 .i2p-ai-msgs::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
-/* 空态：一句能力说明 + 快捷问题（浅底单行钮，前缀天蓝圆点） */
+/* 空态：一句能力说明 + 快捷问题（浅底单行钮，前缀绿色圆点） */
 .i2p-ai-empty{display:flex;flex-direction:column;gap:10px;padding-top:2px}
 .i2p-ai-hint{margin:0;font-size:var(--fs-sm,12.5px);color:var(--muted);line-height:1.6}
 .i2p-ai-chip{display:flex;align-items:center;gap:8px;text-align:left;
@@ -606,17 +661,17 @@ body.i2p-dragging{user-select:none}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   transition:background .15s,color .15s}
 .i2p-ai-chip::before{content:"";flex:none;width:5px;height:5px;border-radius:50%;
-  background:var(--accent,#be3455);
-  background:color-mix(in srgb,var(--accent,#be3455) 70%,var(--muted,#82848f))}
-.i2p-ai-chip:hover:not(:disabled){background:var(--hover);background:color-mix(in srgb,var(--accent,#be3455) 12%,var(--panel,#fff));color:var(--ink)}
+  background:var(--accent,#177b62);
+  background:color-mix(in srgb,var(--accent,#177b62) 70%,var(--muted,#82848f))}
+.i2p-ai-chip:hover:not(:disabled){background:var(--hover);background:color-mix(in srgb,var(--accent,#177b62) 12%,var(--panel,#fff));color:var(--ink)}
 .i2p-ai-chip:disabled{opacity:.5;cursor:default}
-/* 用户问题：半透明卡色块（在蓝底上呈更浅的蓝白），全宽不挤字 */
+/* 用户问题：半透明面板色块，全宽不挤字 */
 .i2p-ai-m{max-width:100%;font-size:var(--fs-md,13.5px);line-height:1.65}
 .i2p-ai-m.user .i2p-ai-t{background:var(--card,#fff);
   background:color-mix(in srgb,var(--card,#fff) 62%,transparent);
   border:1px solid var(--line,#e5e6ec);
-  border:1px solid color-mix(in srgb,var(--accent,#be3455) 12%,var(--line,#e5e6ec));
-  border-radius:10px;padding:8px 12px;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+  border:1px solid color-mix(in srgb,var(--accent,#177b62) 12%,var(--line,#e5e6ec));
+  border-radius:3px;padding:8px 12px;color:var(--ink);white-space:pre-wrap;word-break:break-word}
 .i2p-ai-m.assistant{overflow-wrap:break-word}
 .i2p-ai-m.assistant.err .i2p-ai-t{color:var(--err);font-size:var(--fs-sm,12.5px);
   background:var(--err-bg,rgba(213,70,58,.10));border-radius:8px;padding:7px 11px}
@@ -653,28 +708,32 @@ body.i2p-dragging{user-select:none}
 /* 输入区：半透明卡色输入框 + 图标钮（生成中变停止，可中断） */
 .i2p-ai-input{flex:none;display:flex;gap:8px;align-items:flex-end;padding:10px 12px 12px;
   border-top:1px solid var(--line,#e5e6ec);
-  border-top:1px solid color-mix(in srgb,var(--accent,#be3455) 14%,var(--line,#e5e6ec))}
+  border-top:1px solid color-mix(in srgb,var(--accent,#177b62) 14%,var(--line,#e5e6ec))}
 .i2p-ai-input textarea{flex:1;min-height:38px;max-height:150px;resize:none;overflow-y:auto;
   background:var(--card,#fff);
   background:color-mix(in srgb,var(--card,#fff) 66%,transparent);
   border:1px solid var(--line-2,#d8dae3);
-  border:1px solid color-mix(in srgb,var(--accent,#be3455) 16%,var(--line-2,#d8dae3));
-  border-radius:9px;color:var(--ink);padding:8px 11px;font-size:var(--fs-md,13.5px);
+  border:1px solid color-mix(in srgb,var(--accent,#177b62) 16%,var(--line-2,#d8dae3));
+  border-radius:3px;color:var(--ink);padding:8px 11px;font-size:var(--fs-md,13.5px);
   line-height:1.55;font-family:inherit;transition:border-color .15s}
-.i2p-ai-input textarea:focus{border-color:var(--accent);border-color:color-mix(in srgb,var(--accent,#be3455) 55%,var(--line-2,#d8dae3))}
+.i2p-ai-input textarea:focus{border-color:var(--accent);border-color:color-mix(in srgb,var(--accent,#177b62) 55%,var(--line-2,#d8dae3))}
 .i2p-ai-input textarea::placeholder{color:var(--muted)}
-.i2p-ai-send{flex:none;width:38px;height:38px;border-radius:9px;
+.i2p-ai-send{flex:none;width:38px;height:38px;border-radius:3px;
   border:1px solid var(--line-2,#d8dae3);
-  border:1px solid color-mix(in srgb,var(--accent,#be3455) 30%,var(--line-2,#d8dae3));
+  border:1px solid color-mix(in srgb,var(--accent,#177b62) 30%,var(--line-2,#d8dae3));
   background:var(--panel,#fff);
-  background:color-mix(in srgb,var(--accent,#be3455) 12%,var(--panel,#fff));color:var(--ink-2);
+  background:color-mix(in srgb,var(--accent,#177b62) 12%,var(--panel,#fff));color:var(--ink-2);
   display:inline-flex;align-items:center;justify-content:center;
   transition:background .15s,border-color .15s,color .15s,transform .1s}
-.i2p-ai-send:hover:not(:disabled){border-color:var(--accent);border-color:color-mix(in srgb,var(--accent,#be3455) 55%,var(--line-2,#d8dae3));color:var(--ink)}
+.i2p-ai-send:hover:not(:disabled){border-color:var(--accent);border-color:color-mix(in srgb,var(--accent,#177b62) 55%,var(--line-2,#d8dae3));color:var(--ink)}
 .i2p-ai-send:active:not(:disabled){transform:scale(.95)}
 .i2p-ai-send:disabled{opacity:.4;cursor:default}
 @media (max-width:880px){
   .i2p-ai-fab{right:88px;top:60px}
+}
+@media (max-width:560px){
+  .i2p-ai-fab{right:16px}
+  .i2p-ai-panel{left:8px;right:8px;width:auto;min-width:0}
 }
 
 /* ===== 动效与质感层（丰富但克制：150-300ms、语义化、可关） ===== */
@@ -1006,7 +1065,7 @@ body.i2p-dragging{user-select:none}
 		 * ================================================================ */
 		// —— Git 托管连接卡（项目页内嵌，数据全局共享）：连接列表 + 添加/测试/删除 ——
 		// GitHub/GitLab 用 Access Token；CodeArts 用「个人设置 → HTTPS 密码」的 用户名+密码。
-		// token 明文存于 ~/.dsh/issue2pr/connections.json（与本机环境变量同级安全）。
+		// connections.json 只保存元数据/secretRef；秘密由系统密钥环或明确标记的本机 fallback 管理。
 		const CONN_KIND_META = {
 			github: { label: "GitHub", host: "github.com", hostFixed: true, needsUser: false, tokenLabel: "Access Token", hint: "GitHub → Settings → Developer settings → Personal access tokens" },
 			gitlab: { label: "GitLab", host: "gitlab.com", hostFixed: false, needsUser: false, tokenLabel: "Access Token", hint: "自建实例请改 host；token 需 read_api + read_repository 权限" },
@@ -1069,14 +1128,19 @@ body.i2p-dragging{user-select:none}
 				h("span", { className: "f-label" }, "Git 托管连接（全局 · 所有项目共用）"),
 				h("p", { className: "hint-line" },
 					"私有仓库克隆与 Issue 抓取（GitHub / GitLab / 华为云 CodeArts）用这里配置的凭据；",
-					"按仓库地址的域名自动匹配，SSH 地址则走本机密钥。凭据明文存于 ",
-					h("code", null, "…\\issue2pr\\connections.json"), "。"),
+					"按仓库地址的域名自动匹配，SSH 地址则走本机密钥。主配置只存引用，实际存储状态显示在连接行。"),
 				list.length ? h("div", { className: "conn-list" }, list.map(function (c) {
 					const km = CONN_KIND_META[c.kind] || {};
+					const storage = c.secretStorage === "keychain" ? "系统密钥环"
+						: c.secretStorage === "file-fallback" ? "文件回退（非加密）" : "存储状态未知";
+					const storageClass = c.secretStorage === "file-fallback" ? " warn" : "";
+					const warning = String(c.secretWarning || "").trim();
 					return h("div", { key: c.id, className: "conn-row" },
 						h("span", { className: "cn-kind" }, km.label || c.kind),
 						h("span", { className: "cn-host" }, c.host),
 						h("span", { className: "cn-tok" }, c.token + (c.username ? " · " + c.username : "")),
+						h("span", { className: "cn-store" + storageClass, title: warning || storage }, storage),
+						warning ? h("span", { className: "cn-store-warning", role: "note" }, "警告：" + warning) : null,
 						h("span", { className: "cn-act" },
 							c.kind !== "codearts" ? h("button", {
 								type: "button", className: "btn sm", disabled: busy,
@@ -1138,7 +1202,7 @@ body.i2p-dragging{user-select:none}
 		/* 委外智能体绑定卡（项目页 P6=claude 与「配置」页 P6 共用）：
 		 * 发现——五种来源（项目配置/环境变量/常见安装位置/npm 全局目录/PATH）+ 手动路径；
 		 * 门禁——定位 → 版本 → 认证微任务（一次极小真实调用，403 IP 白名单等在绑定时拦截而非 Run 中暴露）；
-		 * 认证中转——GLM Coding Plan / 自定义网关预设，token 全局存 relay-auth.json（403 IP 白名单根治路径）。
+		 * 认证中转——GLM Coding Plan / 自定义网关预设，relay-auth.json 只存 secretRef（403 IP 白名单根治路径）。
 		 * gate 状态由父组件持有（控制保存按钮）：{key: agentGateKey(bin,preset,baseUrl), status, result}
 		 * 扫描过程走马灯可见：请求 20s 超时 / 404（旧版 node 半）显式报错 + 重试，不再无限「解析中…」。 */
 		function AgentBindCard(props) {
@@ -1147,13 +1211,13 @@ body.i2p-dragging{user-select:none}
 			// 扫描态：status scanning|done|fail；phase 驱动标记位阶段轮播与走马灯
 			const [scan, setScan] = React.useState({ status: "scanning", phase: 0, error: "" });
 			const [testing, setTesting] = React.useState(false);
-			// 认证中转 token（全局 relay-auth.json；卡内输入-保存，门禁请求带新值或回落已存值）
-			const [relay, setRelay] = React.useState({ exists: false, masked: "" });
+			// 认证中转 token（卡内输入-保存，门禁请求带新值或回落已存值）
+			const [relay, setRelay] = React.useState({ exists: false, masked: "", storage: "", encrypted: false, warning: "" });
 			const [tokenInput, setTokenInput] = React.useState("");
 			const [savingToken, setSavingToken] = React.useState(false);
 			React.useEffect(function () {
 				apiGet("/relay-auth").then(function (r) {
-					if (r && r.ok) setRelay({ exists: !!r.exists, masked: r.masked || "" });
+					if (r && r.ok) setRelay({ exists: !!r.exists, masked: r.masked || "", storage: r.storage || "", encrypted: r.encrypted === true, warning: r.warning || "" });
 				}).catch(function () { /* 留空态；保存时会再暴露错误 */ });
 			}, []);
 
@@ -1195,9 +1259,9 @@ body.i2p-dragging{user-select:none}
 				apiPut("/relay-auth", { token: t }).then(function (r) {
 					setSavingToken(false);
 					if (!r || !r.ok) { p.toast((r && r.message) || "保存失败", "bad"); return; }
-					setRelay({ exists: true, masked: r.masked || "" });
+					setRelay({ exists: true, masked: r.masked || "", storage: r.storage || "", encrypted: r.encrypted === true, warning: r.warning || "" });
 					setTokenInput("");
-					p.toast("中转 token 已保存（全局 relay-auth.json）");
+					p.toast("中转 token 已保存（" + (r.storage === "keychain" ? "系统密钥环" : "非加密文件回退") + "）");
 				}).catch(function (e) { setSavingToken(false); p.toast("请求失败: " + e, "bad"); });
 			};
 			const runGate = function () {
@@ -1295,7 +1359,11 @@ body.i2p-dragging{user-select:none}
 							savingToken ? "保存中…" : "保存 token")) : null,
 					h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
 						"公司网络出口漂移会让带 IP 白名单的 API Key 间歇 403。中转让 claude 改打 Anthropic 兼容端点（GLM Coding Plan 官方支持，无 IP 白名单校验），",
-						"token 全局存 ", h("code", null, "…\\issue2pr\\relay-auth.json"), "，门禁与 Run 走同一条路径。")),
+						"relay-auth.json 只保存引用，门禁与 Run 走同一条路径。")),
+					relay.exists ? h("p", { className: "hint-line", style: { margin: "4px 0 0", color: relay.encrypted && !relay.warning ? "var(--good)" : "var(--warn)" } },
+						relay.encrypted
+							? "存储：系统密钥环（由操作系统保护）" + (relay.warning ? "；警告：" + relay.warning : "")
+							: "存储：非加密文件回退。" + (relay.warning ? " 警告：" + relay.warning : "")) : null,
 				gateLive ? (function () {
 					const g = gateLive.result || {};
 					return h("div", { className: "agent-gate " + (gateLive.status === "pass" ? "ok" : "bad") },
@@ -1631,7 +1699,7 @@ body.i2p-dragging{user-select:none}
 						h("b", null, "① 填项目名与仓库"), " → ", h("b", null, "② 添加触发源（需求文档 / Issue）"),
 						" → ", h("b", null, "③ 点 ▶ 发起 Run"), "，随后到「运行」跟进 11 阶段流水线。")),
 				llmRoute,
-				h("div", { style: { display: "grid", gridTemplateColumns: "240px minmax(0,1fr)", gap: 16, alignItems: "start" } },
+				h("div", { className: "project-layout" },
 					h("div", { className: "proj-list", role: "listbox", "aria-label": "项目列表" }, listItems),
 					h("form", {
 						className: "card", onSubmit: function (e) { e.preventDefault(); ensureSaved(); },
@@ -1829,21 +1897,38 @@ body.i2p-dragging{user-select:none}
 			const [openEv, setOpenEv] = React.useState(-1);
 			const evRef = React.useRef(null);
 			const commentRef = React.useRef(null);
-			const artRef = React.useRef(null);
-			React.useEffect(function () { artRef.current = selArt; }, [selArt]);
+			const artRef = React.useRef({ stageId: null, path: null, requestId: 0 });
+			const resetArtifactView = function (stageId, path) {
+				artRef.current = {
+					stageId: stageId || null,
+					path: path || null,
+					requestId: artRef.current.requestId + 1,
+				};
+			};
+			const selectStage = function (stageId) {
+				// 阶段是详情视图的边界：先失效旧请求，再清空所有阶段级现场。
+				resetArtifactView(stageId);
+				setSelStage(stageId);
+				setStTab("run");
+				setSelArt(null);
+				setArtText(null);
+				setComment("");
+				setLedger(null);
+				setOpenEv(-1);
+			};
 
 			// run 切换：重置选择（二级菜单回「运行」）；同一 Run 重挂载（切走一级标签再回来）
 			// 则从模块级 runsViewStore 恢复现场（选中阶段 / 二级菜单 / 产物文件）
 			React.useEffect(function () {
 				const saved = runsViewStore.runId === p.runId ? runsViewStore : null;
+				const initialStage = saved && saved.selStage
+					? saved.selStage : p.run ? (p.run.current || "P1") : null;
 				setSelArt(saved ? saved.selArt : null);
-				artRef.current = saved ? saved.selArt : null; // 供产物自动选中效果保位（不抢占恢复的文件）
+				resetArtifactView(initialStage, saved ? saved.selArt : null);
 				setArtText(null); setComment(""); setRerunStage(null);
 				setStTab(saved && saved.stTab ? saved.stTab : "run");
 				setReviews(null); setLedger(null); setEvents(null); setOpenEv(-1); evRef.current = null;
-				if (saved && saved.selStage) setSelStage(saved.selStage);
-				else if (p.run) setSelStage(p.run.current || "P1");
-				else setSelStage(null);
+				setSelStage(initialStage);
 				// eslint-disable-next-line react-hooks/exhaustive-deps
 			}, [p.runId]);
 			// 现场写回模块级 store（每次渲染同步；卸载后由重挂载恢复）
@@ -1877,27 +1962,39 @@ body.i2p-dragging{user-select:none}
 			const files = listFiles(selStage);
 			const filesKey = selStage + "|" + files.map(function (f) { return f.path; }).join(",");
 
-			const fetchArt = function (path) {
-				artRef.current = path;
+			const fetchArt = function (path, stageId) {
+				const targetStage = stageId || selStage;
+				const requestId = artRef.current.requestId + 1;
+				artRef.current = { stageId: targetStage, path: path, requestId: requestId };
+				setSelArt(path);
 				setArtText(null);
 				apiGet("/projects/" + p.slug + "/runs/" + p.runId + "/artifact?path=" + encodeURIComponent(path))
 					.then(function (r) {
-						if (artRef.current !== path) return; // 乱序守卫
+						const current = artRef.current;
+						if (current.requestId !== requestId || current.stageId !== targetStage || current.path !== path) return;
 						if (r && r.ok) setArtText(r.text);
 						else p.toast((r && r.message) || "读取产物失败", "bad");
 					})
-					.catch(function (e) { p.toast("请求失败: " + e, "bad"); });
+					.catch(function (e) {
+						const current = artRef.current;
+						if (current.requestId !== requestId || current.stageId !== targetStage || current.path !== path) return;
+						p.toast("请求失败: " + e, "bad");
+					});
 			};
 
 			// 阶段或产物文件变化 → 选中产物并读取（恢复上次选中的文件；新产物落盘不抢占已选）
 			React.useEffect(function () {
 				if (!selStage || !p.runId) return;
 				const fs = listFiles(selStage);
-				if (!fs.length) { setSelArt(null); setArtText(null); return; }
-				const keep = artRef.current && fs.some(function (f) { return f.path === artRef.current; });
-				const pick = keep ? artRef.current : fs[0].path;
-				setSelArt(pick);
-				fetchArt(pick);
+				if (!fs.length) {
+					resetArtifactView(selStage);
+					setSelArt(null); setArtText(null); return;
+				}
+				const current = artRef.current;
+				const keep = current.stageId === selStage && current.path
+					&& fs.some(function (f) { return f.path === current.path; });
+				const pick = keep ? current.path : fs[0].path;
+				fetchArt(pick, selStage);
 				// eslint-disable-next-line react-hooks/exhaustive-deps
 			}, [selStage, filesKey, p.runId]);
 
@@ -2132,7 +2229,7 @@ body.i2p-dragging{user-select:none}
 							return h("button", {
 								key: s.id, role: "listitem",
 								className: "step-row " + status + (s.bypass ? " bypass" : "") + (s.id === selStage ? " on" : ""),
-								onClick: function () { setSelStage(s.id); },
+								onClick: function () { selectStage(s.id); },
 							},
 								h("span", { className: "sdot" }),
 								h("span", { className: "s-main" },
@@ -2168,7 +2265,7 @@ body.i2p-dragging{user-select:none}
 								return h("button", {
 									key: f.path,
 									className: "a-tab" + (f.path === selArt ? " on" : ""),
-									onClick: function () { setSelArt(f.path); fetchArt(f.path); },
+									onClick: function () { fetchArt(f.path, selStage); },
 								}, f.path.split("/").pop());
 							})) : null,
 						artMd
@@ -2310,8 +2407,8 @@ body.i2p-dragging{user-select:none}
 										h("div", { className: "stg-fgroup" }, g[0] === "·" ? "阶段产物" : g[0]),
 										g[1].map(function (f) {
 											return h("button", {
-												key: f.path, className: "stg-file" + (f.path === selArt ? " on" : ""),
-												onClick: function () { setSelArt(f.path); fetchArt(f.path); },
+														key: f.path, className: "stg-file" + (f.path === selArt ? " on" : ""),
+														onClick: function () { fetchArt(f.path, selStage); },
 											},
 												h("span", null, f.path.split("/").pop()),
 												h("span", { className: "ts" }, fmtSize(f.size)));
@@ -2430,7 +2527,7 @@ body.i2p-dragging{user-select:none}
 				"当前 Run：", h("b", { style: { fontFamily: "var(--mono)", fontSize: 13 } }, p.runId),
 				"（在「02 运行」切换；目录含 trace / reviews / ledger）"),
 				h("div", { className: "art-layout" },
-					h("div", { className: "card" },
+					h("div", { className: "card artifact-tree-card" },
 						p.tree && p.tree.length
 							? h("div", { className: "tree", "aria-label": "产物目录树" }, treeItems)
 							: h("p", { className: "empty-hint" }, "该 Run 暂无产物（可能尚未开始）。")),
@@ -3406,12 +3503,19 @@ body.i2p-dragging{user-select:none}
 					patch.w != null ? Math.round(patch.w) : cur.w,
 					patch.h != null ? Math.round(patch.h) : cur.h);
 				if (persist) {
+					const pageRect = aiPageRect();
+					const savedRect = {
+						aiR: Math.round(pageRect.w - this.rect.x - this.rect.w),
+						aiT: this.rect.y,
+						aiW: this.rect.w,
+						aiH: this.rect.h,
+					};
 					// 右上角相对坐标落盘：aiR=右缘偏移、aiT=顶部偏移；旧绝对键清除防干扰
 					try {
-						localStorage.setItem("i2p.aiR", String(Math.round(p.w - x - w)));
-						localStorage.setItem("i2p.aiT", String(y));
-						localStorage.setItem("i2p.aiW", String(w));
-						localStorage.setItem("i2p.aiH", String(h));
+						localStorage.setItem("i2p.aiR", String(savedRect.aiR));
+						localStorage.setItem("i2p.aiT", String(savedRect.aiT));
+						localStorage.setItem("i2p.aiW", String(savedRect.aiW));
+						localStorage.setItem("i2p.aiH", String(savedRect.aiH));
 						localStorage.removeItem("i2p.aiX");
 						localStorage.removeItem("i2p.aiY");
 						localStorage.removeItem("i2p.aiTop");
@@ -3419,7 +3523,7 @@ body.i2p-dragging{user-select:none}
 					fetch(API + "/ui-state", {
 						method: "POST",
 						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ aiR: Math.round(p.w - x - w), aiT: y, aiW: w, aiH: h }),
+						body: JSON.stringify(savedRect),
 					}).catch(function () { /* 兜底失败静默 */ });
 				}
 				for (const fn of this.listeners) fn();
@@ -3671,7 +3775,7 @@ body.i2p-dragging{user-select:none}
 					"aria-expanded": open ? "true" : "false",
 					"aria-label": open ? "关闭智能助手" : "智能助手（问答与运行状态）",
 					title: open ? "关闭智能助手" : "智能助手 · 问运行状态、阶段含义、失败原因",
-				}, Ic("msg", 15)),
+				}, Ic("sparkle", 15)),
 				open ? h("aside", {
 					className: "i2p-ai-panel", role: "complementary", "aria-label": "智能助手",
 					style: { left: ai.rect.x + "px", top: ai.rect.y + "px", width: ai.rect.w + "px", height: ai.rect.h + "px" },
@@ -3728,6 +3832,24 @@ body.i2p-dragging{user-select:none}
 							onClick: function () { if (busy) { if (acRef.current) acRef.current.abort(); return; } send(); },
 							"aria-label": busy ? "中断生成" : "发送（Enter）", title: busy ? "中断生成" : "发送（Enter）",
 						}, Ic(busy ? "stop" : "send", 15)))) : null);
+		}
+
+		// 页头品牌标记：沿用侧栏三节点分支语言，以轻量文档线表达 Issue 输入。
+		function Issue2PrMark(props) {
+			return h("svg", Object.assign({
+				className: "brand-mark", viewBox: "0 0 24 24", fill: "none",
+				stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round",
+				strokeLinejoin: "round", "aria-hidden": "true", focusable: "false",
+			}, props),
+				h("circle", { cx: 5.5, cy: 5.25, r: 2.25 }),
+				h("circle", { cx: 5.5, cy: 18.75, r: 2.25 }),
+				h("circle", {
+					cx: 18, cy: 9.5, r: 2.5,
+					fill: "var(--acc-soft)", stroke: "var(--accent)",
+				}),
+				h("path", { d: "M5.5 7.5v9" }),
+				h("path", { d: "M18 12c0 4.5-5.1 3.9-7.6 5.6" }),
+				h("path", { d: "M9.25 5.25h5M9.25 8h3.5" }));
 		}
 
 		// 入口图标：Issue→PR 分支（描边、currentColor，随宿主主题）
@@ -3804,12 +3926,13 @@ body.i2p-dragging{user-select:none}
 					width: rect.width + "px", height: rect.height + "px",
 				},
 			},
-				h("div", { className: "i2p-head" },
-					h("span", { className: "brand" },
-						h(EntryGlyph, { width: 16, height: 16, style: { alignSelf: "center" } }),
-						h("b", null, "Issue2PR"),
-						h("span", null, "ISSUE → PR"),
-						h("span", { className: "om" }, "v0.3")),
+					h("div", { className: "i2p-head" },
+						h("span", { className: "brand" },
+							h(Issue2PrMark, { width: 24, height: 24 }),
+							h("span", { className: "brand-copy" },
+								h("b", null, "Issue2PR"),
+								h("span", null, "ISSUE → PR"),
+								h("span", { className: "om" }, "v0.4"))),
 					h("button", {
 						type: "button", className: "i2p-close", ref: closeRef,
 						onClick: () => panelStore.set(false), "aria-label": "关闭（Esc）",

@@ -203,7 +203,10 @@ git clone https://github.com/LONGSASASASASA/dsh-issue2pr.git dsh-issue2pr
 | 华为云 CodeArts | HTTPS 密码 + 用户名 | 凭 `git ls-remote` 真实仓库测试连通 |
 
 - 全局共享一份（`~/.dsh/issue2pr/connections.json`），多项目复用；ssh 形态地址走本机密钥，不注入。
-- 凭据**只存本机**，返回给 UI 一律脱敏（`gh05…x8k2`），事件日志中的 URL 自动抹除凭据段。
+- `connections.json` 只保存连接元数据、`secretRef` 和存储模式；返回给 UI 一律只显示掩码（`gh05…x8k2`），事件日志中的 URL 自动抹除凭据段。
+- SecretStore 按 **keychain-first** 工作：macOS 尝试 Keychain，Linux 尝试 Secret Service；当前无新增依赖的 Windows 构建没有内置 Credential Manager 读写适配器，会明确降级到 `<dataRoot>/secrets/` 的非加密文件。该 fallback 只做目录 `0700`、文件 `0600` 的权限收紧尝试；Windows warning 会明确说明 ACL/chmod 权限隔离**不保证**，备份、管理员权限或恶意进程仍可能读取。
+- 旧版 `connections.json` 中的明文 `token` 会在首次读取时迁移到 keychain 或上述 fallback，迁移后的主 JSON 不再含 token；若系统密钥环不可用，API/UI 会显示“非加密文件回退”警告，不把它标记为已安全。
+- Git `clone` / `ls-remote` 的 URI/argv 不携带 token，认证头仅注入 Git 子进程环境；同机具备进程环境读取权限的用户仍应被视为可信。
 - Run 进行中新增 / 修改连接，下一阶段即生效。
 
 ### 委外执行器（P6 自动执行通道）
@@ -220,7 +223,7 @@ P6「自动执行」支持两个执行器，同一套任务包契约（`session-
 
 两者都先过**测试门禁**（绑定/保存前真实跑一次极小调用）才能保存：claude 三步（定位 → 版本 → 认证），dsh 两步（智能体服务 + 模型路由 → 真实微任务）。
 
-**认证中转（403 IP 白名单根治）**：公司网络出口漂移会让带 IP 白名单的 API Key 间歇 403（`IP access denied by API-Key restrictions`）。绑定卡「认证中转」选 **GLM Coding Plan** 并保存 token 后，claude 改打 `https://open.bigmodel.cn/api/anthropic`（官方支持的 Anthropic 兼容端点，无 IP 白名单校验），驱动模型为 GLM 系列。实现细节：用户级 `~/.claude/settings.json` 的 `env` 块会**覆盖进程环境变量**，因此中转经 `--settings` 临时文件注入（连 `ANTHROPIC_MODEL` 等模型映射一并覆盖，避免别家端点模型名残留报 `1214`）；token 全局存 `~/.dsh/issue2pr/relay-auth.json`，临时文件用后即删、日志零 token。也可选「自定义网关」指向自建 claude-code-router / new-api。
+**认证中转（403 IP 白名单根治）**：公司网络出口漂移会让带 IP 白名单的 API Key 间歇 403（`IP access denied by API-Key restrictions`）。绑定卡「认证中转」选 **GLM Coding Plan** 并保存 token 后，claude 改打 `https://open.bigmodel.cn/api/anthropic`（官方支持的 Anthropic 兼容端点，无 IP 白名单校验），驱动模型为 GLM 系列。实现细节：用户级 `~/.claude/settings.json` 的 `env` 块会**覆盖进程环境变量**，因此中转经 `--settings` 临时文件注入（连 `ANTHROPIC_MODEL` 等模型映射一并覆盖，避免别家端点模型名残留报 `1214`）；`relay-auth.json` 只保存 `secretRef`，token 由同一套 SecretStore 管理，临时文件用后即删、日志零 token。也可选「自定义网关」指向自建 claude-code-router / new-api。
 
 **权限档位**：claude 执行默认 `acceptEdits` + 宽白名单（Bash/编辑/检索放行），替代裸 `--dangerously-skip-permissions`；`claudePermission` 可回退 `bypass`（旧行为）或收紧 `dontAsk`。
 
@@ -232,7 +235,10 @@ P6「自动执行」支持两个执行器，同一套任务包契约（`session-
 
 ```text
 ~/.dsh/issue2pr/
-├─ connections.json                  # Git 托管连接凭据（全局共享，本机明文）
+├─ connections.json                  # Git 托管连接元数据 + secretRef（不含 token）
+├─ relay-auth.json                   # claude 中转元数据 + secretRef（不含 token）
+├─ secrets/                          # 仅 keychain 不可用时使用；非加密，Windows ACL 不保证隔离
+│  └─ <sha256(secretRef)>.secret
 ├─ ui-state.json                     # UI 选中记忆兜底（宿主重启不丢）
 └─ projects/
    └─ <slug>/
@@ -320,10 +326,10 @@ npm test        # node --test，覆盖 API / 流水线 / 各阶段执行器 / �
 - 主仓库以 `--depth 1` 浅克隆，且当前按**单主仓库**工作（`repos[0]`）。
 - P10 只做失败分类与建议动作，**不自动 replan**；重跑 / 回滚由人工在运行页确认触发。
 - 测试命令自动探测目前只认 `package.json` 的 `test` 脚本，其他语言请显式配置 `testCommand`。
-- 托管凭据明文存于本机 `connections.json`（与本机 `GITHUB_TOKEN` 环境变量同级安全），请勿把数据目录提交进任何仓库。
+- 托管凭据不写入 `connections.json`；SecretStore 会优先使用系统 keychain，无法使用时写入本机 `secrets/` fallback。fallback **不等于加密**，Windows 上连 ACL/chmod 权限收紧也不保证；请按备份、管理员权限和同机进程可读风险保护整个数据目录，且不要提交进任何仓库。
 - 产物在线预览上限 200KB，更大的文件请在产物目录直接打开。
 - `claude` 委托模式在宿主进程内无人值守执行，默认权限档 `acceptEdits` + 宽白名单（`claudePermission=bypass` 回退旧的全放行行为），请按仓库敏感度自行评估。
-- 认证中转 token 明文存于本机 `relay-auth.json`（与 `connections.json` 同级安全），请勿把数据目录提交进任何仓库。
+- 认证中转 token 不写入 `relay-auth.json`；其 `secretRef` 与 Git 凭据共用 SecretStore，API 会显示当前是系统 keychain 还是非加密文件回退。
 
 ## 🤝 贡献
 

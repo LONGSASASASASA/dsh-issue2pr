@@ -1,7 +1,8 @@
 // tests/store.test.js
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, existsSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
+import fs from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, writeFileSync, mkdirSync, chmodSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as store from "../../lib/core/store.js";
@@ -23,6 +24,9 @@ test("validateProject 契约", () => {
   assert.equal(store.validateProject({ ...good, repos: [] })[0], false);
   assert.equal(store.validateProject({ ...good, triggers: [{ kind: "bug", uri: "x" }] })[0], false);
   assert.equal(store.validateProject({ ...good, reviewMode: "sometimes" })[0], false);
+  assert.equal(store.validateProject({ ...good, maxReviewAttempts: 0 })[0], false);
+  assert.equal(store.validateProject({ ...good, maxReviewAttempts: 1.5 })[0], false);
+  assert.deepEqual(store.validateProject({ ...good, maxReviewAttempts: 2 }), [true, "ok"]);
 });
 
 test("saveProject/loadProject/listProjects 往返", () => {
@@ -48,6 +52,30 @@ test("createRun 建目录骨架；writeArtifact 拒绝 ..；listRunTree 递归",
   assert.throws(() => store.writeArtifact(runDir, "../escape.txt", "x"), /非法路径/);
   const tree = store.listRunTree(runDir);
   assert.ok(tree.some((f) => f.path === "06-implementation/patches/0001-a.diff"));
+});
+
+test("writeArtifact：临时写入中断时保留旧文件并清理临时文件", () => {
+  const runDir = join(root, "atomic");
+  const artifact = join(runDir, "report.json");
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(artifact, "旧内容");
+  const originalWrite = fs.writeFileSync;
+  const writeMock = mock.method(fs, "writeFileSync", (file, content, ...args) => {
+    if (String(file).startsWith(artifact + ".tmp-")) {
+      originalWrite(file, String(content).slice(0, 2), ...args);
+      throw new Error("模拟写入中断");
+    }
+    return originalWrite(file, content, ...args);
+  });
+
+  try {
+    assert.throws(() => store.writeArtifact(runDir, "report.json", "新内容"), /模拟写入中断/);
+  } finally {
+    writeMock.mock.restore();
+  }
+
+  assert.equal(readFileSync(artifact, "utf8"), "旧内容");
+  assert.deepEqual(readdirSync(runDir).filter((name) => name.startsWith("report.json.tmp-")), []);
 });
 
 test("readArtifact 不存在返回 null", () => {

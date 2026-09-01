@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { STAGES, MAIN_FLOW, initRun, saveRun, loadRun, isGate, advance, applyReview } from "../../lib/core/pipeline.js";
 import { delegateReady } from "../../lib/core/stageConfig.js";
+import p7 from "../../lib/stages/p7-patch.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-pipe-"));
 function freshRun(reviewMode) {
@@ -81,6 +82,37 @@ test("reject 必须带意见；打回后阶段回 pending 且 attempts+1，意�
   const files = readdirSync(join(runDir, "reviews"));
   assert.equal(files.length, 1);
   assert.match(files[0], /-reject-P1\.json$/);
+});
+
+test("B3：复核打回达到项目上限后 Run failed，且后续 advance 不再执行阶段", async () => {
+  const { runDir, run } = freshRun("every");
+  const calls = [];
+  const executors = {
+    ...okExecutors,
+    P1: async () => { calls.push("P1"); return { artifact: "P1.json" }; },
+  };
+  const rcx = { runDir, run, project: { maxReviewAttempts: 2 }, executors, log() {} };
+
+  await advance(rcx);
+  assert.equal(run.stages.P1.status, "awaiting_review");
+  assert.equal((await applyReview(rcx, { decision: "reject", comment: "第一次意见" }))[0], true);
+  await advance(rcx);
+  assert.equal(run.stages.P1.status, "awaiting_review");
+
+  const [ok, message] = await applyReview(rcx, { decision: "reject", comment: "第二次意见" });
+
+  assert.equal(ok, false);
+  assert.match(message, /P1/);
+  assert.match(message, /最大复核次数/);
+  assert.match(message, /2/);
+  assert.equal(run.stages.P1.status, "failed");
+  assert.equal(run.stages.P1.attempts, 2);
+  assert.equal(run.status, "failed");
+  assert.match(run.stages.P1.error, /最大复核次数/);
+
+  await advance(rcx);
+  assert.equal(calls.length, 2, "达到上限后不得继续执行 P1 或后续阶段");
+  assert.equal(run.stages.P2.status, "pending");
 });
 
 test("阶段失败 → failed + error，trace 有 span", async () => {
@@ -303,4 +335,41 @@ test("A4 修正：全自动 + 委托产物就绪且验证 ok → 自动放行，
   // 过程事件留痕：验证通过事件可追溯
   const evs = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   assert.ok(evs.some((e) => e.stage === "P6" && /委外产物验证通过/.test(e.name)), "验证通过事件落盘");
+});
+
+test("P11：内置人工 approve 前重新核对工作区证据", async () => {
+  const repoDir = mkdtempSync(join(root, "repo-p11-"));
+  const git = (args) => execFileSync("git", args, { cwd: repoDir, stdio: "pipe" });
+  git(["init"]); git(["config", "user.email", "t@t"]); git(["config", "user.name", "t"]);
+  git(["config", "core.autocrlf", "false"]);
+  writeFileSync(join(repoDir, "a.txt"), "before\n");
+  git(["add", "."]); git(["commit", "-m", "init"]);
+
+  const runDir = mkdtempSync(join(root, "run-p11-"));
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"),
+    "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-before\n+after\n");
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"), JSON.stringify({
+    patches: [{ patch: "06-implementation/patches/0001.diff" }],
+  }));
+  await p7({ runDir, repoDir, llm: null });
+
+  const run = initRun({ runId: "20260831-p11-approve", slug: "d",
+    trigger: { kind: "issue", uri: "x.md" }, reviewMode: "every", p6Mode: "builtin" });
+  for (const id of ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9"]) {
+    run.stages[id] = { status: "approved", attempts: 0 };
+  }
+  run.current = "P11";
+  run.stages.P11 = { status: "awaiting_review", attempts: 0 };
+  run.status = "awaiting_review";
+  saveRun(runDir, run);
+  writeFileSync(join(repoDir, "a.txt"), "unexpected\n");
+
+  const [ok, message] = await applyReview({ runDir, run, repoDir }, {
+    decision: "approve", comment: "",
+  });
+
+  assert.equal(ok, false);
+  assert.match(message, /P11.*证据校验未通过/);
+  assert.equal(run.stages.P11.status, "awaiting_review");
 });

@@ -47,7 +47,9 @@ const iso = (s) => new Date(Date.parse("2026-08-28T04:00:00Z") + s * 1000).toISO
 let serverUiState = { lastProject: null };
 // Git 托管连接 + 环境预检 stub（视图 9 用；preflight 可变以测横幅）
 let serverConnections = [
-  { id: "gitlab.example.com", kind: "gitlab", host: "gitlab.example.com", token: "glt_…9f2e" },
+  { id: "gitlab.example.com", kind: "gitlab", host: "gitlab.example.com", token: "glt_…9f2e",
+    secretStorage: "file-fallback", secretEncrypted: false,
+    secretWarning: "Windows ACL/chmod 权限收紧不保证；文件未加密" },
 ];
 let serverPreflight = { git: { ok: true, version: "git version 2.50.0" }, claude: { ok: true, path: "C:\\bin\\claude.cmd" }, llm: { provider: "glm", model: "glm-5.2", source: "host", overrides: {} } };
 const fakeRun = {
@@ -98,9 +100,22 @@ globalThis.fetch = (url, opts) => {
   } else if (/\/runs\/r1\/artifact/.test(u)) {
     body = { ok: true, text: /events\.jsonl/.test(u)
       ? JSON.stringify({ at: iso(10), stage: "P5", kind: "llm", name: "deepseek-v4-pro", detail: "prompt 800 字 → 响应 400 字\n【prompt】把修复任务拆成 TaskGraph…\n——\n【响应】{\"nodes\":[…]}", ms: 5200, ok: true }) + "\n"
-      : /reviews\//.test(u) ? JSON.stringify({ stage: "P1", decision: "approve", comment: "", at: iso(5) }) : "{}" };
+      : /reviews\//.test(u) ? JSON.stringify({ stage: "P1", decision: "approve", comment: "", at: iso(5) })
+      : /01-issue-analysis\.json/.test(u) ? "P1 详情"
+      : /02-search-candidates\.json/.test(u) ? "P2 详情"
+      : /05-task-graph\.json/.test(u) ? "P5 详情"
+      : /07-test-report\.json/.test(u) ? "P8 详情" : "{}" };
   } else if (/\/runs\/r1\/tree/.test(u)) {
-    body = { ok: true, files: [{ path: "run.json", size: 10, mtimeMs: 1 }, { path: "reviews/1-approve-P1.json", size: 10, mtimeMs: 1 }, { path: "trace/events.jsonl", size: 10, mtimeMs: 1 }, { path: "ledger/patch-ledger.jsonl", size: 10, mtimeMs: 1 }] };
+    body = { ok: true, files: [
+      { path: "run.json", size: 10, mtimeMs: 1 },
+      { path: "01-issue-analysis.json", size: 10, mtimeMs: 1 },
+      { path: "02-search-candidates.json", size: 10, mtimeMs: 1 },
+      { path: "05-task-graph.json", size: 10, mtimeMs: 1 },
+      { path: "07-test-report.json", size: 10, mtimeMs: 1 },
+      { path: "reviews/1-approve-P1.json", size: 10, mtimeMs: 1 },
+      { path: "trace/events.jsonl", size: 10, mtimeMs: 1 },
+      { path: "ledger/patch-ledger.jsonl", size: 10, mtimeMs: 1 },
+    ] };
   } else if (/\/runs\/r1$/.test(u)) {
     body = fakeRun;
   } else if (/\/runs$/.test(u)) {
@@ -109,6 +124,9 @@ globalThis.fetch = (url, opts) => {
     body = { ok: true, matched: null, message: "可达（3 个分支，匿名访问，未匹配连接）" };
   } else if (/\/connections\/test/.test(u)) {
     body = { ok: true, account: "octocat" };
+  } else if (/\/relay-auth$/.test(u)) {
+    body = { ok: true, exists: true, masked: "rlay_…7a1c", storage: "file-fallback", encrypted: false,
+      warning: "Windows ACL/chmod 权限收紧不保证；文件未加密" };
   } else if (/\/connections/.test(u)) {
     body = (opts && opts.method === "DELETE") ? { ok: true } : { ok: true, connections: serverConnections };
   } else if (/\/preflight/.test(u)) {
@@ -139,8 +157,16 @@ globalThis.localStorage = {
   setItem: (k, v) => { lsStore[k] = String(v); },
   removeItem: (k) => { delete lsStore[k]; },
 };
-globalThis.document = { // 拖宽手柄事件委托 / WorkbenchPage anchor 探测（smoke 环境无 DOM，事件 no-op、anchor 给固定 rect）
-  addEventListener() {}, removeEventListener() {},
+const documentListeners = new Map();
+// 登记原生事件；WorkbenchPage anchor 在 smoke 环境中使用固定 rect。
+globalThis.document = {
+  addEventListener(type, listener) {
+    if (!documentListeners.has(type)) documentListeners.set(type, new Set());
+    documentListeners.get(type).add(listener);
+  },
+  removeEventListener(type, listener) {
+    if (documentListeners.has(type)) documentListeners.get(type).delete(listener);
+  },
   querySelector: (sel) => String(sel).includes("conversation")
     ? { parentElement: { getBoundingClientRect: () => ({ left: 10, top: 10, width: 800, height: 600 }) } }
     : null,
@@ -151,7 +177,64 @@ globalThis.document = { // 拖宽手柄事件委托 / WorkbenchPage anchor 探�
 globalThis.window.__ModuleLoader__ = {
   load: (def) => { modExports = def.factory((id) => { if (id === "react") return miniReact; if (id === "@deepseek-ai/dsh-client-ui-primitives") return primitives; throw new Error("unknown require: " + id); }); },
 };
-(0, eval)(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "client.js"), "utf8"));
+const clientSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "client.js"), "utf8");
+const previewSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "preview.mjs"), "utf8");
+const designDemoSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "design-demo.html"),
+  "utf8",
+);
+// ---------- 已批准视觉契约（先写断言，驱动 client.js 的落地） ----------
+assert.match(clientSource, /--accent:\s*#177b62/, "工作台主强调色应为定稿绿色");
+assert.doesNotMatch(clientSource, /--accent:\s*#be3455/, "生产工作台不应继续使用 Rose 强调色");
+assert.match(clientSource, /\.pipe-layout[^{}]*\{[^{}]*display:grid/s, "运行页应保留阶段路线网格");
+assert.match(clientSource, /grid-template-columns:\s*repeat\(6,\s*minmax\(0,1fr\)\)/,
+  "桌面运行页应使用六列阶段路线");
+assert.match(clientSource, /className:\s*["']card artifact-tree-card["']/,
+  "产物目录树应使用独立的静态外框类");
+assert.match(clientSource, /\.art-layout\s*>\s*\.artifact-tree-card\{[^}]*border:\s*0[^}]*transition:\s*none/s,
+  "产物目录树外框应无边线且不参与卡片过渡");
+assert.match(clientSource,
+  /\.art-layout\s*>\s*\.artifact-tree-card:hover\{[^}]*transform:\s*none[^}]*box-shadow:\s*none/s,
+  "产物目录树外框 hover 时不应位移或出现阴影");
+assert.match(clientSource,
+  /@media\s*\(hover:hover\)\s*and\s*\(pointer:fine\)[\s\S]*?\.step-row:hover\{[^}]*transform:\s*translateY\(-2px\)[^}]*box-shadow:/s,
+  "阶段卡片应仅在鼠标设备上提供上移与阴影反馈");
+assert.match(clientSource,
+  /@media\s*\(prefers-reduced-motion:reduce\)[\s\S]*?\.pipe-layout[^}]*\.step-row\{[^}]*transition:\s*none[^}]*\}[\s\S]*?\.step-row:hover\{[^}]*transform:\s*none/s,
+  "阶段卡片应在 reduced-motion 下禁用位移动效");
+assert.doesNotMatch(clientSource, /data:image\/png;base64,/, "页头不应继续使用 PNG 位图标识");
+assert.match(clientSource, /function Issue2PrMark\(props\)/, "页头应使用专属 Issue2PR SVG 标记");
+assert.match(clientSource, /className:\s*["']brand-mark["']/, "页头 SVG 标记应保留稳定的品牌类名");
+const brandMarkSource = clientSource.slice(
+  clientSource.indexOf("function Issue2PrMark(props)"),
+  clientSource.indexOf("function EntryGlyph(props)"),
+);
+assert.equal((brandMarkSource.match(/h\("circle"/g) || []).length, 3,
+  "页头标记应使用与侧栏入口一致的三节点分支骨架");
+assert.doesNotMatch(brandMarkSource, /d:\s*["'][^"']*Z["']/,
+  "页头标记不应继续使用封闭文件轮廓");
+assert.match(brandMarkSource, /M9\.25 5\.25h5M9\.25 8h3\.5/,
+  "页头标记应保留轻量 Issue 文档线条");
+assert.match(designDemoSource, /<circle cx="5\.5" cy="5\.25" r="2\.25"\/>/,
+  "设计 Demo 应同步页头分支标记");
+assert.match(clientSource, /Ic\(["']sparkle["'],\s*15\)/, "智能助手 FAB 应使用清新的 sparkle 图标");
+assert.match(previewSource, /<link\s+rel=[\"']icon[\"']/i,
+  "预览页应声明内联 favicon，避免静态服务器产生 404 Console error");
+assert.match(previewSource, /@media\s*\(max-width:\s*900px\)[\s\S]*?\.themebar[\s\S]*?left:/,
+  "窄视口预览工具条应移入宿主空白栏，不能遮挡工作台内容");
+assert.match(previewSource, /stage-defaults/, "预览 mock 应覆盖配置页的阶段默认值接口");
+assert.match(previewSource, /stageDefaults/, "预览 mock 应向配置页返回可渲染的默认值");
+assert.match(clientSource, /@media\s*\(max-width:\s*560px\)[\s\S]*?\.i2p-nav\{[^}]*min-width:\s*0/s,
+  "窄屏目录列应允许收缩到宿主内容列宽度");
+assert.match(clientSource, /@media\s*\(max-width:\s*560px\)[\s\S]*?\.i2p-page-body,\.i2p,\.i2p-body\{[^}]*min-width:\s*0/s,
+  "窄屏工作台主体 flex 容器应允许收缩，不能被子内容撑出页面");
+assert.match(clientSource, /\.i2p-body\{[^}]*flex:1;min-width:0;min-height:0/s,
+  "桌面工作台主体 flex 子项也必须允许收缩，不能被阶段网格撑出页面");
+assert.match(clientSource, /\.i2p(?:,\.i2p-page)?\{[^}]*flex:1;\s*min-width:0;\s*min-height:0/s,
+  "工作台根容器也必须允许收缩，不能把阶段网格的固有宽度传给宿主");
+assert.match(clientSource, /\.i2p \.run-bar \.f-select\{[^}]*min-width:\s*0/,
+  "运行选择框在窄屏不能保留桌面最小宽度");
+(0, eval)(clientSource);
 assert.ok(modExports && typeof modExports.apply === "function", "factory 应导出 apply");
 
 let Section = null;
@@ -190,6 +273,19 @@ function elements(node, out) { // 收集全部元素节点（含 props/onClick�
   if (node.props) out.push(node);
   if (node.children) node.children.forEach((c) => elements(c, out));
 }
+function nodeText(node) { const out = []; flatten(node, out); return out.join(""); }
+function findNode(tree, predicate) {
+  const out = []; elements(tree, out); return out.find(predicate);
+}
+function htmlText(node) {
+  const out = []; const all = []; elements(node, all);
+  all.forEach((entry) => {
+    if (entry.props && entry.props.dangerouslySetInnerHTML) {
+      out.push(String(entry.props.dangerouslySetInnerHTML.__html || ""));
+    }
+  });
+  return out.join("");
+}
 
 // ---------- 视图 1：项目（默认 nav） ----------
 let el = render(); await settle(); el = render(); // 第一轮跑 effect，微任务回填，第二轮读结果
@@ -219,6 +315,56 @@ assert.ok(texts.some((t) => t.includes("05-task-graph.json")), "P5 契约卡应�
 assert.ok(texts.some((t) => t.includes("输出契约")), "运行 tab 契约卡应含输出契约行");
 assert.ok(cls.some((c) => String(c).includes("t-warn")), "待复核应用 warn tag");
 assert.ok(cls.some((c) => String(c).split(" ").includes("step-row") && String(c).includes("awaiting_review")), "时间线步骤应带状态类");
+
+// ---------- 视图 3b：阶段切换必须清理详情现场（P1 → P2 → P8） ----------
+const activeStageTab = (tree) => findNode(tree, (n) => n.props.className === "stg-tab on");
+const settleRun = async () => { el = render(); await settle(); el = render(); await settle(); el = render(); };
+let guideStageTab = findNode(el, (n) => n.props.className === "stg-tab" && nodeText(n) === "说明");
+assert.ok(guideStageTab, "阶段详情应有说明 tab");
+guideStageTab.props.onClick();
+el = render();
+assert.equal(nodeText(activeStageTab(el)), "说明", "点击说明 tab 后应切换到说明视图");
+
+let p1StageButton = findNode(el, (n) => String(n.props.className || "").split(" ").includes("step-row") && nodeText(n).includes("P1 · IssueAnalyzer"));
+assert.ok(p1StageButton, "阶段时间线应有 P1 按钮");
+p1StageButton.props.onClick();
+await settleRun();
+texts = []; flatten(el, texts);
+assert.ok(texts.some((t) => t.includes("P1 · IssueAnalyzer")), "切换到 P1 后详情标题应为 P1");
+assert.equal(nodeText(activeStageTab(el)), "运行", "切换阶段后应统一回到运行 tab");
+
+let p1ArtifactsTab = findNode(el, (n) => n.props.className === "stg-tab" && nodeText(n) === "产物");
+assert.ok(p1ArtifactsTab, "P1 详情应有产物 tab");
+p1ArtifactsTab.props.onClick();
+el = render();
+let p1ArtifactButton = findNode(el, (n) => String(n.props.className || "").split(" ").includes("stg-file") && nodeText(n).includes("01-issue-analysis.json"));
+assert.ok(p1ArtifactButton, "P1 详情应列出 P1 产物");
+p1ArtifactButton.props.onClick();
+await settleRun();
+texts = []; flatten(el, texts);
+assert.ok((texts.join("") + htmlText(el)).includes("P1 详情"), "P1 产物预览应显示当前阶段内容");
+
+let p2StageButton = findNode(el, (n) => String(n.props.className || "").split(" ").includes("step-row") && nodeText(n).includes("P2 · Search Layer"));
+assert.ok(p2StageButton, "阶段时间线应有 P2 按钮");
+p2StageButton.props.onClick();
+el = render();
+assert.equal(nodeText(activeStageTab(el)), "运行", "P1 → P2 切换不得沿用产物 tab");
+texts = []; flatten(el, texts);
+assert.ok(!(texts.join("") + htmlText(el)).includes("P1 详情"), "P1 → P2 切换不得残留 P1 产物内容");
+await settleRun();
+texts = []; flatten(el, texts);
+assert.ok(texts.some((t) => t.includes("P2 · Search Layer")), "异步回填后详情标题仍应为 P2");
+
+let p8StageButton = findNode(el, (n) => String(n.props.className || "").split(" ").includes("step-row") && nodeText(n).includes("P8 · TestRunner"));
+assert.ok(p8StageButton, "阶段时间线应有 P8 按钮");
+p8StageButton.props.onClick();
+el = render();
+assert.equal(nodeText(activeStageTab(el)), "运行", "P2 → P8 切换仍应回到运行 tab");
+texts = []; flatten(el, texts);
+assert.ok(!(texts.join("") + htmlText(el)).includes("P2 详情"), "P2 → P8 切换不得残留 P2 产物内容");
+await settleRun();
+texts = []; flatten(el, texts);
+assert.ok(texts.some((t) => t.includes("P8 · TestRunner")), "异步回填后详情标题应为 P8");
 
 // ---------- 视图 4：产物 ----------
 hookCells.get("root:s0").set("artifacts");
@@ -339,6 +485,19 @@ assert.equal(rzCls.length, 8, "应有 8 个 resize 命中区（四边+四角）"
 // 窗口矩形走内联 style（aiStore rect → left/top/width/height）
 const ovPanel = (() => { const out = []; elements(ov, out); return out.find((n) => String(n.props.className || "").split(/\s+/).includes("i2p-ai-panel")); })();
 assert.ok(ovPanel && ovPanel.props.style && ovPanel.props.style.left && ovPanel.props.style.top && ovPanel.props.style.width && ovPanel.props.style.height, "窗口矩形由 store 内联注入");
+const aiHeadTarget = {
+  closest: (selector) => selector === ".i2p-ai-head" ? aiHeadTarget : null,
+};
+assert.doesNotThrow(() => {
+  for (const listener of documentListeners.get("dblclick") || []) {
+    listener({ target: aiHeadTarget });
+  }
+}, "双击助手标题重置窗口时不应抛出运行时错误");
+assert.deepEqual(
+  [lsStore["i2p.aiR"], lsStore["i2p.aiT"], lsStore["i2p.aiW"], lsStore["i2p.aiH"]],
+  ["78", "60", "400", "644"],
+  "双击重置后应持久化右上角锚点和默认尺寸",
+);
 let dtexts = flattenTexts(ov);
 assert.ok(dtexts.some((t) => t.includes("现在的运行到哪一步了？")), "空历史时应显示快捷问题");
 assert.ok(dtexts.some((t) => t.includes("我能看到你的项目")), "面板应带能力说明");
@@ -412,6 +571,9 @@ assert.ok(at9.some((t) => t.includes("1 个阶段已覆盖模型")), "阶段覆�
 let ael9 = []; elements(elA, ael9);
 assert.ok(ael9.some((n) => n.props.className === "btn sm" && flattenTexts(n).includes("测试")), "连接行应有测试按钮");
 assert.ok(ael9.some((n) => String(n.props.className || "").includes("btn") && String(n.props["aria-label"] || "").includes("仓库") === false && flattenTexts(n).includes("删除")), "连接行应有删除按钮");
+assert.ok(at9.some((t) => t.includes("Windows ACL/chmod") && t.includes("文件未加密")), "连接行应直接显示 SecretStore 降级警告");
+assert.ok(at9.some((t) => t.includes("Windows ACL/chmod") && t.includes("文件未加密")), "认证中转卡应显示 Windows fallback 边界警告");
+assert.ok(!at9.some((t) => t.includes("本机权限保护")), "认证中转卡不应把 fallback 描述为本机权限保护");
 // 仓库行「测试」按钮（ls-remote）
 assert.ok(ael9.some((n) => n.props["aria-label"] && String(n.props["aria-label"]).startsWith("测试仓库")), "仓库行应有测试连通按钮");
 

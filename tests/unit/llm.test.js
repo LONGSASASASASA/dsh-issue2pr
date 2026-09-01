@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeLlm, extractJson } from "../../lib/infra/llm.js";
+import { makeLlm, extractJson, routeInfo } from "../../lib/infra/llm.js";
 
 function fakeCtx(outputs) {
   let i = 0;
@@ -84,6 +84,11 @@ test("resolveRoute：currentSelection 抛错 → 回退 getConfig 路径", async
   await makeLlm(ctx).complete({ system: "s", user: "u" });
   assert.equal(seen.provider, "cfg-p");
   assert.equal(seen.model, "cfg-m");
+});
+
+test("routeInfo：阶段覆盖只配置 provider 或 model 时显式报错", () => {
+  assert.throws(() => routeInfo({}, { provider: "only-provider" }), /provider.*model|成对/);
+  assert.throws(() => routeInfo({}, { model: "only-model" }), /provider.*model|成对/);
 });
 
 // —— E2E 修复：Message.content 必须是 ContentBlock[]，字符串会触发适配器 content.some 异常 ——

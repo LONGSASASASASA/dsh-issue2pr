@@ -4,14 +4,33 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import {
+  DEFAULT_LLM_TIMEOUT_MS,
+  DEFAULT_TEST_TIMEOUT_MS,
+  STAGE_DEFS,
+} from "../../lib/core/stageConfig.js";
 
 const client = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "client.js"), "utf8");
+const stageDefaults = {
+  llmTimeoutMs: DEFAULT_LLM_TIMEOUT_MS,
+  testTimeoutMs: DEFAULT_TEST_TIMEOUT_MS,
+  maxTokens: 8192,
+  stages: Object.fromEntries(Object.entries(STAGE_DEFS).map(([id, def]) => [id, {
+    name: def.name,
+    desc: def.desc,
+    caps: def.caps,
+    prompts: def.prompts,
+    params: Object.keys(def.params || {}).length ? def.params : undefined,
+    delegateSpec: def.caps.delegate ? def.delegateSpec : undefined,
+  }])),
+};
 
 const html = `<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="data:," />
 <title>Issue2PR 预览（宿主模拟）</title>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
@@ -77,6 +96,7 @@ const html = `<!doctype html>
   .fake-settings.rail{border-radius:50%;justify-content:center;width:36px;height:36px;margin:8px 0 10px;padding:0}
   .fake-label{padding:18px 8px;color:var(--dsw-alias-label-tertiary);font-size:12px}
   .themebar{position:fixed;top:10px;right:12px;z-index:3000;display:flex;gap:8px}
+  @media (max-width:900px){.themebar{top:60px;left:12px;right:auto}}
   .themebar button{cursor:pointer;border:1px solid #555;border-radius:8px;background:#2b2d3a;color:#eee;padding:5px 12px;font-size:12px}
 </style>
 </head>
@@ -193,6 +213,7 @@ const artifacts = {
   "trace/events.jsonl": eventsText,
   "run.json": JSON.stringify(runDetail, null, 2),
 };
+const stageDefaults = ${JSON.stringify(stageDefaults)};
 window.fetch = (url, opts) => {
   const u = String(url);
   // 智能助手：伪流式 NDJSON（预览台演示流式渲染，真实验收看真实宿主）
@@ -212,6 +233,7 @@ window.fetch = (url, opts) => {
   } else if (/\\/runs\\/[^/]+\\/tree$/.test(u)) body = { ok: true, files: tree };
   else if (/\\/runs\\/[^/]+$/.test(u)) body = runDetail;
   else if (/\\/runs$/.test(u)) body = { ok: true, runs: [runSummary] };
+  else if (/\\/stage-defaults$/.test(u)) body = { ok: true, defaults: stageDefaults };
   else if (/\\/projects$/.test(u)) body = { ok: true, projects };
   return Promise.resolve({ json: () => Promise.resolve(body) });
 };

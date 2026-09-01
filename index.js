@@ -9,7 +9,7 @@ import { execFile } from "node:child_process";
 import {
   defaultDataRoot, saveProject, loadProject, listProjects,
   createRun, runDirOf, readArtifact, listRunTree, rmTree, loadUiState, saveUiState,
-  writeArtifact, timestamp,
+  writeArtifact, recoverCorruptRun, timestamp,
 } from "./lib/core/store.js";
 import { initRun, saveRun, loadRun, advance, applyReview, isGate, STAGES, MAIN_FLOW } from "./lib/core/pipeline.js";
 import { verifyDelegateResult } from "./lib/delegate/delegateVerify.js";
@@ -19,12 +19,12 @@ import { rollbackLedger } from "./lib/stages/p7-patch.js";
 import { stopExternals } from "./lib/delegate/executors/index.js";
 import { resolveClaudeBin } from "./lib/delegate/executors/claude-code.js";
 import { testDshGate } from "./lib/delegate/executors/dsh-agent.js";
-import { loadRelayToken, saveRelayToken, relayAuthExists } from "./lib/infra/relayAuth.js";
+import { loadRelayToken, saveRelayToken, relayAuthExists, relayAuthInfo } from "./lib/infra/relayAuth.js";
 import { discoverAgents, testAgentGate, realRunWhich, realRunNpmPrefix, realRunVersion } from "./lib/delegate/agents.js";
 import { readTriggerText, logEvent } from "./lib/stages/helpers.js";
 import {
   loadConnections, upsertConnection, deleteConnection, normalizeConnection,
-  matchConnection, injectGitCredentials, redactUrl, maskToken, hostOf, CONNECTION_KINDS,
+  matchConnection, gitCredentialSpec, redactUrl, maskToken, hostOf, CONNECTION_KINDS,
 } from "./lib/infra/connections.js";
 import { STAGE_DEFS, stageCfgOf, stageDelegated, delegateReady, purgeDelegateArtifacts, routeOverridesOf, DEFAULT_LLM_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS } from "./lib/core/stageConfig.js";
 import { baseRepoDir, runRepoDir, ensureWorktree, removeWorktree, resetRepoClean } from "./lib/infra/repoState.js";
@@ -115,8 +115,7 @@ function projectKeyOf(root, runDir) {
 }
 
 // —— 仓库克隆：repo 目录不存在时 git clone --depth 1 主仓库（幂等） ——
-// https 地址若匹配到「Git 托管连接」则注入凭据（私有仓库可克隆）；ssh/scp 形态走本机密钥不注入。
-// 注入后的 URL 绝不落事件/错误信息（redactUrl 脱敏）。
+// https 凭据只通过子进程环境中的 http.extraheader 注入，URI/argv 永不携带 token。
 function ensureRepo(root, project, rcx) {
   const repoDir = baseRepoDir(root, project.slug);
   if (existsSync(join(repoDir, ".git"))) return Promise.resolve(repoDir);
@@ -124,14 +123,16 @@ function ensureRepo(root, project, rcx) {
   mkdirSync(repoDir, { recursive: true });
   const uri0 = typeof project.repos[0] === "string" ? project.repos[0] : project.repos[0].uri;
   const conn = matchConnection(uri0, loadConnections(root));
-  const uri = injectGitCredentials(uri0, conn);
+  const credential = gitCredentialSpec(uri0, conn, process.env);
   const t0 = Date.now();
   logEvent(rcx, {
     kind: "git", name: "git clone --depth 1 " + redactUrl(uri0),
     detail: "克隆主仓库到本地 repo/" + (conn ? `（已注入 ${CONNECTION_KINDS[conn.kind].label} 连接凭据）` : ""),
   });
   return new Promise((resolve, reject) => {
-    execFile("git", ["clone", "--depth", "1", uri, repoDir], { stdio: "pipe", timeout: 120000, windowsHide: true }, (err, stdout, stderr) => {
+    execFile("git", ["clone", "--depth", "1", credential.uri, repoDir], {
+      stdio: "pipe", timeout: 120000, windowsHide: true, env: credential.env,
+    }, (err, stdout, stderr) => {
       if (err) {
         const stderrS = redactUrl(String(stderr || err.message));
         logEvent(rcx, { kind: "git", name: "git clone 失败", detail: stderrS, ms: Date.now() - t0, ok: false });
@@ -148,11 +149,18 @@ function ensureRepo(root, project, rcx) {
 
 // —— 快速失败：把运行中的 run 置为 failed（阶段状态同步落盘），供克隆失败等开工前错误使用 ——
 export function failRun(runDir, stageId, message) {
-  const run = loadRun(runDir);
+  let run;
+  try {
+    run = loadRun(runDir);
+  } catch (parseError) {
+    run = recoverCorruptRun(runDir, stageId, message, parseError);
+  }
   if (!run || run.status !== "running") return run;
   run.status = "failed";
-  const st = run.stages[stageId || run.current || "P1"];
-  if (st) { st.status = "failed"; st.error = message; }
+  if (!run.stages || typeof run.stages !== "object" || Array.isArray(run.stages)) run.stages = {};
+  const id = stageId || run.current || "P1";
+  const st = run.stages[id] || (run.stages[id] = { status: "pending", attempts: 0 });
+  st.status = "failed"; st.error = message;
   saveRun(runDir, run);
   return run;
 }
@@ -168,6 +176,18 @@ function recordFailureAnalysis(runDir) {
     run.failureAnalysis = { category: out.category, detail: out.detail || "", action: out.action || "", at: new Date().toISOString() };
     saveRun(runDir, run);
   } catch { /* 产物缺失/损坏时静默跳过 */ }
+}
+
+async function classifyFailure(ctx, runDir, rcx, run, message) {
+  if (!rcx?.executors?.P10) return;
+  rcx.run = run;
+  try {
+    await rcx.executors.P10({ ...rcx, failure: { stage: run.current, error: message } });
+    recordFailureAnalysis(runDir);
+  } catch (error) {
+    ctx.logger?.error?.("issue2pr: P10 失败分析也失败: " +
+      String((error && error.message) || error));
+  }
 }
 
 // 推进循环：仅 run.status==="running" 时调用 advance（awaiting_review 停手等 applyReview）；
@@ -201,11 +221,16 @@ function drive(ctx, root, runDir) {
           const run = failRun(runDir, initRun.current, msg);
           if (run) {
             const rcx = s.rcx;
-            rcx.run = run;
-            try {
-              await rcx.executors.P10({ ...rcx, failure: { stage: run.current, error: msg } });
-              recordFailureAnalysis(runDir);
-            } catch { /* P10 自身失败不阻断主流程 */ }
+            if (rcx) {
+              rcx.run = run;
+              try {
+                await rcx.executors.P10({ ...rcx, failure: { stage: run.current, error: msg } });
+                recordFailureAnalysis(runDir);
+              } catch (p10Error) {
+                ctx.logger?.error?.("issue2pr: P10 失败分析也失败: " +
+                  String((p10Error && p10Error.message) || p10Error));
+              }
+            }
           }
           ctx.logger?.warn?.("issue2pr: " + msg);
           return;
@@ -236,7 +261,51 @@ function drive(ctx, root, runDir) {
       }
     }
   }));
-  s.lock = task.then(() => {}, () => {}); // 失败不污染锁链
+  const guarded = task.catch(async (error) => {
+    const detail = String((error && error.message) || error);
+    const message = "运行驱动异常: " + detail;
+    ctx.logger?.error?.("issue2pr: " + message);
+    let run;
+    let loadError = null;
+    try {
+      run = loadRun(runDir);
+    } catch (parseError) {
+      ctx.logger?.error?.("issue2pr: " + message + "；读取 run.json 失败: " +
+        String((parseError && parseError.message) || parseError));
+      loadError = parseError;
+    }
+    if (!run && !loadError) return;
+    if (run && run.status !== "running") return;
+    let failed;
+    try {
+      failed = failRun(runDir, run && run.current, message);
+    } catch (failError) {
+      ctx.logger?.error?.("issue2pr: " + message + "；写入 failed 状态失败: " +
+        String((failError && failError.message) || failError));
+      return;
+    }
+    if (!failed) return;
+    let rcx = s.rcx;
+    if (!rcx) {
+      try {
+        rcx = s.rcx = buildRcx(ctx, root, runDir, failed);
+      } catch (buildError) {
+        ctx.logger?.error?.("issue2pr: 失败状态已落盘，但 P10 上下文构建失败: " +
+          String((buildError && buildError.message) || buildError));
+        return;
+      }
+    }
+    if (!rcx.executors?.P10) return;
+    rcx.run = failed;
+    try {
+      await rcx.executors.P10({ ...rcx, failure: { stage: failed.current, error: message } });
+      recordFailureAnalysis(runDir);
+    } catch (p10Error) {
+      ctx.logger?.error?.("issue2pr: P10 失败分析也失败: " +
+        String((p10Error && p10Error.message) || p10Error));
+    }
+  });
+  s.lock = guarded.then(() => {}, () => {}); // 失败已记录，锁链保持可继续使用
   return s.lock;
 }
 
@@ -414,9 +483,14 @@ async function handleApi(ctx, root, req, res) {
       return sendJson(res, 404, { ok: false, message: "not found" });
     }
     // —— /issue2pr/api/connections：Git 托管连接（GitHub/GitLab/CodeArts 凭据，全局共享，所有项目复用） ——
-    // token 明文存于 <dataRoot>/connections.json（与本机 GITHUB_TOKEN 环境变量同级安全）；返回给 UI 一律脱敏。
+    // connections.json 只保存元数据/secretRef；返回给 UI 的 token 仅为掩码，且展示实际存储模式。
     if (parts[2] === "connections") {
-      const masked = (c) => ({ ...c, token: maskToken(c.token) });
+      const masked = (c) => ({
+        id: c.id, kind: c.kind, host: c.host, username: c.username, createdAt: c.createdAt,
+        secretRef: c.secretRef, secretStorage: c.secretStorage,
+        secretEncrypted: c.secretEncrypted, secretWarning: c.secretWarning,
+        token: c.token ? maskToken(c.token) : "",
+      });
       if (!parts[3] && m === "GET") {
         return sendJson(res, 200, { ok: true, connections: loadConnections(root).map(masked) });
       }
@@ -461,10 +535,12 @@ async function handleApi(ctx, root, req, res) {
         const uri = typeof body?.uri === "string" ? body.uri.trim() : "";
         if (!uri) return sendJson(res, 400, { ok: false, message: "uri 必填" });
         const conn = matchConnection(uri, loadConnections(root));
-        const injected = injectGitCredentials(uri, conn);
+        const credential = gitCredentialSpec(uri, conn, process.env);
         const runGit = __testHooks?.runGit || ((args, opts, cb) => execFile("git", args, opts, cb));
         const t0 = Date.now();
-        runGit(["ls-remote", "--heads", injected], { timeout: 15000, windowsHide: true }, (err, stdout, stderr) => {
+        runGit(["ls-remote", "--heads", credential.uri], {
+          timeout: 15000, windowsHide: true, env: credential.env,
+        }, (err, stdout, stderr) => {
           if (err) {
             return sendJson(res, 200, {
               ok: false, matched: conn ? conn.id : null,
@@ -521,11 +597,15 @@ async function handleApi(ctx, root, req, res) {
       const gate = await testAgentGate({ bin, timeoutMs, auth, runners: (__testHooks && __testHooks.agentProbes) || {} });
       return sendJson(res, 200, { ok: gate.ok, gate });
     }
-    // —— /issue2pr/api/relay-auth：claude 认证中转 token（全局一份，明文存 <dataRoot>/relay-auth.json） ——
-    // 返回 UI 一律打码；与 connections.json 同级安全。
+    // —— /issue2pr/api/relay-auth：claude 认证中转 token（全局一份） ——
+    // relay-auth.json 只保存元数据/secretRef；返回 UI 一律打码并展示实际存储模式。
     if (parts[2] === "relay-auth" && !parts[3] && m === "GET") {
       const token = loadRelayToken(root);
-      return sendJson(res, 200, { ok: true, exists: !!token, masked: token ? maskToken(token) : "" });
+      const info = relayAuthInfo(root);
+      return sendJson(res, 200, {
+        ok: true, exists: !!token, masked: token ? maskToken(token) : "",
+        storage: info.storage, encrypted: info.encrypted, warning: info.warning,
+      });
     }
     if (parts[2] === "relay-auth" && !parts[3] && m === "PUT") {
       const body = await readBody(req);
@@ -533,11 +613,19 @@ async function handleApi(ctx, root, req, res) {
         return sendJson(res, 400, { ok: false, message: "token 必填" });
       }
       saveRelayToken(root, body.token.trim());
-      return sendJson(res, 200, { ok: true, exists: relayAuthExists(root), masked: maskToken(body.token.trim()) });
+      const info = relayAuthInfo(root);
+      return sendJson(res, 200, {
+        ok: true, exists: relayAuthExists(root), masked: maskToken(body.token.trim()),
+        storage: info.storage, encrypted: info.encrypted, warning: info.warning,
+      });
     }
     if (parts[2] === "relay-auth" && !parts[3] && m === "DELETE") {
       saveRelayToken(root, "");
-      return sendJson(res, 200, { ok: true, exists: false, masked: "" });
+      const info = relayAuthInfo(root);
+      return sendJson(res, 200, {
+        ok: true, exists: false, masked: "", storage: info.storage,
+        encrypted: info.encrypted, warning: info.warning,
+      });
     }
     // —— /issue2pr/api/preflight：环境健康探测（git 二进制 / claude CLI / LLM 默认路由与来源） ——
     // 纯只读探测：git --version、claudeBin 解析 + 存在性/PATH 校验、resolveRoute 现算；不发真实 LLM 请求。
@@ -819,7 +907,14 @@ async function handleApi(ctx, root, req, res) {
         rcx.run = run;
         const body = await readBody(req);
         const [ok, msg] = await applyReview(rcx, { decision: body?.decision, comment: body?.comment });
-        if (!ok) return sendJson(res, 400, { ok: false, message: msg });
+        if (!ok) {
+          // 达到复核上限时 applyReview 已将 Run 置为 failed；即使 API 立即返回错误，
+          // 也要同步执行 P10，保证失败旁路与驱动阶段失败保持同一契约。
+          if (run.status === "failed" && run.stages[run.current]?.error === msg) {
+            await classifyFailure(ctx, runDir, rcx, run, msg);
+          }
+          return sendJson(res, 400, { ok: false, message: msg });
+        }
         stopDelegateWatch(runDir); // 人工已决策，监听退出（避免与人工决策赛跑）
         sendJson(res, 200, { ok: true, message: msg });
         if (run.status === "running") setImmediate(() => drive(ctx, root, runDir)); // approve/reject 后继续推进

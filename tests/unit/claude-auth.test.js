@@ -35,16 +35,26 @@ test("claudeAuthEnv：none / 缺 token / 未知 preset → 空对象（向后兼
     assert.equal(authRelayActive(null), false);
 });
 
-test("relayAuth：token 保存/读取往返；损坏文件回落空串", () => {
+test("relayAuth：token 保存/读取往返；relay JSON 只保留 secretRef", () => {
     const root = mkdtempSync(join(tmpdir(), "i2p-relay-"));
     assert.equal(loadRelayToken(root), "");
     saveRelayToken(root, "sk-roundtrip");
     assert.equal(loadRelayToken(root), "sk-roundtrip");
-    // 落盘为 relay-auth.json（与 connections.json 同级凭据文件模式）
+    // 主 JSON 只保存引用，token 不得落盘在 relay-auth.json
     const j = JSON.parse(readFileSync(join(root, "relay-auth.json"), "utf8"));
-    assert.equal(j.token, "sk-roundtrip");
-    writeFileSync(join(root, "relay-auth.json"), "{oops");
-    assert.equal(loadRelayToken(root), "");
+    assert.ok(j.secretRef);
+    assert.equal(j.token, undefined);
+    assert.doesNotMatch(readFileSync(join(root, "relay-auth.json"), "utf8"), /sk-roundtrip/);
+});
+
+test("relayAuth：兼容旧明文格式并迁移到 SecretStore", () => {
+    const root = mkdtempSync(join(tmpdir(), "i2p-relay-legacy-"));
+    writeFileSync(join(root, "relay-auth.json"), JSON.stringify({ token: "sk-legacy" }));
+
+    assert.equal(loadRelayToken(root), "sk-legacy");
+    const migrated = readFileSync(join(root, "relay-auth.json"), "utf8");
+    assert.doesNotMatch(migrated, /sk-legacy/);
+    assert.match(migrated, /secretRef/);
 });
 
 test("claudeAuthEnv：token 不含在 env 键名外的额外字段（spawn env 面最小化）", () => {

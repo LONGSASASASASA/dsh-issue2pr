@@ -1,12 +1,12 @@
 // tests/connections.test.js — Git 托管连接：校验/存储/host 匹配/凭据注入/脱敏
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   loadConnections, upsertConnection, deleteConnection, normalizeConnection,
-  hostOf, matchConnection, injectGitCredentials, redactUrl, maskToken,
+  hostOf, matchConnection, gitCredentialSpec, redactUrl, maskToken,
 } from "../../lib/infra/connections.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-conn-"));
@@ -53,21 +53,43 @@ test("matchConnection 按 hostname 精确匹配", () => {
   assert.equal(matchConnection("https://gitlab.com/o/r.git", list), null);
 });
 
-test("injectGitCredentials：三类托管各自注入；ssh/已带凭据原样返回", () => {
+test("gitCredentialSpec：URL 不带凭据，认证只进入 http.extraheader 环境", () => {
   const gh = { kind: "github", host: "github.com", token: "ghp_x" };
-  assert.equal(injectGitCredentials("https://github.com/o/r.git", gh), "https://x-access-token:ghp_x@github.com/o/r.git");
+  const ghSpec = gitCredentialSpec("https://github.com/o/r.git", gh, { BASE: "keep" });
+  assert.equal(ghSpec.uri, "https://github.com/o/r.git");
+  assert.equal(ghSpec.env.BASE, "keep");
+  assert.equal(ghSpec.env.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
+  assert.equal(ghSpec.env.GIT_CONFIG_VALUE_0, "AUTHORIZATION: Basic eC1hY2Nlc3MtdG9rZW46Z2hwX3g=");
+  assert.equal(ghSpec.env.GIT_TERMINAL_PROMPT, "0");
+  assert.doesNotMatch(ghSpec.uri, /ghp_x/);
   const gl = { kind: "gitlab", host: "gitlab.com", token: "glo_y" };
-  assert.equal(injectGitCredentials("https://gitlab.com/o/r.git", gl), "https://oauth2:glo_y@gitlab.com/o/r.git");
+  const glSpec = gitCredentialSpec("https://gitlab.com/o/r.git", gl, {});
+  assert.equal(glSpec.uri, "https://gitlab.com/o/r.git");
+  assert.equal(glSpec.env.GIT_CONFIG_VALUE_0, "AUTHORIZATION: Basic b2F1dGgyOmdsb195");
   const ca = { kind: "codearts", host: "codehub.example.com", token: "p@ss:w", username: "tenant/iam" };
-  assert.equal(
-    injectGitCredentials("https://codehub.example.com/o/r.git", ca),
-    "https://tenant%2Fiam:p%40ss%3Aw@codehub.example.com/o/r.git",
-  );
+  const caSpec = gitCredentialSpec("https://codehub.example.com/o/r.git", ca, {});
+  assert.equal(caSpec.uri, "https://codehub.example.com/o/r.git");
+  assert.equal(caSpec.env.GIT_CONFIG_VALUE_0, "AUTHORIZATION: Basic dGVuYW50L2lhbTpwQHNzOnc=");
   // scp 形态走 SSH key，不注入
-  assert.equal(injectGitCredentials("git@github.com:o/r.git", gh), "git@github.com:o/r.git");
-  // 用户显式内嵌凭据优先
-  assert.equal(injectGitCredentials("https://u:p@github.com/o/r.git", gh), "https://u:p@github.com/o/r.git");
-  assert.equal(injectGitCredentials("https://github.com/o/r.git", null), "https://github.com/o/r.git");
+  const sshSpec = gitCredentialSpec("git@github.com:o/r.git", gh, { BASE: "keep" });
+  assert.equal(sshSpec.uri, "git@github.com:o/r.git");
+  assert.equal(sshSpec.env.BASE, "keep");
+  // 用户显式内嵌凭据也必须从 argv 移走
+  const embeddedSpec = gitCredentialSpec("https://u:p@github.com/o/r.git", gh, {});
+  assert.equal(embeddedSpec.uri, "https://github.com/o/r.git");
+  assert.equal(embeddedSpec.env.GIT_CONFIG_VALUE_0, "AUTHORIZATION: Basic dTpw");
+  const anonymousSpec = gitCredentialSpec("https://github.com/o/r.git", null, {});
+  assert.equal(anonymousSpec.uri, "https://github.com/o/r.git");
+  assert.equal(anonymousSpec.env.GIT_CONFIG_VALUE_0, undefined);
+});
+
+test("gitCredentialSpec：仅用户名 URL 保留原认证流程，不注入空密码", () => {
+  const spec = gitCredentialSpec("https://alice@github.com/org/repo.git", null, { BASE: "keep" });
+
+  assert.equal(spec.uri, "https://alice@github.com/org/repo.git");
+  assert.equal(spec.env.BASE, "keep");
+  assert.equal(spec.env.GIT_CONFIG_COUNT, undefined);
+  assert.equal(spec.env.GIT_TERMINAL_PROMPT, undefined);
 });
 
 test("redactUrl / maskToken 脱敏", () => {
@@ -80,4 +102,18 @@ test("redactUrl / maskToken 脱敏", () => {
   );
   assert.equal(maskToken("ghp_1234567890abcdef"), "ghp_…cdef");
   assert.equal(maskToken("short"), "****");
+});
+
+test("connections：兼容旧明文文件并迁移，主 JSON 只保留 secretRef", () => {
+  const legacyRoot = mkdtempSync(join(tmpdir(), "i2p-conn-legacy-"));
+  writeFileSync(join(legacyRoot, "connections.json"), JSON.stringify([
+    { id: "github.com", kind: "github", host: "github.com", token: "ghp_legacy" },
+  ]));
+
+  const list = loadConnections(legacyRoot);
+
+  assert.equal(list[0].token, "ghp_legacy");
+  const migrated = readFileSync(join(legacyRoot, "connections.json"), "utf8");
+  assert.doesNotMatch(migrated, /ghp_legacy/);
+  assert.match(migrated, /secretRef/);
 });
