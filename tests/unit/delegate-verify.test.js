@@ -70,6 +70,48 @@ test("P6 验证：清单路径越界返回结构化失败而非抛异常", async
   assert.match(v.errors.join("；"), /非法路径|越界/);
 });
 
+test("P6 tasks 契约：no_change 可无 patch，但任务结果必须完整且状态有效", async () => {
+  const runDir = mkRun();
+  writeFileSync(join(runDir, "05-task-graph.json"), JSON.stringify({ nodes: [
+    { id: "T1", title: "仅分析" },
+    { id: "T2", title: "修改代码" },
+  ] }));
+  writeFileSync(join(runDir, "06-implementation", "patches", "0002-T2.diff"),
+    "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n");
+
+  const reportPath = join(runDir, "06-implementation", "coder-report.json");
+  writeFileSync(reportPath, JSON.stringify({ tasks: [
+    { node: "T1", status: "no_change", reason: "仅分析，无代码变更" },
+    { node: "T2", status: "patched", patch: "06-implementation/patches/0002-T2.diff" },
+  ] }));
+  let v = await verifyDelegateResult({ runDir }, "P6");
+  assert.equal(v.ok, true, v.errors.join("；"));
+  assert.equal(v.patches, 1);
+
+  writeFileSync(reportPath, JSON.stringify({ tasks: [
+    { node: "T1", status: "no_change" },
+    { node: "T2", status: "patched", patch: "06-implementation/patches/0002-T2.diff" },
+  ] }));
+  v = await verifyDelegateResult({ runDir }, "P6");
+  assert.equal(v.ok, false);
+  assert.match(v.errors.join("；"), /T1.*no_change.*原因/);
+
+  writeFileSync(reportPath, JSON.stringify({ tasks: [
+    { node: "T2", status: "patched", patch: "06-implementation/patches/0002-T2.diff" },
+  ] }));
+  v = await verifyDelegateResult({ runDir }, "P6");
+  assert.equal(v.ok, false);
+  assert.match(v.errors.join("；"), /缺少任务结果.*T1/);
+
+  writeFileSync(reportPath, JSON.stringify({ tasks: [
+    { node: "T1", status: "failed", reason: "执行失败" },
+    { node: "T2", status: "patched", patch: "06-implementation/patches/0002-T2.diff" },
+  ] }));
+  v = await verifyDelegateResult({ runDir }, "P6");
+  assert.equal(v.ok, false);
+  assert.match(v.errors.join("；"), /T1.*failed/);
+});
+
 test("P6 验证：无仓库环境仅结构验证（补丁形态合法即过，不演练）", async () => {
   const runDir = mkRun();
   writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n");

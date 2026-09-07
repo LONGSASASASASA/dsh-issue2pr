@@ -5,7 +5,7 @@ import executor from "../../lib/delegate/executors/dsh-agent.js";
 
 // 构造 fake 宿主：agents.create 返回可控 fake agent（事件由用例注入，whenIdle 即时静默；
 // hangAfterFollowup=true 时 followup 之后的 whenIdle 悬挂，直到 cancel 放行闸门——模拟超时取消）
-function fakeHost({ events = [], createError = null, hangAfterFollowup = false } = {}) {
+function fakeHost({ events = [], createError = null, hangAfterFollowup = false, cancelReleases = true } = {}) {
     const disposals = [];
     let followed = false;
     let releaseGate = () => {};
@@ -20,7 +20,7 @@ function fakeHost({ events = [], createError = null, hangAfterFollowup = false }
             for (const ev of scripted) events.push(ev);
         },
         cancel: () => {
-            releaseGate();
+            if (cancelReleases) releaseGate();
             if (!events.some((e) => e.type === "turn/end")) events.push({ seq: 99, type: "turn/end", data: { reason: { kind: "aborted" } } });
         },
         whenIdle: async () => { if (hangAfterFollowup && followed) await gate; },
@@ -92,6 +92,15 @@ test("run：超时 → cancel 放行闸门后判 timeout（不悬挂整个 Run�
     const out = await executor.run({ rcx: { hostCtx: host.hostCtx }, repoDir: "r", runDir: "rd", prompt: "p", timeoutMs: 150 });
     assert.equal(out.failure.kind, "timeout");
     assert.match(out.failure.message, /超时/);
+});
+
+test("run：超时后 whenIdle 不响应 cancel 也会按时返回", async () => {
+    const host = fakeHost({ hangAfterFollowup: true, cancelReleases: false });
+    const startedAt = Date.now();
+    const out = await executor.run({ rcx: { hostCtx: host.hostCtx }, repoDir: "r", runDir: "rd", prompt: "p", timeoutMs: 50 });
+
+    assert.equal(out.failure.kind, "timeout");
+    assert.ok(Date.now() - startedAt < 500, "超时后不应继续等待未完成的 whenIdle");
 });
 
 test("run：rcx.spawnExternal 注入口生效（阶段层单测不依赖宿主）", async () => {

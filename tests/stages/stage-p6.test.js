@@ -54,6 +54,45 @@ test("builtin：reviewer fail → 抛错（交给 P10）", async () => {
   await assert.rejects(() => p6({ runDir, repoDir, llm, reviewComment: "", p6Mode: "builtin" }), /越权修改/);
 });
 
+test("builtin：Coder 非 unified diff → 写文件前拒绝", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
+  const llm = {
+    completeJson: async () => ({ assignments: [{ node: "T1", file: "src/guard.ts" }] }),
+    complete: async () => "not-a-unified-diff",
+  };
+
+  await assert.rejects(
+    () => p6({ runDir, repoDir, llm, reviewComment: "", p6Mode: "builtin" }),
+    /不是 unified diff/,
+  );
+  const patchDir = join(runDir, "06-implementation", "patches");
+  assert.equal(existsSync(patchDir) ? readdirSync(patchDir).length : 0, 0);
+});
+
+test("builtin：Coder 并发最多 2 个", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
+  let active = 0;
+  let maxActive = 0;
+  const assignments = Array.from({ length: 4 }, (_, i) => ({ node: "T" + (i + 1), file: "src/guard.ts" }));
+  const llm = {
+    completeJson: async (req) => String(req.user).includes("【diff 清单】")
+      ? { verdict: "pass", notes: "ok" }
+      : { assignments },
+    complete: async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      active -= 1;
+      return "--- a/src/guard.ts\n+++ b/src/guard.ts\n@@ -1 +1 @@\n-restoreSession();\n+await restoreSession();";
+    },
+  };
+
+  await p6({ runDir, repoDir, llm, reviewComment: "", p6Mode: "builtin" });
+  assert.equal(maxActive, 2);
+});
+
 test("session：写 session-task.md，不调 LLM", async () => {
   const runDir = mkdtempSync(join(root, "run-"));
   writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
@@ -62,6 +101,10 @@ test("session：写 session-task.md，不调 LLM", async () => {
   assert.equal(r.artifact, "06-implementation/session-task.md");
   assert.equal(r.external, true); // 外部执行标记：advance 据此显示"等外部执行"并拦截空 patches 的 approve
   assert.ok(existsSync(join(runDir, "06-implementation", "session-task.md")));
+  const task = readFileSync(join(runDir, "06-implementation", "session-task.md"), "utf8");
+  assert.match(task, /patched/);
+  assert.match(task, /no_change/);
+  assert.match(task, /no_change.*不生成.*diff/s);
 });
 
 // —— claude 模式：生成任务包后委托 claude CLI，产物就绪进正常复核门，失败回退等人工 ——
@@ -72,6 +115,9 @@ test("claude：执行成功产出 patches/report → externalExec=done（含 sta
   const llm = { completeJson: async () => { throw new Error("不应被调用"); }, complete: async () => { throw new Error("不应被调用"); } };
   const run = { id: "r1", stages: {} };
   const spawnExternal = async (opts) => {
+    assert.match(opts.prompt, /patched/);
+    assert.match(opts.prompt, /no_change/);
+    assert.match(opts.prompt, /no_change.*不生成.*diff/s);
     const nap = (ms) => new Promise((res) => setTimeout(res, ms));
     await nap(80); // 采样器先观察到 0 patch
     mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
@@ -94,7 +140,7 @@ test("claude：执行成功产出 patches/report → externalExec=done（含 sta
   assert.ok(existsSync(join(runDir, "06-implementation", "external-exec.log"))); // 执行输出留档
   // 过程事件：进度采样 + 完成（UI 阶段详情"过程"面板数据源）
   const ev = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8");
-  assert.match(ev, /Claude Code 进度 1\/2/);
+  assert.match(ev, /Claude Code patch 产出 1/);
   assert.match(ev, /Claude Code 执行完成[^\n]*耗时 1 分钟[^\n]*5 轮[^\n]*\$0\.42/);
 });
 

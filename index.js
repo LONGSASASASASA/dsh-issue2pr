@@ -31,7 +31,7 @@ import { baseRepoDir, runRepoDir, ensureWorktree, removeWorktree, resetRepoClean
 import { ASSISTANT_SYSTEM_HEAD, buildAssistantContext } from "./lib/assistant.js";
 
 export const name = "dsh-issue2pr";
-export const inject = ["webServer", "llm"];
+export const inject = ["webServer", "llm", "agentDefaultModel"];
 
 // —— 测试注入（仅本插件测试用）：覆盖内部默认值 dataRoot / executors ——
 let __testHooks = null;

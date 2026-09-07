@@ -59,6 +59,23 @@ test("P10：失败六分类契约", async () => {
   assert.equal(saved.action, "rollback");
 });
 
+test("P10：LLM 认证失败时保留基础失败报告并降级返回", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  const llm = { completeJson: async () => { throw new Error("LLM 调用失败: Authentication Fails"); } };
+  const r = await p10({
+    runDir,
+    repoDir: root,
+    llm,
+    failure: { stage: "P1", error: "Authentication Fails" },
+    run: { status: "failed" },
+  });
+  const saved = JSON.parse(readFileSync(join(runDir, r.artifact), "utf8"));
+  assert.equal(saved.action, "escalate");
+  assert.equal(saved.degraded, true);
+  assert.match(saved.detail, /P1.*Authentication Fails/);
+  assert.match(r.summary, /降级/);
+});
+
 test("P10：run.status 非 failed 时跳过，不写产物", async () => {
   const runDir = mkdtempSync(join(root, "run-"));
   const llm = { completeJson: async () => { throw new Error("不应被调用"); } };

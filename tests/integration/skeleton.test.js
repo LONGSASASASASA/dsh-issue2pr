@@ -15,7 +15,7 @@ function fakeCtx() {
 
 test("骨架：导出 name/inject，apply 注册 /issue2pr 前缀路由", () => {
   assert.equal(name, "dsh-issue2pr");
-  assert.deepEqual(inject, ["webServer", "llm"]);
+  assert.deepEqual(inject, ["webServer", "llm", "agentDefaultModel"]);
   const ctx = fakeCtx();
   apply(ctx);
   assert.equal(ctx.registrations.length, 1);

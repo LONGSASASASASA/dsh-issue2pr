@@ -17,6 +17,11 @@ function fakeCtx() {
     logger: { info() {} },
     webServer: { register(spec) { routes.push(spec); } },
     getConfig() { return { dataRoot: root }; },
+    get(name) {
+      return name === "agentDefaultModel"
+        ? { currentSelection: () => ({ provider: "zai", model: "glm-5.3" }) }
+        : undefined;
+    },
     llm: { async *stream() { yield { type: "text-delta", index: 0, text: "{}" }; yield { type: "finish", reason: "stop" }; } },
   };
 }
@@ -557,6 +562,11 @@ function assistantHandlerOf(streamFn) {
     logger: { info() {} },
     webServer: { register(s) { rs.push(s); } },
     getConfig() { return { dataRoot: root }; },
+    get(name) {
+      return name === "agentDefaultModel"
+        ? { currentSelection: () => ({ provider: "zai", model: "glm-5.3" }) }
+        : undefined;
+    },
     llm: { stream: streamFn },
   };
   apply(c2);
@@ -717,8 +727,12 @@ test("API：connections/test-repo — 匹配连接注入凭据跑 ls-remote；�
   assert.deepEqual(gitCalls[0].args.slice(0, 2), ["ls-remote", "--heads"]);
   assert.equal(gitCalls[0].args[2], "https://github.com/org/repo.git", "Git argv 不得含凭据");
   assert.equal(gitCalls[0].args.some((arg) => String(arg).includes("ghp_secret")), false);
-  assert.match(gitCalls[0].opts.env.GIT_CONFIG_VALUE_0, /Basic /);
-  assert.match(gitCalls[0].opts.env.GIT_CONFIG_VALUE_0, /Z2hwX3NlY3JldA/);
+  const authHeader = Object.entries(gitCalls[0].opts.env)
+    .filter(([key]) => /^GIT_CONFIG_VALUE_\d+$/.test(key))
+    .map(([, value]) => String(value))
+    .find((value) => value.includes("AUTHORIZATION: Basic "));
+  assert.ok(authHeader, "Git env 应注入 Basic extraheader");
+  assert.match(authHeader, /Z2hwX3NlY3JldA/);
   // 失败路径：stderr 带注入凭据也必须脱敏
   __setTestHooks({
     dataRoot: root, executors: {},
@@ -750,8 +764,9 @@ test("API：preflight — git/claude 探测 + LLM 路由来源 + 项目级覆盖
   assert.match(r.body.preflight.git.version, /git version/);
   assert.equal(r.body.preflight.claude.ok, false, "显式配置的缺失路径应探测失败");
   assert.equal(r.body.preflight.claude.path, "C:\\nope\\claude.cmd");
-  assert.equal(r.body.preflight.llm.source, "default", "无宿主默认/插件配置时兜底路由");
-  assert.equal(r.body.preflight.llm.provider, "deepseek-official");
+  assert.equal(r.body.preflight.llm.source, "host");
+  assert.equal(r.body.preflight.llm.provider, "zai");
+  assert.equal(r.body.preflight.llm.model, "glm-5.3");
   assert.deepEqual(r.body.preflight.llm.overrides.P1, { provider: "prov-x", model: "model-x" });
   // 项目二：claudeBin 配裸名"claude" → 走 where/which 兜底（注入 runWhich 命中）
   await call(h, "POST", "/issue2pr/api/projects", {

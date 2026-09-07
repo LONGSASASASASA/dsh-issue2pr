@@ -4,12 +4,17 @@ import { makeLlm, extractJson, routeInfo } from "../../lib/infra/llm.js";
 
 function fakeCtx(outputs) {
   let i = 0;
-  return { llm: { async *stream() {
-    const text = outputs[Math.min(i++, outputs.length - 1)];
-    yield { type: "block-start", index: 0, blockType: "text" };
-    yield { type: "text-delta", index: 0, text };
-    yield { type: "finish", reason: "stop" };
-  } } };
+  return {
+    get: (name) => name === "agentDefaultModel"
+      ? { currentSelection: () => ({ provider: "test-provider", model: "test-model" }) }
+      : undefined,
+    llm: { async *stream() {
+      const text = outputs[Math.min(i++, outputs.length - 1)];
+      yield { type: "block-start", index: 0, blockType: "text" };
+      yield { type: "text-delta", index: 0, text };
+      yield { type: "finish", reason: "stop" };
+    } },
+  };
 }
 
 test("extractJson：围栏 / 裸 JSON / 垃圾输入", () => {
@@ -29,6 +34,22 @@ test("completeJson：两次都失败 → 抛契约解析失败", async () => {
   await assert.rejects(() => llm.completeJson({ system: "s", user: "u", required: ["x"] }), /契约解析失败/);
 });
 
+test("completeJson：LLM 调用失败不重试", async () => {
+  let calls = 0;
+  const ctx = {
+    get: (name) => name === "agentDefaultModel"
+      ? { currentSelection: () => ({ provider: "test-provider", model: "test-model" }) }
+      : undefined,
+    llm: { async *stream() {
+      calls += 1;
+      yield { type: "finish", reason: { kind: "error", failure: { message: "Authentication Fails" } } };
+    } },
+  };
+  const llm = makeLlm(ctx);
+  await assert.rejects(() => llm.completeJson({ system: "s", user: "u", required: ["x"] }), /Authentication Fails/);
+  assert.equal(calls, 1);
+});
+
 test("completeJson：输出为标量（非对象）→ 抛契约解析失败", async () => {
   const llm = makeLlm(fakeCtx(["42"]));
   await assert.rejects(() => llm.completeJson({ system: "s", user: "u", required: ["x"] }), /契约解析失败/);
@@ -39,9 +60,41 @@ test("complete：拼接 text-delta", async () => {
   assert.equal(await llm.complete({ system: "s", user: "u" }), "hello world");
 });
 
+test("complete：超时会主动中断底层 stream", async () => {
+  let aborted = false;
+  const ctx = {
+    get: (name) => name === "agentDefaultModel"
+      ? { currentSelection: () => ({ provider: "test-provider", model: "test-model" }) }
+      : undefined,
+    llm: { async *stream({ signal }) {
+      await new Promise((resolve) => {
+        if (signal.aborted) {
+          aborted = true;
+          resolve();
+          return;
+        }
+        signal.addEventListener("abort", () => {
+          aborted = true;
+          resolve();
+        }, { once: true });
+      });
+      throw new Error("stream aborted");
+    } },
+  };
+  const llm = makeLlm(ctx, null, () => ({ timeoutMs: 20 }));
+
+  await assert.rejects(() => llm.complete({ system: "s", user: "u" }), /LLM 调用超时/);
+  assert.equal(aborted, true);
+});
+
 // —— E2E 修复：finish chunk 的 reason 为对象时不得吞掉适配器失败 ——
 function fakeCtxChunks(chunks) {
-  return { llm: { async *stream() { yield* chunks; } } };
+  return {
+    get: (name) => name === "agentDefaultModel"
+      ? { currentSelection: () => ({ provider: "test-provider", model: "test-model" }) }
+      : undefined,
+    llm: { async *stream() { yield* chunks; } },
+  };
 }
 
 test("complete：finish reason 为 {kind:'error'} 且无 text → 抛 LLM 调用失败（含 failure 信息，非『返回为空』）", async () => {
@@ -61,29 +114,22 @@ test("complete：finish reason 为 {kind:'aborted'} → 抛 LLM 调用失败", a
   await assert.rejects(() => llm.complete({ system: "s", user: "u" }), /LLM 调用失败.*ABORTED/);
 });
 
-// —— E2E 修复：路由优先取 agentDefaultModel 服务 ——
-test("resolveRoute：优先用 ctx.agentDefaultModel.currentSelection()", async () => {
+// —— E2E 修复：路由取宿主 agentDefaultModel 服务 ——
+test("resolveRoute：使用 ctx.get('agentDefaultModel').currentSelection()", async () => {
   let seen = null;
   const ctx = {
-    agentDefaultModel: { currentSelection: () => ({ provider: "bianlian", model: "kimi/kimi-k3" }) },
-    getConfig: () => ({ provider: "cfg-p", model: "cfg-m" }),
+    get: (name) => name === "agentDefaultModel"
+      ? { currentSelection: () => ({ provider: "zai", model: "glm-5.3" }) }
+      : undefined,
     llm: { async *stream(opts) { seen = opts; yield { type: "text-delta", index: 0, text: "ok" }; yield { type: "finish", reason: "stop" }; } },
   };
   await makeLlm(ctx).complete({ system: "s", user: "u" });
-  assert.equal(seen.provider, "bianlian");
-  assert.equal(seen.model, "kimi/kimi-k3");
+  assert.equal(seen.provider, "zai");
+  assert.equal(seen.model, "glm-5.3");
 });
 
-test("resolveRoute：currentSelection 抛错 → 回退 getConfig 路径", async () => {
-  let seen = null;
-  const ctx = {
-    agentDefaultModel: { currentSelection: () => { throw new Error("no service"); } },
-    getConfig: (k) => (k === "agent-default-model" ? { provider: "cfg-p", model: "cfg-m" } : undefined),
-    llm: { async *stream(opts) { seen = opts; yield { type: "text-delta", index: 0, text: "ok" }; yield { type: "finish", reason: "stop" }; } },
-  };
-  await makeLlm(ctx).complete({ system: "s", user: "u" });
-  assert.equal(seen.provider, "cfg-p");
-  assert.equal(seen.model, "cfg-m");
+test("routeInfo：宿主默认模型不可用时显式报错", () => {
+  assert.throws(() => routeInfo({}, {}), /无法读取 DSH 当前默认模型/);
 });
 
 test("routeInfo：阶段覆盖只配置 provider 或 model 时显式报错", () => {
@@ -94,7 +140,12 @@ test("routeInfo：阶段覆盖只配置 provider 或 model 时显式报错", () 
 // —— E2E 修复：Message.content 必须是 ContentBlock[]，字符串会触发适配器 content.some 异常 ——
 test("complete：messages[0].content 为 text 块数组（dsh-llm Message 契约）", async () => {
   let seen = null;
-  const ctx = { llm: { async *stream(opts) { seen = opts; yield { type: "text-delta", index: 0, text: "ok" }; yield { type: "finish", reason: "stop" }; } } };
+  const ctx = {
+    get: (name) => name === "agentDefaultModel"
+      ? { currentSelection: () => ({ provider: "test-provider", model: "test-model" }) }
+      : undefined,
+    llm: { async *stream(opts) { seen = opts; yield { type: "text-delta", index: 0, text: "ok" }; yield { type: "finish", reason: "stop" }; } },
+  };
   await makeLlm(ctx).complete({ system: "s", user: "我的需求" });
   assert.equal(seen.messages.length, 1);
   assert.equal(seen.messages[0].role, "user");
