@@ -4,3 +4,7 @@ node_modules/
 dbg*.mjs
 .zcode/
 .playwright-cli/
+/.tmp/
+/.playwright-mcp/
+/AGENTS-1.md
+/docs/ui-prototype/
