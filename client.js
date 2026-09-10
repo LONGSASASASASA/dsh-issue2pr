@@ -150,6 +150,7 @@ window.__ModuleLoader__.load({
 .studio .view .s,.studio .view .add{color:var(--accent)}
 .studio .view .c{color:var(--muted)}
 .studio .view .del{color:var(--red)}
+.studio .view .ln{display:inline-block;min-width:3em;margin-right:14px;text-align:right;color:var(--muted);user-select:none;-webkit-user-select:none}
 .studio .md-view{overflow-wrap:anywhere;min-width:0}
 .studio .md-view :where(p,ul,ol){margin:10px 0 19px}
 .studio .md-view :where(h1,h2,h3){margin:22px 0 12px}
@@ -201,6 +202,7 @@ window.__ModuleLoader__.load({
 .studio .studio-task-head{padding:8px 26px 5px;flex:none}
 .studio .studio-breadcrumb{font-size:12px;color:var(--muted);margin-bottom:4px;line-height:18px;flex-wrap:wrap}
 .studio .studio-breadcrumb button{padding:0;color:var(--secondary)}
+.studio .studio-breadcrumb .mono{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .studio .studio-task-title{gap:12px}
 .studio .studio-task-title h1{font-size:16px;line-height:24px;font-weight:600}
 .studio .studio-topology{padding:0 26px;border-bottom:1px solid var(--line);flex:none}
@@ -210,9 +212,15 @@ window.__ModuleLoader__.load({
 .studio .studio-progress i{height:4px;flex:1;border-radius:2px;background:var(--border)}
 .studio .studio-progress i.done{background:var(--accent)}
 .studio .studio-progress i.current{background:var(--blue)}
+.studio .studio-progress i.failed{background:var(--red)}
 .studio .studio-track{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:4px;padding-top:8px}
 .studio .studio-stage{border:1px solid transparent;border-radius:7px;padding:8px 2px;display:flex;align-items:center;flex-direction:column;position:relative;min-width:0}
-.studio .studio-stage:before{content:"";position:absolute;top:21px;right:50%;width:100%;height:1px;background:var(--line)}
+/* 二期 S4：节点连线加粗并按阶段状态着色（原先 1px var(--line) 对比约 1.2:1 近不可见） */
+.studio .studio-stage:before{content:"";position:absolute;top:20px;right:50%;width:100%;height:2px;background:var(--border);border-radius:1px}
+.studio .studio-stage.approved:before,.studio .studio-stage.completed:before{background:var(--accent)}
+.studio .studio-stage.current:before{background:var(--blue)}
+.studio .studio-stage.failed:before{background:var(--red)}
+.studio .studio-stage.awaiting_review:before{background:var(--amber)}
 .studio .studio-stage:first-child:before{display:none}
 .studio .studio-stage:hover{background:var(--soft)}
 .studio .studio-stage.on{background:var(--soft);border-color:var(--border)}
@@ -228,7 +236,7 @@ window.__ModuleLoader__.load({
 .studio .studio-tabs{display:flex;gap:24px;padding:0 26px;height:43px;border-bottom:1px solid var(--line);flex:none}
 .studio .studio-tabs button{padding:0 1px}
 .studio .studio-tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
-.studio .studio-tabs button:last-child{margin-left:auto}
+.studio .studio-runtime-meta{padding:8px 26px 0;font-size:12px;flex:none}
 .studio .studio-workspace{overflow:auto;min-height:0;flex:1;scrollbar-gutter:stable}
 .studio .studio-process{padding:16px 26px;display:grid;grid-template-columns:minmax(0,1fr);gap:24px;align-items:start}
 .studio .studio-process-main{min-width:0}
@@ -374,7 +382,7 @@ window.__ModuleLoader__.load({
    全部强调（边框/focus/hover/chip 圆点）统一同一绿色系，避免杂色。
    每处 color-mix 前都有一行传统语法兜底：旧内核（Chromium<111）把不认识的值整条丢弃、
    保留兜底行——面板退化为"无绿色染色但结构完整"，而不是无背景无边框 */
-.i2p-ai-panel{pointer-events:auto;position:absolute;top:60px;width:400px;height:calc(100% - 76px);
+.i2p-ai-panel{pointer-events:auto;position:absolute;top:60px;width:440px;height:calc(100% - 76px);
   min-width:240px;min-height:200px;
   display:flex;flex-direction:column;
   background:var(--panel,#fff);
@@ -556,13 +564,18 @@ window.__ModuleLoader__.load({
 			}).join("\n");
 		}
 
+		// 二期 L-B：行号槽——按行注入不可选中的行号列（复制按钮取原始文本，选择复制也不带行号杂质）
+		function numbered(html) {
+			const lines = String(html).replace(/\n$/, "").split("\n");
+			return lines.map((line, index) => '<span class="ln">' + (index + 1) + "</span>" + line).join("\n");
+		}
 		function renderView(text, name) {
 			const n = String(name || "").toLowerCase();
 			if (/\.json$/.test(n)) return jsonHtml(text);
-			if (/\.(diff|patch)$/.test(n)) return diffHtml(text);
 			if (/\.md$/.test(n)) return esc(text);
-			if (/^(diff |--- |\+\+\+ )/.test(text)) return diffHtml(text);
-			return esc(text);
+			if (/\.(diff|patch)$/.test(n)) return numbered(diffHtml(text));
+			if (/^(diff |--- |\+\+\+ )/.test(text)) return numbered(diffHtml(text));
+			return numbered(esc(text));
 		}
 
 		function reviewModeLabel(m) {
@@ -890,12 +903,13 @@ window.__ModuleLoader__.load({
 			link.download = path.split("/").pop(); link.click();
 			setTimeout(() => URL.revokeObjectURL(url), 1000);
 		}
-		function ArtifactContent({ text, path, raw = false }) {
+		function ArtifactContent({ text, path, raw = false, numbered: wantNumbers = false }) {
 			if (text == null) return h("p", { className: "hint" }, "读取中…");
 			if (!text) return h("p", { className: "hint" }, "空文件");
 			return !raw && /\.md$/i.test(path) ? h("div", { className: "md-view" }, h(MarkdownText, { text }))
 				: h("pre", { className: "view", tabIndex: 0,
-					dangerouslySetInnerHTML: { __html: raw ? esc(text) : renderView(text, path) } });
+					// raw=用户显式「查看源文件」保真无行号；分页切片（wantNumbers）注入行号便于段内定位
+					dangerouslySetInnerHTML: { __html: raw ? (wantNumbers ? numbered(esc(text)) : esc(text)) : renderView(text, path) } });
 		}
 		function executionPatchPath(value) {
 			if (typeof value !== "string" || !value.trim()) return null;
@@ -969,7 +983,8 @@ window.__ModuleLoader__.load({
 			const files = p.tree || [];
 			const path = files.some(file => file.path === selected) ? selected : files[0]?.path || "";
 			const file = files.find(item => item.path === path), owner = artifactOwner(path, p.run, p.instances);
-			const content = useRunArtifact(p.slug, p.runId, path, p.tree);
+			// N1：超过服务端 200KB 整读上限的文件自动降级尾部读取，预览不再 400 空白
+			const content = useRunArtifact(p.slug, p.runId, path, p.tree, file?.size > 200 * 1024 ? "tail" : "");
 			React.useEffect(() => {
 				if (!p.initialPath) return;
 				setSelected(p.initialPath); setSearch("");
@@ -1023,15 +1038,15 @@ window.__ModuleLoader__.load({
 						} catch (error) { p.toast(error.message, "bad"); } }, "ghost sm")),
 						h("div", { className: "hint studio-path" }, (p.project?.name || p.slug) + " · " + owner.label + (owner.instance ? " · " + owner.instance : "") + " · 当前存储文件"),
 						h("div", { className: "mono hint studio-path" }, path),
-						h("div", { className: "studio-row" }, h("span", { className: "hint studio-grow" }, fmtSize(file?.size) + (content.value != null ? " · " + content.value.split("\n").length + " 行" : "")),
+						h("div", { className: "studio-row" }, h("span", { className: "hint studio-grow" }, fmtSize(file?.size) + (content.value != null ? " · " + (partial ? "尾部 " : "") + content.value.split("\n").length + " 行" : "")),
 						studioButton(raw ? "查看排版" : "查看源文件", () => setRaw(!raw), "ghost sm")),
 					owner.stage !== "task" && owner.stage !== "other" ? h("p", { className: "hint" }, evidenceState(p.run, owner.stage, file)) : null,
-						partial ? h("p", { className: "callout warn" }, "文件已超过预览上限，请打开目录查看原文件；如仍有预览内容，为上次读取的版本。") : null,
+						partial ? h("p", { className: "callout warn" }, "文件超过预览上限，仅显示尾部最近内容；复制/下载为该部分，完整内容请打开目录查看原文件。") : null,
 					h(ResourceNotice, { resource: content }), pages > 1 ? h("div", { className: "studio-row" }, studioButton("上一段", () => setPage(safePage - 1), "sm", safePage === 0),
 						h("span", { className: "hint" }, (safePage + 1) + " / " + pages), studioButton("下一段", () => setPage(safePage + 1), "sm", safePage + 1 === pages)) : null),
 					h("div", { className: "studio-file-reader", ref: reader, onScroll: e => writePreference(memoryKey + ".scroll." + path, e.currentTarget.scrollTop) },
 						path ? !raw && /\.(diff|patch)$/i.test(path) ? h(DiffContent, { text: content.value?.slice(safePage * 60000, (safePage + 1) * 60000), path })
-							: h(ArtifactContent, { text: content.value == null ? null : content.value.slice(safePage * 60000, (safePage + 1) * 60000), path, raw: raw || pages > 1 })
+							: h(ArtifactContent, { text: content.value == null ? null : content.value.slice(safePage * 60000, (safePage + 1) * 60000), path, raw: raw || pages > 1, numbered: pages > 1 && !raw })
 							: h(EmptyState, { title: "暂未生成文件" }))));
 		}
 
@@ -1050,6 +1065,21 @@ window.__ModuleLoader__.load({
 			return "本轮阶段已通过";
 		}
 		function gateLabel(value) { return value === "pass" ? "通过" : value === "fail" ? "未通过" : value == null ? "未记录" : "格式异常"; }
+		// 二期 S1/S2：门禁统计（汇总叙事用）。仅当报告为对象且至少一项有值时返回，避免空报告误报。
+		function gateStats(resource) {
+			const report = parseJson(resource?.value);
+			if (!report || typeof report !== "object" || Array.isArray(report)) return null;
+			const keys = ["ROOT", "PATCH", "TEST", "DIFF", "DESC", "ACCEPT"];
+			const pass = keys.filter(key => report[key] === "pass").length;
+			const fail = keys.filter(key => report[key] === "fail").length;
+			return pass || fail ? { pass, fail, total: keys.length } : null;
+		}
+		// 二期 S1：门禁值分色——未通过必须红章可一眼识别，通过绿章，其余保持灰提示。
+		function gateValue(value) {
+			return value === "pass" ? h("span", { className: "tg t-good" }, Ic("check", 11), "通过")
+				: value === "fail" ? h("span", { className: "tg t-err" }, Ic("x", 11), "未通过")
+				: h("span", { className: "hint" }, gateLabel(value));
+		}
 		function reportSummary(stage, raw) {
 			if (raw == null) return "正在读取结果…";
 			if (stage === "P7") { const rows = parseLines(raw); return "账本记录 " + rows.length + " 条 · 回滚 " + rows.filter(row => row.rollbackOf != null).length + " 条"; }
@@ -1080,11 +1110,15 @@ window.__ModuleLoader__.load({
 		}
 		// P11 节点子页签：交付（P11 自身产物）与全流程汇总（跨阶段，明确标注归属）分开呈现。
 		function DeliveryPanel({ run, tree, description, evaluation, toast }) {
+			const stats = gateStats(evaluation);
 			return h("div", { className: "studio-stack" },
 				h("div", { className: "studio-row wrap" }, h("h2", { className: "studio-grow" }, "交付与验收"), h("span", { className: "hint" }, "远程 PR 尚未创建"),
 					studioButton("复制说明", () => copyStudio(description.value, toast), "sm", description.value == null)),
-				h("div", { className: "studio-grid" }, ["ROOT", "PATCH", "TEST", "DIFF", "DESC", "ACCEPT"].map(name => h("div", { className: "studio-check studio-row", key: name }, h("span", { className: "studio-grow" }, ({ ROOT: "根因证据", PATCH: "补丁应用", TEST: "回归测试", DIFF: "变更审查", DESC: "说明忠实", ACCEPT: "验收门禁" })[name]), h("span", { className: "hint" }, gateLabel(parseJson(evaluation.value)?.[name]))))),
-				h("p", { className: "hint" }, evidenceState(run, "P11", tree.find(file => file.path === "11-eval-report.json"))), h(ResourceNotice, { resource: evaluation }), h(ResourceNotice, { resource: description }),
+				h("div", { className: "studio-grid" }, ["ROOT", "PATCH", "TEST", "DIFF", "DESC", "ACCEPT"].map(name => h("div", { className: "studio-check studio-row", key: name }, h("span", { className: "studio-grow" }, ({ ROOT: "根因证据", PATCH: "补丁应用", TEST: "回归测试", DIFF: "变更审查", DESC: "说明忠实", ACCEPT: "验收门禁" })[name]), gateValue(parseJson(evaluation.value)?.[name])))),
+				// 二期 S2：报告可解析时尾部给门禁汇总，替代无条件「本轮阶段已通过」的成功叙事
+				h("p", { className: "hint" }, stats ? stats.total + " 项门禁：" + stats.pass + " 通过 / " + stats.fail + " 未通过"
+					+ (stats.total - stats.pass - stats.fail > 0 ? " / " + (stats.total - stats.pass - stats.fail) + " 未记录" : "")
+					: evidenceState(run, "P11", tree.find(file => file.path === "11-eval-report.json"))), h(ResourceNotice, { resource: evaluation }), h(ResourceNotice, { resource: description }),
 				h("article", { className: "studio-delivery-prose" }, description.value != null ? h(ArtifactContent, { path: "10-pr-description.md", text: description.value }) : h(EmptyState, { title: "PR 说明尚未生成" })));
 		}
 		function DeliverySummaryPanel({ run, tree, slug, runId, onFile }) {
@@ -1287,6 +1321,18 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 			const [instance, setInstance] = usePreference("i2p.instance." + key, "");
 			const [nodeTab, setNodeTab] = React.useState("");
 			const [rerunStage, setRerunStage] = React.useState(p.run?.current || "P1");
+			// 二期 S5：••• 操作菜单改为受控 details——Esc 关闭、点击外部关闭（关闭态原生不可聚焦已实测确认）
+			const [actionsOpen, setActionsOpen] = React.useState(false);
+			const actionsRef = React.useRef(null);
+			React.useEffect(() => {
+				if (!actionsOpen) return undefined;
+				const menu = actionsRef.current;
+				const onDoc = e => { if (menu && !menu.contains?.(e.target)) setActionsOpen(false); };
+				const onKey = e => { if (e.key === "Escape") { e.stopPropagation(); setActionsOpen(false); menu?.querySelector?.("summary")?.focus?.(); } };
+				document.addEventListener("click", onDoc);
+				document.addEventListener("keydown", onKey);
+				return () => { document.removeEventListener("click", onDoc); document.removeEventListener("keydown", onKey); };
+			}, [actionsOpen]);
 			const busyRef = React.useRef(false), alive = React.useRef(true);
 			const events = useRunArtifact(p.slug, p.runId, "trace/events.jsonl", p.tree);
 			const ledger = useRunArtifact(p.slug, p.runId, "ledger/patch-ledger.jsonl", p.tree);
@@ -1391,13 +1437,16 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 			if (records.length) nodeTabs.push(["log", "执行日志 " + records.length]);
 			if (files.length) nodeTabs.push(["artifacts", "阶段产物 " + files.length]);
 			const nodeTabId = nodeTabs.some(item => item[0] === nodeTab) ? nodeTab : nodeTabs[0]?.[0];
+			// 二期 S2：P11 门禁存在未通过时，阶段标题绿徽章旁并列警示章，打破「纯成功」叙事
+			const p11Gates = activeStage === "P11" ? gateStats(evaluation) : null;
 			
 			return h("div", { className: "studio-task" },
 				h("header", { className: "studio-task-head" },
-					h("div", { className: "studio-breadcrumb studio-row" }, h("button", { onClick: p.onBack }, "← 任务列表"), "/", h("span", null, p.project?.name || p.slug), "/", h("button", { className: "mono studio-path", title: "点击复制", onClick: () => copyStudio(run.id, p.toast) }, run.id)),
+					// 二期 L-A：面包屑 id 超长自动省略（CSS 170px 上限），title 悬停可见全量
+					h("div", { className: "studio-breadcrumb studio-row" }, h("button", { onClick: p.onBack }, "← 任务列表"), "/", h("span", null, p.project?.name || p.slug), "/", h("button", { className: "mono studio-path", title: run.id + " · 点击复制", onClick: () => copyStudio(run.id, p.toast) }, run.id)),
 					h("div", { className: "studio-row studio-task-title" }, h("h1", { className: "studio-grow studio-path" }, taskTitle(run)), h(StatusBadge, { status: run.status }),
 						["running", "awaiting_review"].includes(run.status) ? studioButton([Ic("stop", 14), "停止"], () => act("stop"), "", busy) : null,
-						h("details", { className: "studio-run-actions" }, h("summary", { "aria-label": "更多任务操作" }, "•••"),
+						h("details", { className: "studio-run-actions", open: actionsOpen, onToggle: e => setActionsOpen(e.currentTarget.open), ref: actionsRef }, h("summary", { "aria-label": "更多任务操作" }, "•••"),
 							h("div", { className: "studio-action-menu" }, studioButton("任务详情", () => setContextOpen(true), "ghost sm"), run.status !== "running" ? h(React.Fragment, null,
 								h("select", { className: "f-select", "aria-label": "重跑起始阶段", value: rerunStage, onChange: e => setRerunStage(e.target.value) }, STAGES.map(item => h("option", { key: item.id, value: item.id }, item.id + " " + STUDIO_STAGE_NAMES[item.id]))),
 								studioButton("重跑", () => { if (window.confirm("从 " + rerunStage + " 重跑，后续阶段状态将重置，相关委外旧产物会清理。继续？")) act("rerun", { stage: rerunStage }); }, "", busy)) : null,
@@ -1405,7 +1454,8 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 							h("small", { className: "hint" }, "停止后不再推进；当前内置阶段可能仍需执行完毕，外部执行器会收到终止请求。"))))),
 					tab !== "files" ? h("section", { className: "studio-topology", "aria-label": "流水线阶段" },
 					h("div", { className: "studio-row studio-workflow-summary" }, h("strong", null, run.current + " · " + STUDIO_STAGE_NAMES[run.current]),
-						h("span", { className: "studio-progress", "aria-hidden": true }, mainFlow.map(item => h("i", { key: item.id, className: ["approved", "completed"].includes(run.stages?.[item.id]?.status) ? "done" : item.id === run.current ? "current" : "" }))),
+						// 二期 M-A1：展开轨道时隐藏折叠小进度条，两种进度展示不叠加
+						trackOpen ? null : h("span", { className: "studio-progress", "aria-hidden": true }, mainFlow.map(item => h("i", { key: item.id, className: ["approved", "completed"].includes(run.stages?.[item.id]?.status) ? "done" : run.stages?.[item.id]?.status === "failed" ? "failed" : item.id === run.current ? "current" : "" }))),
 						h("span", { className: "hint studio-stage-total" }, done + " / 10 阶段已完成"), h("span", { className: "studio-grow" }),
 						h("button", { className: "btn ghost sm", "aria-expanded": trackOpen, onClick: () => setTrackOpen(!trackOpen) }, trackOpen ? "收起流程" : "完整流程")),
 					trackOpen ? h(React.Fragment, null, h("nav", { className: "studio-track", "aria-label": "完整阶段流程" }, mainFlow.map(item => {
@@ -1415,13 +1465,16 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 							h("span", { className: "studio-stage-mark" }, ["approved", "completed"].includes(status) ? Ic("check", 13) : status === "failed" ? Ic("x", 13) : status === "awaiting_review" ? "!" : item.id === run.current ? "●" : ""),
 							h("strong", null, STUDIO_STAGE_NAMES[item.id]), h("span", { className: "studio-stage-code" }, item.id + (item.id === run.current ? " · 当前" : stale ? " · 待重验" : item.key ? " · 复核" : "")));
 					})), h("div", { className: "studio-row studio-track-footer wrap" }, followStage ? h("span", { className: "hint" }, "跟随当前阶段 ✓") : h("button", { onClick: backCurrent, title: "点击返回当前阶段并恢复跟随" }, "正在查看 " + activeStage + " · 返回当前 " + run.current + " →"), h("button", { onClick: () => selectStage("P10") }, "P10 失败分析 · " + (run.failureAnalysis ? "已生成" : p10File ? "历史记录" : "按需触发")))) : null,
-					run.failureAnalysis ? h("div", { className: "studio-return-lane studio-row wrap" }, h("span", { className: "studio-grow" }, [run.failureAnalysis.category, run.failureAnalysis.detail, run.failureAnalysis.action].filter(value => typeof value === "string").join(" · ")), studioButton("查看失败分析", () => selectStage("P10"), "ghost sm")) : null) : null,
-				h("nav", { className: "studio-tabs", "aria-label": "任务视图" }, tabs.map(([id, label]) => h("button", { key: id, className: tab === id ? "on" : "", "aria-current": tab === id ? "page" : undefined, onClick: () => { if (id === "files" && tab !== "files") { setPath(""); setReturnTo({ tab, stage: activeStage, instance }); } setTab(id); } }, label + (id === "files" ? " " + tree.length : ""))),
-					tab === "process" ? h("span", { className: "hint", style: { alignSelf: "center" } }, runtimeText) : null),
+					// 二期 M-A4：页面级失败条只保留结论与动作，详细描述留在阶段级错误条，不再重复
+					run.failureAnalysis ? h("div", { className: "studio-return-lane studio-row wrap" }, h("span", { className: "studio-grow" }, [run.failureAnalysis.category, run.failureAnalysis.action].filter(value => typeof value === "string").join(" · ")), studioButton("查看失败分析", () => selectStage("P10"), "ghost sm")) : null) : null,
+				h("nav", { className: "studio-tabs", "aria-label": "任务视图" }, tabs.map(([id, label]) => h("button", { key: id, className: tab === id ? "on" : "", "aria-current": tab === id ? "page" : undefined, onClick: () => { if (id === "files" && tab !== "files") { setPath(""); setReturnTo({ tab, stage: activeStage, instance }); } setTab(id); } }, label + (id === "files" ? " " + tree.length : "")))),
+				// 二期 M-A3：运行元信息降级为页签下方独立次要行，不再与页签同行混排
+				tab === "process" && runtimeText ? h("div", { className: "studio-runtime-meta hint" }, runtimeText) : null,
 				h("div", { className: "studio-workspace" },
 					tab === "files" ? h(ArtifactsPanel, { ...p, instances, initialPath: path, onReturn: returnFromFile }) :
 					h("div", { className: "studio-process" }, h("section", { className: "studio-process-main" },
 						h("div", { className: "studio-section-heading" }, h("div", { className: "studio-row wrap" }, h("h2", { className: "studio-grow" }, activeStage + " · " + STUDIO_STAGE_NAMES[activeStage]), h(StatusBadge, { status: state?.status }),
+							p11Gates?.fail ? h("span", { className: "tg t-warn", title: "交付评测六项门禁存在未通过项，详见交付页" }, Ic("x", 11), p11Gates.fail + " 项门禁未通过") : null,
 														nodeTabs.length > 1 && !stageUntouched ? h("nav", { className: "studio-execution-tabs", "aria-label": "节点内容", style: { margin: "0 0 0 auto", alignSelf: "flex-end" } },
 								nodeTabs.map(([id, label]) => h("button", { key: id, className: nodeTabId === id ? "on" : "", "aria-pressed": nodeTabId === id, onClick: () => setNodeTab(id) }, label))) : null,
 							), state?.error ? h("p", { className: "callout err", style: { marginTop: 10 } }, state.error) : null),
@@ -1720,9 +1773,13 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 				if (!result?.ok && !result?.gate) throw new Error(result?.message || "探测失败");
 			});
 			const promptView = h("div", { className: "studio-prompt-layout" },
-				h("nav", { className: "studio-prompt-nav", "aria-label": "选择提示词阶段" }, STAGES.map(item =>
-					h("button", { key: item.id, className: stage === item.id ? "on" : "", onClick: () => { p.onStage(item.id); setRole(""); } },
-						h("span", { className: "mono" }, item.id), " " + STUDIO_STAGE_NAMES[item.id]))),
+				h("nav", { className: "studio-prompt-nav", "aria-label": "选择提示词阶段" }, STAGES.map(item => {
+					// 二期 L-C：已覆盖默认提示词的阶段在列表项加标识点
+					const overridden = Object.values(draft.stageConfig?.[item.id]?.prompts || {}).some(value => value != null);
+					return h("button", { key: item.id, className: stage === item.id ? "on" : "",
+						onClick: () => { p.onStage(item.id); setRole(""); }, title: overridden ? "此阶段已覆盖默认提示词" : undefined },
+						h("span", { className: "mono" }, item.id + (overridden ? " •" : "")), " " + STUDIO_STAGE_NAMES[item.id]);
+				})),
 				h("div", { className: "studio-stack" },
 					h("div", { className: "studio-row" }, h("h3", { className: "studio-grow" }, stage + " · " + STUDIO_STAGE_NAMES[stage]),
 						roles.length ? studioButton("恢复默认", () => {
@@ -1733,6 +1790,11 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 							className: activeRole === item ? "on" : "", onClick: () => setRole(item) }, roleLabels[item] || item))),
 						settingField("阶段提示词内容", prompt, value => setConfig({ prompts: { ...config.prompts, [activeRole]: value } }),
 							{ multiline: true, disabled: busy }),
+						// 二期 L-C：编辑器底部常显覆盖标识与字符计数
+						h("div", { className: "studio-row wrap" },
+							config.prompts?.[activeRole] != null ? h("span", { className: "tg t-warn", title: "恢复默认可撤回此覆盖" }, "已覆盖默认值") : h("span", { className: "hint" }, "使用默认提示词"),
+							h("span", { className: "studio-grow" }),
+							h("span", { className: "hint mono" }, prompt.length + " 字符")),
 						h("p", { className: "hint" }, "默认继承宿主模型；执行器采用独立模型配置时，以实际执行记录为准。"))
 						: h("div", { className: "studio-soft-card" }, h("h3", null, "此阶段不调用大模型"), h("p", null,
 							stage === "P7" ? "补丁按校验与账本规则应用，无需提示词。" : "测试阶段运行项目测试命令，无需提示词。")),
@@ -1810,7 +1872,8 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 								settingField("代码执行器", draft.p6Mode, value => field("p6Mode", value), { disabled: busy, choices: STUDIO_EXECUTORS }),
 								settingField("模型来源", p.preflight?.llm?.model || "继承 DSH 当前默认模型", () => {}, { readOnly: true, hint: "阶段覆盖在“阶段提示词”中编辑。" }),
 								settingField("测试命令", draft.testCommand || "", value => field("testCommand", value), { disabled: busy, placeholder: "例如 npm test", hint: "留空由项目自动探测。" }),
-								settingField("最多打回次数", draft.maxReviewAttempts ?? "", value => field("maxReviewAttempts", value === "" ? undefined : Number(value)), { disabled: busy, type: "number", min: 1, placeholder: "默认 3 次", hint: "达到上限后任务失败，并进入 P10 失败分析。" })),
+								// 二期 M-B：显式回显生效值——未设置时用服务端默认 3（lib/core/pipeline.js DEFAULT_MAX_REVIEW_ATTEMPTS），清空输入即恢复默认
+								settingField("最多打回次数", draft.maxReviewAttempts ?? 3, value => field("maxReviewAttempts", value === "" ? undefined : Number(value)), { disabled: busy, type: "number", min: 1, placeholder: "默认 3 次", hint: "留空恢复默认 3 次；达到上限后任务失败，并进入 P10 失败分析。" })),
 								h("div", { className: "callout", style: { marginTop: 24 } },
 									"适用于所有项目的新任务。任务启动时保存配置和默认模型快照，后续执行及重跑保留启动配置。"))),
 					error ? h("p", { className: "callout err", role: "alert" }, error) : null,
@@ -2223,9 +2286,10 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 		// 默认窗口：右上角按 AI_ANCHOR 固定偏移锚定（窗口尺寸变化时相对位置不变）
 		function aiDefaultRect() {
 			const p = aiPageRect();
+			// 二期 M-C：默认宽度 400 → 440，输入区随之加宽（已保存自定义尺寸不受影响）
 			return {
-				x: Math.max(4, Math.round(p.w - AI_ANCHOR.right - 400)),
-				y: AI_ANCHOR.top, w: 400,
+				x: Math.max(4, Math.round(p.w - AI_ANCHOR.right - 440)),
+				y: AI_ANCHOR.top, w: 440,
 				h: Math.max(200, Math.round(p.h - 76)),
 			};
 		}
@@ -2457,7 +2521,9 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 					h("div", { className: "i2p-ai-input" },
 						h("textarea", {
 							ref: taRef, value: input, rows: 1,
-							placeholder: busy ? "回答生成中…" : "问运行状态、阶段含义、失败原因…（Enter 发送，Shift+Enter 换行）",
+							// 二期 M-C：占位缩短防截断，Enter 操作提示放 title 常驻可查
+							placeholder: busy ? "回答生成中…" : "问运行状态、失败原因…",
+							title: "Enter 发送，Shift+Enter 换行",
 							onChange: function (e) {
 								setInput(e.target.value);
 								// 高度随内容自适应：先归零再量 scrollHeight，封顶后内部滚动
@@ -2475,7 +2541,9 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 						h("button", {
 							type: "button", className: "i2p-ai-send", disabled: !busy && !input.trim(),
 							onClick: function () { if (busy) { if (acRef.current) acRef.current.abort(); return; } send(); },
-							"aria-label": busy ? "中断生成" : "发送（Enter）", title: busy ? "中断生成" : "发送（Enter）",
+							// 二期 M-C：禁用态 hover 有解释，不再只显示操作名
+							"aria-label": busy ? "中断生成" : input.trim() ? "发送（Enter）" : "输入内容后发送",
+							title: busy ? "中断生成" : input.trim() ? "发送（Enter）" : "输入内容后发送",
 						}, Ic(busy ? "stop" : "send", 15)))) : null);
 		}
 
@@ -2517,8 +2585,10 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 				window.addEventListener("keydown", onKey);
 				return () => { window.removeEventListener("keydown", onKey); if (previous?.isConnected) previous.focus(); };
 			}, [open]);
+			// 二期 S6：打开后焦点落在面板根（region），首个 Tab 进入面板内首个控件；
+			// 不再高亮「关闭」按钮（原先聚焦 toptools 最后一个按钮导致每次重开都出现关闭按钮 outline）
 			React.useEffect(() => {
-				if (open && rect) document.querySelector(".i2p-page .studio-toptools button:last-child")?.focus();
+				if (open && rect) document.querySelector(".i2p-page")?.focus();
 			}, [open, !!rect]);
 			React.useLayoutEffect(() => {
 				if (!open) { setRect(null); return undefined; }
@@ -2552,7 +2622,7 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 			}, [rect]);
 			if (!open || rect === null) return null;
 			return h("div", {
-				className: "i2p-page", role: "region", "aria-label": "Issue2PR 工作台",
+				className: "i2p-page", role: "region", "aria-label": "Issue2PR 工作台", tabIndex: -1,
 				style: {
 					left: rect.left + "px", top: rect.top + "px",
 					width: rect.width + "px", height: rect.height + "px",

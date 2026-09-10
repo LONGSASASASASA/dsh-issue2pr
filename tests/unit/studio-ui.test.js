@@ -9,7 +9,11 @@ function studio(fetcher = async () => ({ ok: true })) {
   let current, exports;
   const React = {
     Fragment: "Fragment",
-    createElement: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity) }),
+    createElement: (type, props, ...children) => {
+      const element = { type, props: props || {}, children: children.flat(Infinity), style: {} };
+      if (props && props.ref) props.ref.current = element;
+      return element;
+    },
     useState(initial) {
       const instance = current, index = instance.index++;
       if (!instance.cells[index]) instance.cells[index] = { value: typeof initial === "function" ? initial() : initial };
@@ -26,10 +30,11 @@ function studio(fetcher = async () => ({ ok: true })) {
     },
   };
   React.useLayoutEffect = React.useEffect;
-  const storage = new Map(), requests = [], copies = [];
+  const storage = new Map(), requests = [], copies = [], docListeners = new Map();
   const sandbox = { structuredClone, AbortController, setTimeout, clearTimeout, setInterval, clearInterval, console, URL, Blob,
     getComputedStyle: element => ({ getPropertyValue: () => element.bg || "" }),
-    document: { querySelector: selector => selector.startsWith("style[") ? {} : null, documentElement: { dataset: { i2pThemeWatch: "1" } } },
+    document: { querySelector: selector => selector.startsWith("style[") ? {} : null, documentElement: { dataset: { i2pThemeWatch: "1" } },
+      addEventListener: (type, fn) => docListeners.set(type, fn), removeEventListener: type => docListeners.delete(type) },
     confirm: () => true,
     navigator: { clipboard: { writeText: async value => { copies.push(value); } } },
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
@@ -41,7 +46,7 @@ function studio(fetcher = async () => ({ ok: true })) {
     window: { confirm: () => true, addEventListener() {}, removeEventListener() {},
       __ModuleLoader__: { load(def) { exports = def.factory(name => name === "react" ? React : { MarkdownText: () => null }); } } },
   };
-  const source = readFileSync(new URL("../../client.js", import.meta.url), "utf8").replace("exports.apply = apply;", "exports.apply = apply; exports.test = { useResource, StudioSettings, NewTaskDialog, RunsPanel, PatchPreview, ArtifactsPanel, TaskList, ProjectsPanel, OutputPanel, RunReportCard, WorkbenchPage, panelStore, ReadableValue, DiffContent, diffLineNumbers, formatAgentLog, executionItems, artifactOwner, taskTitle, taskReason, evidenceState, parseLines, renderView, detectHostDark, reportSummary, gateLabel };");
+  const source = readFileSync(new URL("../../client.js", import.meta.url), "utf8").replace("exports.apply = apply;", "exports.apply = apply; exports.test = { useResource, StudioSettings, NewTaskDialog, RunsPanel, PatchPreview, ArtifactsPanel, TaskList, ProjectsPanel, OutputPanel, RunReportCard, DeliveryPanel, WorkbenchPage, AssistantDock, panelStore, aiStore, ReadableValue, DiffContent, diffLineNumbers, formatAgentLog, executionItems, artifactOwner, taskTitle, taskReason, evidenceState, parseLines, renderView, detectHostDark, reportSummary, gateLabel, gateStats };");
   vm.runInNewContext(source, sandbox, { filename: "client.js" });
   function mount(fn, props) {
     const instance = { index: 0, cells: [], effects: [], props, tree: null,
@@ -50,7 +55,7 @@ function studio(fetcher = async () => ({ ok: true })) {
     };
     instance.render(); return instance;
   }
-  return { ...exports.test, mount, requests, storage, copies };
+  return { ...exports.test, mount, requests, storage, copies, docListeners };
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
@@ -183,6 +188,23 @@ test("报告结论：阶段已复核不能把失败测试显示成通过", async
   assert.equal(text(badge), "报告未通过");
   assert.match(text(page.tree), /阶段状态：本轮阶段已通过/, "状态话术单一源");
   assert.match(text(page.tree), /测试失败/);
+});
+
+test("二期S1/S2：门禁未通过红章、通过绿章；尾部汇总替代无条件成功叙事", async t => {
+  const ui = studio();
+  assert.equal(ui.gateStats({ value: null }), null);
+  assert.equal(ui.gateStats({ value: '"pass"' }), null, "非对象报告不统计");
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.gateStats({ value: '{"ROOT":"pass","PATCH":"fail","TEST":"pass","DIFF":"fail","DESC":"pass","ACCEPT":"fail"}' }))), { pass: 3, fail: 3, total: 6 });
+  const page = ui.mount(ui.DeliveryPanel, { run: { stages: { P11: { status: "approved", startedAt: "2026-09-08T00:00:00Z" } } },
+    tree: [{ path: "11-eval-report.json", mtimeMs: Date.now() }],
+    description: { value: null, error: null },
+    evaluation: { value: '{"ROOT":"pass","PATCH":"fail","TEST":"pass","DIFF":"fail","DESC":"pass","ACCEPT":"fail","EXTRA":"fail"}', error: null }, toast: () => {} });
+  t.after(() => page.dispose()); page.render();
+  assert.equal(walk(page.tree).filter(node => node.props.className === "tg t-err").length, 3, "三个未通过门禁为红章");
+  assert.equal(walk(page.tree).filter(node => node.props.className === "tg t-good").length, 3, "三个通过门禁为绿章");
+  assert.equal(walk(page.tree).filter(node => node.props.className === "hint" && /未记录/.test(text(node))).length, 0, "有值门禁不再走灰提示");
+  assert.match(text(page.tree), /6 项门禁：3 通过 \/ 3 未通过/);
+  assert.ok(!text(page.tree).includes("本轮阶段已通过"), "存在未通过时不再输出纯成功文案");
 });
 
 test("任务条目：待处理筛选、标题搜索和整行跳转保留正确项目与任务", async t => {
@@ -429,8 +451,9 @@ test("进度可视化：轮次与耗时上标题，待重验标记、P10 历史�
   const page = ui.mount(ui.RunsPanel, { slug: "alpha", runId: "a", run, tree, toast() {}, onChanged() {} }); t.after(() => page.dispose());
   await tick(); page.render();
   const tabsNav = walk(page.tree).find(n => n.props["aria-label"] === "任务视图");
-  const runtimeSpan = tabsNav.children.find(n => n.props.className === "hint");
-  assert.equal(text(runtimeSpan), "第 1 轮 · 测试执行 · npm test", "运行信息显示在执行过程后面");
+  const runtimeSpan = walk(page.tree).find(n => n.props.className === "studio-runtime-meta hint");
+  assert.equal(text(runtimeSpan), "第 1 轮 · 测试执行 · npm test", "运行信息独立成行显示在页签下方");
+  assert.ok(!tabsNav.children.some(n => n.type === "span"), "页签行不再混排元信息");
   assert.ok(!text(runtimeSpan).includes("模型"), "P8 不显示模型");
   button(page.tree, "完整流程").props.onClick(); page.render();
   const p6 = walk(page.tree).find(n => n.props["aria-label"]?.startsWith("P6 "));
@@ -444,6 +467,140 @@ test("进度可视化：轮次与耗时上标题，待重验标记、P10 历史�
   assert.match(text(p5), /待重验/, "重跑后带旧产物的待执行节点标记待重验");
   assert.match(text(page.tree), /P10 失败分析 · 历史记录/, "P10 三态：历史记录");
   assert.match(text(page.tree), /通过后进入 P9 · 代码审查/, "复核页脚显示关注点与下一步");
+});
+
+test("二期S3：折叠进度条失败阶段为红色段，不再冒充进行中", async t => {
+  const t0 = "2026-09-08T00:00:00Z";
+  const ui = studio(async () => ({ ok: true }));
+  const run = { id: "a", current: "P6", status: "failed", p6Mode: "builtin",
+    stages: { P1: { status: "approved", startedAt: t0 }, P2: { status: "approved", startedAt: t0 }, P3: { status: "approved", startedAt: t0 },
+      P4: { status: "approved", startedAt: t0 }, P5: { status: "approved", startedAt: t0 }, P6: { status: "failed", startedAt: t0 } } };
+  const page = ui.mount(ui.RunsPanel, { slug: "alpha", runId: "a", run, tree: [], toast() {}, onChanged() {} });
+  t.after(() => page.dispose()); await tick(); page.render();
+  const bars = walk(page.tree).filter(n => n.type === "i" && typeof n.props.className === "string");
+  assert.equal(bars.filter(n => n.props.className === "done").length, 5, "五个已通过段为绿");
+  assert.equal(bars.filter(n => n.props.className === "failed").length, 1, "P6 失败段为红");
+  assert.equal(bars.filter(n => n.props.className === "current").length, 0, "失败段不再占用进行中样式");
+});
+
+test("二期S5：••• 操作菜单受控开关——Esc 与点击外部关闭，展开态保持原交互", async t => {
+  const t0 = "2026-09-08T00:00:00Z";
+  const ui = studio(async () => ({ ok: true }));
+  const run = { id: "a", current: "P11", status: "completed", p6Mode: "builtin",
+    stages: { P11: { status: "approved", startedAt: t0 } } };
+  const page = ui.mount(ui.RunsPanel, { slug: "alpha", runId: "a", run, tree: [], toast() {}, onChanged() {} });
+  t.after(() => page.dispose()); await tick(); page.render();
+  const menu = () => walk(page.tree).find(n => n.type === "details" && String(n.props.className).includes("studio-run-actions"));
+  assert.equal(menu().props.open, false, "默认关闭");
+  menu().props.onToggle({ currentTarget: { open: true } }); page.render();
+  assert.equal(menu().props.open, true, "展开");
+  assert.ok(walk(page.tree).some(n => n.type === "button" && text(n) === "任务详情"), "菜单内容不因受控化丢失");
+  ui.docListeners.get("keydown")({ key: "Escape", stopPropagation() {} }); page.render();
+  assert.equal(menu().props.open, false, "Esc 关闭");
+  menu().props.onToggle({ currentTarget: { open: true } }); page.render();
+  ui.docListeners.get("click")({ target: null }); page.render();
+  assert.equal(menu().props.open, false, "点击外部关闭");
+  assert.equal(ui.docListeners.size, 0, "关闭后监听已清理");
+});
+
+test("二期S6：面板根可承接焦点（tabIndex=-1），不再聚焦「关闭」按钮", async t => {
+  const ui = studio();
+  const page = ui.mount(ui.WorkbenchPage, {}); t.after(() => page.dispose());
+  ui.panelStore.set(true); page.render(); page.render();
+  const overlay = walk(page.tree).find(n => n.props.className === "i2p-page");
+  assert.ok(overlay, "工作台已渲染");
+  assert.equal(overlay.props.tabIndex, -1, "面板根可编程聚焦");
+});
+
+test("二期M-A：展开轨道隐藏折叠条；失败条只留结论与动作；元信息独立于页签行", async t => {
+  const t0 = "2026-09-08T00:00:00Z";
+  const ui = studio(async () => ({ ok: true }));
+  const run = { id: "a", current: "P6", status: "failed", p6Mode: "builtin",
+    failureAnalysis: { category: "环境缺失", detail: "未检测到补丁产物", action: "查看失败分析步骤" },
+    stages: { P1: { status: "approved", startedAt: t0 }, P6: { status: "failed", attempts: 0, startedAt: t0 } } };
+  const page = ui.mount(ui.RunsPanel, { slug: "alpha", runId: "a", run, tree: [], toast() {}, onChanged() {} });
+  t.after(() => page.dispose()); await tick(); page.render();
+  const dots = () => walk(page.tree).find(n => n.props.className === "studio-progress");
+  assert.ok(dots(), "默认折叠态显示小进度条");
+  button(page.tree, "完整流程").props.onClick(); page.render();
+  assert.equal(dots(), undefined, "展开轨道后折叠小进度条隐藏");
+  const lane = walk(page.tree).find(n => n.props.className?.startsWith("studio-return-lane"));
+  assert.match(text(lane), /环境缺失 · 查看失败分析步骤/, "页面级失败条保留结论与动作");
+  assert.ok(!text(lane).includes("未检测到补丁产物"), "详细描述不在页面级重复");
+  button(page.tree, "收起流程").props.onClick(); page.render();
+  assert.ok(dots(), "收起轨道后折叠条恢复");
+});
+
+test("二期M-B：打回次数显式回显生效值，未设置显示默认 3", async t => {
+  const ui = studio(async (url, options) => url.endsWith("/settings") && options?.method === "PUT"
+    ? { ok: true, settings: { ...JSON.parse(options.body), revision: 2 } }
+    : { ok: true, exists: false });
+  const props = { settings: { revision: 1, reviewMode: "every", p6Mode: "builtin", testCommand: "", stageConfig: {} },
+    projects: [], defaults: { stages: STAGE_DEFS }, stage: "P1", tab: "general", onSaved() {}, onStage() {}, onTab() {} };
+  const page = ui.mount(ui.StudioSettings, props); t.after(() => page.dispose());
+  assert.equal(field(page.tree, "最多打回次数").props.value, 3, "未设置时显示默认生效值");
+  field(page.tree, "最多打回次数").props.onChange({ target: { value: "5" } }); page.render();
+  assert.equal(field(page.tree, "最多打回次数").props.value, 5, "输入后回显输入值");
+  field(page.tree, "最多打回次数").props.onChange({ target: { value: "" } }); page.render();
+  assert.equal(field(page.tree, "最多打回次数").props.value, 3, "清空即恢复默认生效值");
+  await button(page.tree, "保存设置").props.onClick(); page.render();
+  assert.ok(!("maxReviewAttempts" in JSON.parse(ui.requests.filter(r => r.method === "PUT").at(-1).body)), "清空后保存不落显式字段");
+});
+
+test("二期M-C：助手占位短文案不截断提示随行，禁用发送按钮有可感知解释", async t => {
+  const ui = studio(async () => ({ ok: true }));
+  ui.aiStore.set(true);
+  const page = ui.mount(ui.AssistantDock, {}); t.after(() => page.dispose());
+  const input = walk(page.tree).find(n => n.type === "textarea");
+  assert.ok((input.props.placeholder || "").length <= 15, "占位文案不超过 15 字");
+  assert.match(input.props.title || "", /Enter 发送/, "Enter 操作提示常驻 title");
+  const send = () => walk(page.tree).find(n => n.props.className === "i2p-ai-send");
+  assert.equal(send().props.disabled, true, "空输入禁用发送");
+  assert.match(send().props.title || "", /输入内容后发送/, "禁用态解释原因");
+  input.props.onChange({ target: { value: "这个 Run 为什么会失败？", style: {}, scrollHeight: 60 } }); page.render();
+  assert.equal(send().props.disabled, false);
+  assert.match(send().props.title || "", /发送（Enter）/, "可用态恢复操作提示");
+});
+
+test("二期L-A/L-B/L-C：面包屑悬停全量 id；预览行号槽；提示词计数与覆盖标识", async t => {
+  const ui = studio(async () => ({ ok: true }));
+  // L-B：纯文本与 diff 预览逐行行号，json/md 结构化视图不加
+  const html = ui.renderView("one\ntwo\n", "external-exec.log");
+  assert.match(html, /^<span class="ln">1<\/span>one/);
+  assert.match(html, /<span class="ln">2<\/span>two$/);
+  assert.ok(!html.includes('class="ln">3<'), "结尾空行不编号");
+  assert.ok(!ui.renderView("+<img src=x onerror=alert(1)>", "x.diff").includes("<img"), "行号不影响转义");
+  assert.ok(!ui.renderView('{"a":1}', "x.json").includes('class="ln"'), "json 视图不加行号");
+  // L-A：面包屑 id 按钮悬停可见全量
+  const run = { id: "20260907-142755-37", current: "P2", status: "running", stages: {} };
+  const page = ui.mount(ui.RunsPanel, { slug: "alpha", runId: run.id, run, tree: [], toast() {}, onChanged() {} });
+  t.after(() => page.dispose()); await tick(); page.render();
+  assert.equal(walk(page.tree).find(n => n.type === "button" && String(n.props.className).includes("mono")).props.title,
+    run.id + " · 点击复制", "title 携带全量 id");
+  // L-C：编辑后计数与覆盖标识出现，列表项带标识点
+  const props = { settings: { revision: 1, reviewMode: "every", p6Mode: "builtin", testCommand: "", stageConfig: {} },
+    projects: [], defaults: { stages: STAGE_DEFS }, stage: "P1", tab: "prompts", onSaved() {}, onStage() {}, onTab() {} };
+  const set = ui.mount(ui.StudioSettings, props); t.after(() => set.dispose());
+  assert.match(text(set.tree), /使用默认提示词/, "默认态标识");
+  assert.match(text(set.tree), /\d+ 字符/, "计数常显");
+  field(set.tree, "阶段提示词内容").props.onChange({ target: { value: "edited P1" } }); set.render();
+  assert.match(text(set.tree), /已覆盖默认值/, "覆盖标识");
+  assert.match(text(set.tree), /9 字符/, "计数跟随输入");
+  const navBtn = walk(set.tree).find(n => n.type === "button" && text(n).startsWith("P1") && /需求分析/.test(text(n)));
+  assert.match(text(navBtn), /P1 •/, "阶段列表项标识点");
+});
+
+test("二期N1：超过 200KB 的产物自动尾部读取，小文件仍整读", async t => {
+  const ui = studio(async () => ({ ok: true, text: "line1\nline2" }));
+  const big = ui.mount(ui.ArtifactsPanel, { slug: "alpha", runId: "a", tree: [{ path: "06-implementation/external-exec.log", size: 4.2 * 1024 * 1024 }] });
+  t.after(() => big.dispose()); await tick(); big.render();
+  assert.match(ui.requests.at(-1).url, /tail=1/, "大文件请求带 tail 参数");
+  assert.match(text(big.tree), /尾部 2 行/, "行数标注为尾部");
+  assert.match(text(big.tree), /仅显示尾部最近内容/, "降级提示可见");
+  const small = ui.mount(ui.ArtifactsPanel, { slug: "beta", runId: "b", tree: [{ path: "small.log", size: 1024 }] });
+  t.after(() => small.dispose()); await tick(); small.render();
+  assert.ok(!/tail=1/.test(ui.requests.at(-1).url), "小文件不带 tail 整读");
+  assert.ok(!text(small.tree).includes("仅显示尾部最近内容"), "小文件无降级提示");
 });
 
 test("工作台入口：宿主锚点缺失时回退居中布局并给出提示，不再静默空白", async t => {
