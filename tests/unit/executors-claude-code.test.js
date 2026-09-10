@@ -87,6 +87,31 @@ test("executor.run：注入 spawnExternal → 归一结果 + 日志落盘 + --se
     assert.match(log, /--- exit=0 ---/);
 });
 
+test("executor.run：时间线文件 —— stream-json 帧写入时格式化为 时间|kind|内容，原始日志不动", async () => {
+    const root = mkdtempSync(join(tmpdir(), "i2p-timeline-"));
+    const logPath = join(root, "external-exec.log");
+    const timelinePath = join(root, "external-exec.timeline.log");
+    const frames = [
+        '{"type":"system","subtype":"init","model":"claude-x"}',
+        '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"先看代码"}]}}',
+        '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"src/index.js"}}]}}',
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"找到了符号选择分支"}]}}',
+        'not-json garbage',
+        '{"type":"result","subtype":"success","num_turns":3,"result":"全部完成"}',
+    ].join("\n") + "\n";
+    const rcx = { spawnExternal: async (opts) => { opts.onStdoutChunk(frames); return { code: 0, stdout: frames, stderr: "" }; } };
+    const out = await executor.run({ rcx, bin: "claude", repoDir: root, runDir: root, prompt: "p", timeoutMs: 60000, params: { claudePermission: "acceptEdits" }, auth: null, logPath, timelinePath });
+    const raw = readFileSync(logPath, "utf8");
+    assert.match(raw, /{"type":"system"/, "原始日志保真");
+    const timeline = readFileSync(timelinePath, "utf8").split("\n").filter(Boolean);
+    const kinds = timeline.map((l) => l.split("|")[1]);
+    assert.deepEqual(kinds, ["init", "init", "think", "tool", "text", "raw", "result", "exit"],
+      "任务包 init + 帧序列 + 退出行");
+    assert.match(timeline[3], /tool\|Read src\/index\.js/);
+    assert.match(timeline[6], /result|全部完成 · 3 轮/);
+    for (const l of timeline) assert.match(l, /^d{2}:d{2}:d{2}|/, "每行 时间|kind|内容");
+});
+
 test("executor.run：无中转 → 不产生 settings 临时文件（用户 settings 全量生效）", async () => {
     const root = mkdtempSync(join(tmpdir(), "i2p-exec-"));
     let seenSettingsPath = "__unset__";

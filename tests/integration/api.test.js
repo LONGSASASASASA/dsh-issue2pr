@@ -1,5 +1,5 @@
 // tests/api.test.js
-import { test } from "node:test";
+import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,8 +7,10 @@ import { join } from "node:path";
 
 import { apply } from "../../index.js";
 import { __setTestHooks } from "../../index.js";   // 测试注入：dataRoot / executors / llm
+import { defaultSettings, saveSettings, saveProject, writeArtifact, runDirOf } from "../../lib/core/store.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-api-"));
+beforeEach(() => saveSettings(root, { ...defaultSettings(), revision: undefined }));
 
 function fakeCtx() {
   const routes = [];
@@ -40,7 +42,19 @@ async function call(handler, method, path, body) {
   return { status: res.status, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) };
 }
 
+test("任务列表摘要：返回已存阶段错误及外部状态，不读取独立产物", async () => {
+  __setTestHooks({ dataRoot: root });
+  saveProject(root, { slug: "summary", name: "Summary", repos: ["https://example.test/summary.git"], triggers: [], reviewMode: "every", p6Mode: "builtin" });
+  const runId = "20260908-000001-summary";
+  writeArtifact(join(root, "projects", "summary", "runs", runId), "run.json", JSON.stringify({ id: runId, status: "failed", current: "P6", stages: { P6: { error: "补丁验证失败" } }, externalExec: { status: "failed" }, trigger: { kind: "issue", text: "# 真实标题", uri: "issue.md" } }));
+  const routes = [], ctx = fakeCtx(); ctx.webServer.register = spec => routes.push(spec); apply(ctx);
+  const result = await call(routes[0].handler, "GET", "/issue2pr/api/projects/summary/runs");
+  assert.equal(result.status, 200); assert.equal(result.body.runs[0].currentError, "补丁验证失败");
+  assert.equal(result.body.runs[0].externalStatus, "failed"); assert.equal(result.body.runs[0].trigger.text, "# 真实标题");
+});
+
 test("API 全链路：建项目 → 发起 run → 待复核 → approve 推进", async () => {
+  saveSettings(root, { ...defaultSettings(), revision: undefined, reviewMode: "every" });
   __setTestHooks({
     dataRoot: root,
     executors: { P1: async () => ({ artifact: "01-issue-analysis.json" }) }, // 其余阶段缺省 = 立即 approved 的空执行器
@@ -80,6 +94,7 @@ test("API 全链路：建项目 → 发起 run → 待复核 → approve 推进"
 });
 
 test("API：复核次数超限返回明确错误、Run failed，并触发 P10", async () => {
+  saveSettings(root, { ...defaultSettings(), revision: undefined, reviewMode: "every", maxReviewAttempts: 1 });
   let p10Calls = 0;
   __setTestHooks({
     dataRoot: root,
@@ -125,6 +140,37 @@ test("API：非法 slug / 缺字段 400；artifact 防 ..", async () => {
   assert.equal(r.body.ok, false);
 });
 
+test("API：artifact 超限 400；tail=1 返回末尾片段并标记 truncated", async () => {
+  __setTestHooks({ dataRoot: root, executors: {} });
+  const handler2 = (function () { const rs = []; const c2 = fakeCtx(); c2.webServer.register = (s) => rs.push(s); apply(c2); return rs[0].handler; })();
+  const src = join(root, "tail.md");
+  writeFileSync(src, "尾部读取测试触发源");
+  let r = await call(handler2, "POST", "/issue2pr/api/projects", {
+    name: "尾读", slug: "tail-demo", repos: ["r"], triggers: [{ kind: "issue", uri: "tail.md" }],
+    reviewMode: "every", p6Mode: "builtin",
+  });
+  assert.equal(r.status, 200);
+  r = await call(handler2, "POST", "/issue2pr/api/projects/tail-demo/runs", { kind: "issue", uri: src });
+  assert.equal(r.status, 200);
+  const runId = r.body.runId;
+  const runDir = runDirOf(root, "tail-demo", runId);
+  const lastLine = "final-frame " + "z".repeat(50);
+  const big = Array.from({ length: 5000 }, (_, i) => "line-" + i + " " + "y".repeat(50)).join("\n") + "\n" + lastLine;
+  writeArtifact(runDir, "06-implementation/external-exec.log", big);
+  const enc = encodeURIComponent("06-implementation/external-exec.log");
+  r = await call(handler2, "GET", `/issue2pr/api/projects/tail-demo/runs/${runId}/artifact?path=${enc}`);
+  assert.equal(r.status, 400, "超限且未带 tail 仍 400");
+  r = await call(handler2, "GET", `/issue2pr/api/projects/tail-demo/runs/${runId}/artifact?path=${enc}&tail=1`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.truncated, true, "标记 truncated");
+  assert.ok(r.body.text.length < big.length, "只返回尾部片段");
+  assert.ok(r.body.text.endsWith(lastLine), "末行完整保留");
+  assert.ok(!r.body.text.startsWith("line-0 "), "截断的首行已丢弃");
+  r = await call(handler2, "GET", `/issue2pr/api/projects/tail-demo/runs/${runId}/artifact?path=${enc}&full=1`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.text, big, "full=1 返回完整内容");
+});
+
 test("API：同秒同触发源重复 POST /runs → 第二次 409（Run 已存在）", async () => {
   __setTestHooks({ dataRoot: root, executors: {} });
   const handler2 = (function () { const rs = []; const c2 = fakeCtx(); c2.webServer.register = (s) => rs.push(s); apply(c2); return rs[0].handler; })();
@@ -138,9 +184,11 @@ test("API：同秒同触发源重复 POST /runs → 第二次 409（Run 已存�
   // runId 秒级精度：快速连续 POST，直到两请求落进同一秒（第二次同 runId 必 409）
   let seen409 = false;
   for (let i = 0; i < 20 && !seen409; i++) {
-    const a = await call(handler2, "POST", "/issue2pr/api/projects/dup/runs", { kind: "issue", uri: dupFile });
+    // 上一轮第二次请求可能跨秒并已创建该秒任务；新一轮使用新来源，避免撞到上轮结果。
+    const attemptFile = join(root, "dup-" + i + ".md"); writeFileSync(attemptFile, "重复触发同一触发源");
+    const a = await call(handler2, "POST", "/issue2pr/api/projects/dup/runs", { kind: "issue", uri: attemptFile });
     assert.equal(a.status, 200);
-    const b = await call(handler2, "POST", "/issue2pr/api/projects/dup/runs", { kind: "issue", uri: dupFile });
+    const b = await call(handler2, "POST", "/issue2pr/api/projects/dup/runs", { kind: "issue", uri: attemptFile });
     if (b.status === 409) {
       seen409 = true;
       assert.equal(b.body.ok, false);
@@ -416,6 +464,7 @@ test("saveProject：repos 字符串形态规范化为 { uri } 落盘", async () 
 });
 
 test("API：P6 session 模式 — GET 带 externalProgress，空 patches 拒绝 approve，产出后放行", async () => {
+  saveSettings(root, { ...defaultSettings(), revision: undefined, p6Mode: "session" });
   __setTestHooks({
     dataRoot: root,
     executors: { P6: async () => ({ artifact: "06-implementation/session-task.md", summary: "任务包已生成，等待外部 DSH 会话执行", external: true }) },

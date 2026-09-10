@@ -20,6 +20,7 @@ function fakeCtx() {
     logger: { info() {} },
     webServer: { register(spec) { rs.push(spec); } },
     getConfig() { return { dataRoot: root }; },
+    get(name) { return name === "agentDefaultModel" ? { currentSelection: () => ({ provider: "test", model: "fixture" }) } : undefined; },
     llm: { async *stream() { yield { type: "text-delta", index: 0, text: "{}" }; yield { type: "finish", reason: "stop" }; } },
   };
   apply(c);

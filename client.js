@@ -1,7 +1,7 @@
-// client.js — Issue2PR 工作台（项目 / 运行 / 产物 / 说明）
-// 设计语言：原生 DSH 工具风——配色/交互令牌取宿主 --dsw-alias-*（自动适配明暗主题），
+// client.js — Issue2PR 工作台（项目 / 任务 / 全局设置）
+// 设计语言：沿用 v9 明暗配色，主题选择跟随 DSH 宿主，
 // 数据（id/路径/产物/耗时）用 JetBrains Mono，图标全 SVG 描边（无 emoji），
-// 布局靠左、密度紧凑、每个区块自带一行中文说明。数据源 /issue2pr/api/*。
+// 页面结构与交互以 docs/ui-prototype/v9.html 为基准。数据源 /issue2pr/api/*。
 // 零 npm 依赖：React 与官方 UI 原语（MarkdownText 等）均来自宿主模块表（require），样式注入单个 <style> 标签。
 window.__ModuleLoader__.load({
 	id: "dsh-issue2pr",
@@ -33,7 +33,7 @@ window.__ModuleLoader__.load({
 			{ id: "P7",  name: "Patch Pipeline",     desc: "版本校验 → 落盘 + ledger",       art: "ledger/patch-ledger.jsonl", key: false,
 			  about: "确定性 patch 应用管线（不调用大模型）：校验基线版本 → 逐条 git apply 落盘 → 写 patch ledger。每条 patch 可在运行页逐条回滚；基线不匹配会拒绝应用，防止盲覆盖。" },
 			{ id: "P8",  name: "TestRunner",         desc: "沙箱真实执行",                   art: "07-test-report.json",       key: false,
-			  about: "在仓库真实执行测试命令（项目配置的 testCommand 或自动探测 npm test），完整输出落盘 08-test-output.txt，报告只留末尾。结果必须来自真实执行——这是流水线的铁律。" },
+			  about: "在仓库真实执行任务启动配置中的测试命令，留空自动探测 npm test。完整输出落盘 08-test-output.txt，报告只留末尾。结果必须来自真实执行。" },
 			{ id: "P9",  name: "Reviewer",           desc: "三维门控审查 · 复核门",          art: "08-review-report.json",     key: true,
 			  about: "独立 Reviewer 读真实 diff 与测试报告做三维门控：①Diff 范围（过大/越权/遗漏调用方）②API 与安全 ③测试补强与说明忠实。测试通过 ≠ 可合并；verdict=fail 会打回 P6。" },
 			{ id: "P10", name: "FailureClassifier",  desc: "失败旁路 · 仅失败时执行",        art: "09-failure-analysis.json",  key: false, bypass: true,
@@ -55,516 +55,307 @@ window.__ModuleLoader__.load({
 		function tag(status) { return TAG[status] || TAG.pending; }
 
 		/* ================================================================
-		 * 样式（全部选择器 .i2p 前缀；令牌取宿主 --dsw-alias-*，带回退值）
+		 * 样式（工作台 .studio 作用域；v9 配色，主题选择及字体跟随宿主）
 		 * ================================================================ */
 		const css = `
-/* 别名变量同时挂在 .i2p-page 上：AssistantDock（悬浮助手）挂在 .i2p-page 下、
-   在 Section 的 .i2p 容器外，变量只定义在 .i2p 会整体解析失败（深色主题下全透明） */
+/* v9 palette: exact prototype values; aliases keep existing official controls compatible. */
 .i2p,.i2p-page{
-  --ink:var(--dsw-alias-label-primary,#17181f);
-  --ink-2:var(--dsw-alias-label-secondary,#414351);
-  --muted:var(--dsw-alias-label-tertiary,#6f6b78);
-  --caption:var(--dsw-alias-label-caption,#9b9da8);
-	  /* 暖灰瓷面 + 单一绿色强调：状态色只表达语义，结构色不抢证据入口。 */
-	  --shell:#ecebe6;
-	  --porcelain:#f5f5f2;
-	  --porcelain-strong:#ffffff;
-	  --line:#deddd6;
-	  --line-2:#cfcfc7;
-	  --card:#ffffff;
-	  --panel:rgba(255,255,255,.84);
-	  --accent:#177b62;
-	  --accent-strong:#12644f;
-	  --accent-ink:#ffffff;
-	  --hover:rgba(32,33,31,.05);
-	  --nav-on:#e5f0eb;
-	  --acc-soft:#e5f0eb;
-	  --good:#27703d;
-	  --good-bg:rgba(39,112,61,.10);
-	  --warn:#90620b;
-	  --warn-bg:rgba(144,98,11,.10);
-	  --err:#a43c34;
-	  --err-bg:rgba(164,60,52,.10);
-	  --code-bg:#151816; --code-line:#2b302d;
-  --mono:'JetBrains Mono','IBM Plex Mono','Cascadia Code',Consolas,'Liberation Mono',monospace;
-  --fs-xs:11.5px; --fs-sm:12.5px; --fs-md:13.5px; --fs-lg:14.5px; /* 字号 scale：AI 面板段统一走 token */
-  /* 字体必须显式声明：不声明则继承宿主→系统默认字体（Win 雅黑/Mac 苹方/Linux Noto
-     度量差异大），同一字号在不同电脑上观感"一大一小"——跨平台栈保证同类字形 */
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC','Source Han Sans SC',sans-serif;
-  color:var(--ink); font-size:14.5px; line-height:1.7;
-  background:var(--panel);
-  flex:1; min-width:0; min-height:0; display:flex; flex-direction:column;
+ --bg:#f6f7f9;--surface:#ffffff;--soft:#f3f5f7;--ink:#1c2833;--secondary:#596875;--muted:#72808a;
+ --line:#e7ebed;--border:#d7dfe2;--accent:#177b62;--accent-hover:#10624e;--accent-soft:#eaf4ef;
+ --amber:#986318;--amber-soft:#fbf3e4;--red:#bb4346;--red-soft:#fcf0f0;--blue:#426b9c;--blue-soft:#edf3fb;
+ --terminal:#18232b;--term-text:#d6e4e9;--shadow:0 16px 64px #18232b1f;
+ --ink-2:var(--secondary);--caption:var(--muted);--shell:var(--bg);--porcelain:var(--bg);
+ --porcelain-strong:var(--surface);--line-2:var(--border);--card:var(--surface);--panel:var(--surface);
+ --accent-strong:var(--accent-hover);--accent-ink:#fff;--hover:var(--soft);--nav-on:var(--accent-soft);--acc-soft:var(--accent-soft);
+ --good:var(--accent);--good-bg:var(--accent-soft);--warn:var(--amber);--warn-bg:var(--amber-soft);
+ --err:var(--red);--err-bg:var(--red-soft);--code-bg:var(--terminal);--code-line:var(--border);
+ --mono:var(--ds-font-family-code,"SF Mono","JetBrains Mono","Fira Code",Consolas,"Liberation Mono",Menlo,Courier,"PingFang SC","Microsoft YaHei");
+ font-family:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Helvetica Neue",Helvetica,Arial,sans-serif);
+ font-size:var(--dsh-content-font-size,14px);line-height:calc(24px + var(--dsh-content-font-size,14px) - 14px);background:var(--bg);
 }
-/* 深色瓷面版：宿主深色主题时由 watchArchTheme() 给 <html> 打 data-i2p-theme=dark。
-   说明级小字（--muted/--caption）不链宿主令牌而在此显式亮化：宿主深色灰在墨底上
-   对比不足 4.5:1（截图审查实测发灰），工作台内文字以可读性优先 */
 [data-i2p-theme=dark] .i2p,[data-i2p-theme=dark] .i2p-page{
-  --muted:#a1a5b0;
-  --caption:#878b95;
-	  --shell:#101110;
-	  --porcelain:#151614;
-	  --porcelain-strong:#1b1d1a;
-	  --line:#343731;
-	  --line-2:#454941;
-	  --card:#1b1d1a;
-	  --panel:rgba(21,22,20,.88);
-	  --accent:#67b79d;
-	  --accent-strong:#84c9b1;
-	  --accent-ink:#10251e;
-	  --hover:rgba(255,255,255,.05);
-	  --nav-on:rgba(103,183,157,.16);
-	  --acc-soft:rgba(103,183,157,.14);
-	  --good:#85c99a;
-	  --good-bg:rgba(133,201,154,.14);
-	  --warn:#d9ab62;
-	  --warn-bg:rgba(217,171,98,.15);
-	  --err:#e59b91;
-	  --err-bg:rgba(229,155,145,.14);
+ --bg:#141b20;--surface:#1a2329;--soft:#222e35;--ink:#e5edf0;--secondary:#b6c3ca;--muted:#94a5af;
+ --line:#2a373f;--border:#41515b;--accent:#79cbb0;--accent-hover:#a2e1ca;--accent-soft:#203c34;
+ --amber:#e8bd76;--amber-soft:#383023;--red:#f09598;--red-soft:#3c272d;--blue:#97bbed;--blue-soft:#26374b;
+ --terminal:#111a21;--shadow:0 16px 64px #0005;--accent-ink:#10291f;
+ --ink-2:var(--secondary);--caption:var(--muted);--shell:var(--bg);--porcelain:var(--bg);
+ --porcelain-strong:var(--surface);--line-2:var(--border);--card:var(--surface);--panel:var(--surface);
+ --accent-strong:var(--accent-hover);--hover:var(--soft);--nav-on:var(--accent-soft);--acc-soft:var(--accent-soft);
+ --good:var(--accent);--good-bg:var(--accent-soft);--warn:var(--amber);--warn-bg:var(--amber-soft);
+ --err:var(--red);--err-bg:var(--red-soft);
 }
-.i2p *{box-sizing:border-box}
-.i2p button{font-family:inherit;cursor:pointer;color:inherit}
-.i2p button:focus-visible,.i2p input:focus-visible,.i2p textarea:focus-visible,.i2p select:focus-visible{
-  outline:2px solid var(--accent);outline-offset:1px;
+/* v9 component styles. Host chrome and the assistant keep their own selectors. */
+.i2p,.i2p-page{color:var(--ink);flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;--fs-xs:12px;--fs-sm:13px;--fs-md:14px;--fs-lg:15px}
+.i2p-page{position:fixed;overflow:hidden;background:var(--surface)}
+.i2p-page-body{display:flex;flex:1;min-width:0;min-height:0}
+.i2p-page-hint{margin:10px 26px 0;padding:8px 12px;border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:7px;background:var(--amber-soft);color:var(--amber);font-size:12px;overflow-wrap:anywhere}
+.studio{container-type:inline-size}
+.studio *{box-sizing:border-box}
+.studio :where(button,input,select,textarea){font:inherit;color:inherit}
+.studio :where(button){cursor:pointer;border:0;background:none}
+.studio :where(button):disabled{opacity:.5;cursor:not-allowed}
+.studio :where(a){color:var(--accent);text-decoration:none}
+.studio :where(a):hover{text-decoration:underline}
+.studio :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.studio :where(h1,h2,h3,h4,p){margin:0}
+.studio h1{font-size:21px;line-height:30px;font-weight:700}
+.studio h2{font-size:16px;line-height:24px;font-weight:500}
+.studio h3,.studio h4{font-size:14px;line-height:22px;font-weight:500}
+.studio :where(code,pre,.mono){font-family:var(--mono)}
+.studio svg{flex:none;vertical-align:middle}
+.studio .hint,.studio small{font-size:12px;color:var(--secondary)}
+.studio .muted{color:var(--muted)}
+.studio .studio-row{display:flex;align-items:center;gap:10px;min-width:0}
+.studio .wrap{flex-wrap:wrap}
+.studio .studio-grow{flex:1;min-width:0}
+.studio .studio-path{overflow-wrap:anywhere}
+.studio .studio-stack{display:grid;gap:16px;align-content:start;min-width:0}
+.studio .studio-grid,.studio .grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.studio .studio-span{grid-column:1/-1}
+.studio .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:6px 13px;border:1px solid var(--border);background:var(--surface);border-radius:7px;font-size:14px;line-height:22px;font-weight:500;white-space:nowrap}
+.studio .btn:hover{background:var(--soft)}
+.studio .btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.studio .btn.pri:hover{background:var(--accent-hover)}
+.studio .btn.ghost{background:transparent;border-color:transparent}
+.studio .btn.ghost:hover{background:var(--soft)}
+.studio .btn.sm{min-height:30px;padding:3px 9px;font-size:12px;line-height:18px}
+.studio .btn.danger{color:var(--red)}
+.studio .card{border:1px solid var(--line);border-radius:9px;padding:20px;background:var(--surface);min-width:0}
+.studio .tg{display:inline-flex;align-items:center;gap:6px;border-radius:5px;padding:3px 9px;font-size:12px;font-weight:500;line-height:24px;white-space:nowrap;color:var(--secondary);background:var(--soft)}
+.studio .tg:before{content:"";height:6px;width:6px;border-radius:50%;background:currentColor}
+.studio .tg.t-good{color:var(--accent);background:var(--accent-soft)}
+.studio .tg.t-warn{color:var(--amber);background:var(--amber-soft)}
+.studio .tg.t-err{color:var(--red);background:var(--red-soft)}
+.studio .tg.t-acc{color:var(--blue);background:var(--blue-soft)}
+.studio .f-input,.studio .f-select{width:100%;min-width:0;max-width:100%;min-height:40px;padding:8px 11px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--ink);font-size:14px;line-height:22px}
+.studio .f-input::placeholder{color:var(--muted)}
+.studio textarea{resize:vertical}
+.studio .studio-field,.studio label.field{display:flex;flex-direction:column;gap:7px;font-weight:500;min-width:0}
+.studio .studio-field small{font-weight:400}
+.studio .field{margin:0 0 13px}
+.studio .f-label{display:block;font-size:12px;color:var(--secondary);margin:12px 0 6px}
+.studio .callout{padding:13px 16px;border:1px solid var(--line);border-radius:8px;background:var(--blue-soft);color:var(--blue);font-size:13px;overflow-wrap:anywhere}
+.studio .callout p{margin:5px 0}
+.studio .callout.warn{background:var(--amber-soft);color:var(--amber)}
+.studio .callout.err{background:var(--red-soft);color:var(--red)}
+.studio .callout.good,.studio .callout.acc{background:var(--accent-soft);color:var(--accent)}
+.studio .tbl{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}
+.studio .tbl th,.studio .tbl td{text-align:left;padding:8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.studio .tbl th{font-size:12px;color:var(--secondary);font-weight:500}
+.studio .kv{display:grid;grid-template-columns:120px minmax(0,1fr);gap:7px 14px;font-size:13px}
+.studio .kv .k{color:var(--muted)}
+.studio .kv .v{min-width:0;overflow-wrap:anywhere}
+.studio .view{margin:0;padding:17px;background:var(--bg);color:var(--ink);border:0;border-radius:8px;font:13px/1.85 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;max-height:65vh}
+.studio .view .k,.studio .view .hunk{color:var(--blue)}
+.studio .view .s,.studio .view .add{color:var(--accent)}
+.studio .view .c{color:var(--muted)}
+.studio .view .del{color:var(--red)}
+.studio .md-view{overflow-wrap:anywhere;min-width:0}
+.studio .md-view :where(p,ul,ol){margin:10px 0 19px}
+.studio .md-view :where(h1,h2,h3){margin:22px 0 12px}
+.studio .md-view pre{overflow:auto;max-width:100%}
+.studio .studio-topbar{height:52px;flex:none;display:flex;align-items:center;padding:0 28px;gap:26px;background:var(--surface);border-bottom:1px solid var(--line)}
+.studio .studio-brand{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:700;letter-spacing:-.7px}
+.studio .studio-brand svg{color:var(--accent)}
+.studio .studio-topnav{display:flex;align-self:stretch;gap:24px;margin-left:12px}
+.studio .studio-topnav button,.studio .studio-tabs button{border:0;border-bottom:2px solid transparent;background:none;color:var(--secondary);padding:0 3px;font-size:14px}
+.studio .studio-topnav button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent)}
+.studio .studio-toptools{margin-left:auto}
+.studio .studio-main{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto}
+.studio .studio-page{padding:30px 32px;max-width:1144px;width:100%;margin:0 auto}
+.studio .studio-page-heading{margin-bottom:26px}
+.studio .studio-page-heading p{font-size:14px;color:var(--secondary);margin-top:5px}
+.studio .studio-project-card{padding:24px;border-radius:12px}
+.studio .studio-repo-logo{width:43px;height:43px;background:var(--accent-soft);color:var(--accent);border-radius:10px;display:grid;place-items:center;flex:none}
+.studio .studio-repo-address{margin:16px 0 22px;font-size:13px;color:var(--secondary);overflow-wrap:anywhere}
+.studio .studio-project-foot{border-top:1px solid var(--line);padding-top:17px}
+.studio .studio-project-more{margin-top:24px}
+.studio .studio-toolbar{display:flex;align-items:center;gap:15px;margin-bottom:20px;flex-wrap:wrap}
+.studio .studio-project-filter{display:flex;align-items:center;gap:8px;white-space:nowrap;font-size:14px}
+.studio .studio-project-filter .f-select{width:215px}
+.studio .studio-search{width:270px;max-width:100%;min-width:130px}
+.studio .studio-segmented{display:flex;align-items:center;background:var(--soft);padding:3px;border-radius:7px;gap:3px;flex-wrap:wrap}
+.studio .studio-segmented button{background:none;border:0;padding:6px 12px;color:var(--secondary);border-radius:5px;font-size:13px}
+.studio .studio-segmented button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px #18232b12}
+.studio .studio-filter-result{margin:-8px 0 16px;color:var(--secondary);font-size:12px}
+.studio .studio-task-list{border:1px solid var(--line);border-radius:11px;background:var(--surface);overflow:hidden}
+.studio .studio-run-row{display:grid;grid-template-columns:30px minmax(0,1fr) auto 60px;gap:15px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line);text-align:left;width:100%;color:var(--ink)}
+.studio .studio-run-row:hover{background:var(--bg)}
+.studio .studio-run-row:last-child{border-bottom:0}
+.studio .studio-run-row strong{display:block;font-weight:500;overflow-wrap:anywhere}
+.studio .studio-run-description{display:block;margin-top:4px;color:var(--secondary);font-size:12px;overflow-wrap:anywhere}
+.studio .studio-run-reason{display:block;margin-top:4px;color:var(--secondary);font-size:13px;overflow-wrap:anywhere}
+.studio .studio-run-icon{color:var(--accent)}
+.studio .studio-run-icon.failed{color:var(--red)}
+.studio .studio-run-icon.awaiting_review{color:var(--amber)}
+.studio .studio-pagination{padding:12px 0;font-size:12px}
+.studio .studio-empty{padding:55px 22px;text-align:center;max-width:570px;margin:0 auto;color:var(--secondary);display:grid;justify-items:center;gap:14px}
+.studio .studio-empty h3{font-size:16px;color:var(--ink)}
+.studio .studio-dialog{width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 48px);border:1px solid var(--line);border-radius:14px;padding:0;background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.studio .studio-dialog.wide{width:min(850px,calc(100vw - 32px))}
+.studio .studio-dialog::backdrop{background:#14232e55;backdrop-filter:blur(3px)}
+.studio .studio-dialog-head{padding:20px 24px 12px}
+.studio .studio-dialog-body{padding:8px 24px 24px;overflow-wrap:anywhere}
+.studio .studio-dialog-body>p{color:var(--secondary);margin-bottom:17px}
+.studio .studio-task{display:flex;flex-direction:column;flex:1;min-height:0;background:var(--surface)}
+.studio .studio-task-head{padding:8px 26px 5px;flex:none}
+.studio .studio-breadcrumb{font-size:12px;color:var(--muted);margin-bottom:4px;line-height:18px;flex-wrap:wrap}
+.studio .studio-breadcrumb button{padding:0;color:var(--secondary)}
+.studio .studio-task-title{gap:12px}
+.studio .studio-task-title h1{font-size:16px;line-height:24px;font-weight:600}
+.studio .studio-topology{padding:0 26px;border-bottom:1px solid var(--line);flex:none}
+.studio .studio-workflow-summary{min-height:44px;gap:12px}
+.studio .studio-workflow-summary strong{font-size:13px}
+.studio .studio-progress{display:flex;gap:3px;width:110px;flex:none}
+.studio .studio-progress i{height:4px;flex:1;border-radius:2px;background:var(--border)}
+.studio .studio-progress i.done{background:var(--accent)}
+.studio .studio-progress i.current{background:var(--blue)}
+.studio .studio-track{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:4px;padding-top:8px}
+.studio .studio-stage{border:1px solid transparent;border-radius:7px;padding:8px 2px;display:flex;align-items:center;flex-direction:column;position:relative;min-width:0}
+.studio .studio-stage:before{content:"";position:absolute;top:21px;right:50%;width:100%;height:1px;background:var(--line)}
+.studio .studio-stage:first-child:before{display:none}
+.studio .studio-stage:hover{background:var(--soft)}
+.studio .studio-stage.on{background:var(--soft);border-color:var(--border)}
+.studio .studio-stage-mark{width:27px;height:27px;display:grid;place-items:center;border:1px solid var(--border);background:var(--surface);border-radius:50%;position:relative;z-index:1;margin-bottom:7px;font-size:11px}
+.studio .studio-stage.approved .studio-stage-mark,.studio .studio-stage.completed .studio-stage-mark{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.studio .studio-stage.current .studio-stage-mark{background:var(--blue-soft);color:var(--blue);border-color:transparent}
+.studio .studio-stage.failed .studio-stage-mark{background:var(--red-soft);color:var(--red)}
+.studio .studio-stage.awaiting_review .studio-stage-mark{background:var(--amber-soft);color:var(--amber)}
+.studio .studio-stage strong{font-size:13px;font-weight:400;line-height:1.5}
+.studio .studio-stage-code{font-size:12px;color:var(--muted);margin-top:3px}
+.studio .studio-track-footer{justify-content:space-between;font-size:12px;min-height:31px;color:var(--secondary)}
+.studio .studio-return-lane{margin:0 0 8px;padding:5px 10px;border-radius:7px;background:var(--amber-soft);color:var(--amber);font-size:12px}
+.studio .studio-tabs{display:flex;gap:24px;padding:0 26px;height:43px;border-bottom:1px solid var(--line);flex:none}
+.studio .studio-tabs button{padding:0 1px}
+.studio .studio-tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+.studio .studio-tabs button:last-child{margin-left:auto}
+.studio .studio-workspace{overflow:auto;min-height:0;flex:1;scrollbar-gutter:stable}
+.studio .studio-process{padding:16px 26px;display:grid;grid-template-columns:minmax(0,1fr);gap:24px;align-items:start}
+.studio .studio-process-main{min-width:0}
+.studio .studio-section-heading{margin-bottom:14px}
+.studio .studio-section-heading p{margin-top:3px;font-size:13px;color:var(--secondary)}
+.studio .studio-stage-deliverables{margin-top:20px;padding-top:12px;border-top:1px solid var(--line)}
+.studio summary{cursor:pointer;color:var(--secondary);font-size:12px}
+.studio .studio-stage-deliverables>summary{font-size:13px;font-weight:600;margin-bottom:12px}
+.studio .studio-artifacts{display:grid;gap:12px;justify-items:start}
+.studio .studio-artifacts-group{display:grid;gap:2px;justify-items:start}
+.studio .studio-artifacts-dir{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.studio .studio-artifacts .btn{justify-content:flex-start;text-align:left;white-space:normal;overflow-wrap:anywhere}
+.studio .studio-execution-row{display:grid;grid-template-columns:120px minmax(0,1fr) auto 18px;gap:15px;padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;width:100%;align-items:center}
+.studio .studio-execution-row:hover{background:var(--soft)}
+.studio .studio-execution-row strong{font-size:14px;font-weight:500}
+.studio .studio-execution-row span{overflow-wrap:anywhere}
+.studio .studio-execution-head{padding-bottom:10px;border-bottom:1px solid var(--line)}
+.studio .studio-execution-head .studio-execution-tabs{margin:0 0 0 auto;border:0}
+.studio .studio-plan-item{display:grid;grid-template-columns:30px minmax(0,1fr);gap:12px;padding:20px 0;border-bottom:1px solid var(--line)}
+.studio .studio-plan-item>span{padding-top:2px}
+.studio .studio-plan-item h3{font-size:15px;margin:0 0 8px;font-weight:500}
+.studio .studio-plan-item p{margin:0 0 10px;color:var(--secondary);line-height:1.7}
+.studio .studio-plan-tags{display:flex;flex-wrap:wrap;gap:7px;color:var(--secondary);font-size:12px}
+.studio .studio-plan-tags>span{border:1px solid var(--line);border-radius:4px;padding:1px 7px;overflow-wrap:anywhere}
+.studio .studio-execution-filters{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.studio .studio-execution-filters>.f-input{width:220px;margin-left:auto}
+.studio .studio-execution-row small{display:block;margin-top:4px;font-size:11px;color:var(--muted)}
+.studio .studio-execution-tabs{display:flex;gap:10px;border-bottom:1px solid var(--line);margin:8px 0 14px}
+.studio .studio-execution-tabs button{padding:6px 10px;font-size:13px;color:var(--secondary)}
+.studio .studio-execution-tabs button.on{box-shadow:inset 0 -2px var(--accent);background:var(--soft);color:var(--ink)}
+.studio .studio-terminal-shell{background:var(--terminal);color:var(--term-text);border-radius:9px;overflow:hidden}
+.studio .studio-terminal-head{min-height:36px;padding:3px 12px;border-bottom:1px solid #ffffff14;font-size:12px}
+.studio .studio-terminal-tools{padding:7px 14px;border-bottom:1px solid #ffffff14;font-size:12px;gap:10px}
+.studio .studio-terminal-tools input{background:#ffffff08;color:var(--term-text);border:1px solid #ffffff25;border-radius:5px;min-width:0;width:210px;padding:2px 8px;font:12px/18px var(--mono)}
+.studio .studio-terminal-tools input::placeholder{color:#a6bbc5}
+.studio .studio-terminal-tools button{color:#c5d8e2;white-space:nowrap}
+.studio .studio-terminal{font:13px/1.9 var(--mono);max-height:min(56vh,560px);min-height:180px;overflow:auto;padding:13px 16px;white-space:pre}
+.studio .studio-terminal.wrapped{white-space:pre-wrap;overflow-wrap:anywhere}
+.studio .studio-terminal summary{font:inherit;color:inherit;white-space:inherit}
+.studio .studio-terminal pre{font:inherit;white-space:inherit;padding-left:16px;margin:0 0 7px}
+.studio .studio-terminal .bad{color:#f5a6a9}
+.studio .studio-terminal mark{background:#f0ce7a;color:#19242a}
+.studio .studio-terminal-foot{padding:8px 15px;color:#a6bbc5;font-size:12px;border-top:1px solid #ffffff14}
+.studio .studio-review{padding:12px 26px;border-top:1px solid var(--line);background:var(--surface);flex:none}
+.studio .studio-review .f-input{min-height:38px;font-size:13px;min-width:170px}
+.studio .studio-run-actions{position:relative}
+.studio .studio-run-actions>summary{list-style:none;cursor:pointer;padding:5px 10px;border-radius:7px}
+.studio .studio-action-menu{position:absolute;top:calc(100% + 8px);right:0;width:300px;max-width:80vw;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow);z-index:10;display:grid;gap:10px}
+.studio .studio-report{padding:20px 26px;display:grid;gap:24px}
+.studio .studio-report-split{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(240px,1fr);gap:24px;align-items:start}
+.studio .studio-check{padding:14px 0;border-bottom:1px solid var(--line)}
+.studio .studio-check p{margin:5px 0;font-size:13px;color:var(--secondary)}
+.studio .studio-diff{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-top:14px}
+.studio .studio-diff-head{padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--line);font-size:13px}
+.studio .studio-diff-lines{padding:10px 0;overflow:auto;max-height:60vh}
+.studio .studio-diff-line{display:flex;min-width:max-content;font:13px/1.9 var(--mono);white-space:pre;padding-right:15px}
+.studio .studio-diff-line.add{background:var(--accent-soft)}
+.studio .studio-diff-line.del{background:var(--red-soft)}
+.studio .studio-diff-line.hunk{background:var(--blue-soft);color:var(--blue)}
+.studio .studio-diff-line small{display:inline-block;width:48px;flex:none;color:var(--muted);text-align:right;padding-right:15px;user-select:none}
+.studio .studio-delivery-prose{max-width:760px}
+.studio .studio-files{display:grid;grid-template-columns:300px minmax(0,1fr);height:100%;min-height:0;overflow:hidden}
+.studio .studio-tree{padding:16px;border-right:1px solid var(--line);background:var(--bg);display:flex;flex-direction:column;min-height:0}
+.studio .studio-tree>.f-input{flex:none;margin-top:10px;min-height:34px;padding:5px 10px;font-size:13px}
+.studio .tree{min-height:0;flex:1;overflow:auto;margin-top:10px}
+.studio .tree .dir,.studio .tree .file{width:100%;text-align:left;display:flex;align-items:center;gap:6px;padding:6px 3px;border-radius:5px;min-height:34px}
+.studio .tree .dir{font-size:13px;font-weight:500}
+.studio .tree .file{font-size:12px}
+.studio .tree .file:hover,.studio .tree .dir:hover{background:var(--soft)}
+.studio .tree .file.on{background:var(--accent-soft);color:var(--accent)}
+.studio .tree .file small{display:block;color:var(--muted);font-size:11px}
+.studio .tree .ts{font-size:11px;color:var(--muted);margin-left:auto;flex:none}
+.studio .studio-file-content{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+.studio .studio-file-head{padding:16px 20px 10px;border-bottom:1px solid var(--line);flex:none;display:grid;gap:8px}
+.studio .studio-file-reader{flex:1;min-height:0;overflow:auto;padding:18px 22px;overflow-anchor:none}
+.studio .studio-file-reader .view{max-height:none}
+.studio .studio-settings-layout{display:grid;grid-template-columns:175px minmax(0,1fr);gap:35px;align-items:start}
+.studio .studio-settings-nav,.studio .studio-prompt-nav{display:grid;gap:5px;align-content:start}
+.studio .studio-settings-nav button{padding:10px 13px;text-align:left;border-radius:7px;color:var(--secondary)}
+.studio .studio-settings-nav button.on,.studio .studio-prompt-nav button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.studio .studio-settings-main{min-width:0}
+.studio .studio-settings-main>.card{padding:24px}
+.studio .studio-settings-main details{margin-top:24px}
+.studio .studio-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;margin-top:24px}
+.studio .studio-settings-save{padding:0;margin-top:24px;justify-content:flex-end}
+.studio .studio-prompt-layout{display:grid;grid-template-columns:142px minmax(0,1fr);gap:22px;margin-top:22px}
+.studio .studio-prompt-nav button{padding:7px 9px;font-size:12px;text-align:left;border-radius:5px;color:var(--secondary)}
+.studio .studio-prompt-editor{min-height:275px;font:14px/1.9 var(--mono)}
+.studio .studio-soft-card{padding:20px;background:var(--soft);border-radius:8px}
+.studio .studio-soft-card p{margin-top:7px;color:var(--secondary);font-size:13px}
+.studio .studio-connection{border-bottom:1px solid var(--line);padding:18px 0}
+.studio .studio-probe-steps{margin:18px 0;display:grid;gap:12px}
+.studio .studio-provider-note{display:flex;align-items:center;gap:10px;padding:12px;background:var(--soft);border-radius:7px;color:var(--secondary)}
+.studio .studio-dialog .studio-prompt-editor{min-height:100px}
+.studio .studio-json{max-width:100%;max-height:320px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 var(--mono)}
+.studio .studio-json-fold{margin:4px 0}
+.studio .studio-diff-line small{width:40px;padding-right:12px}
+.studio .studio-link{padding:0;text-align:left;color:var(--accent)}
+.studio .studio-link:hover{text-decoration:underline}
+.studio .guide .lede{color:var(--secondary);margin-bottom:16px}
+.studio .guide ol{padding-left:20px}
+.studio .guide .grid-2{margin:16px 0}
+.studio .hint-line{font-size:13px;color:var(--secondary);margin:12px 0}
+.studio .skel-box{padding:24px}
+.studio .skel{height:14px;background:var(--soft);border-radius:6px;margin:9px 0}
+.studio .i2p-toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:11px 18px;border-radius:8px;z-index:100;box-shadow:var(--shadow);max-width:calc(100vw - 36px);font-size:13px}
+.studio .i2p-toast.t-bad{background:var(--red);color:var(--surface)}
+@container (max-width:1000px){
+ .studio .studio-toolbar{gap:10px}
+ .studio .studio-toolbar .studio-search{width:210px}
+ .studio .studio-terminal-tools{flex-wrap:wrap;gap:8px}
+ .studio .studio-terminal-tools input{flex:1;min-width:180px}
+  }
+@container (max-width:760px){
+ .studio .studio-topbar{padding:0 18px;gap:15px}
+ .studio .studio-topnav{gap:18px;margin:0}
+ .studio .studio-page{padding:24px 20px}
+ .studio .studio-settings-layout,.studio .studio-report-split{grid-template-columns:1fr;gap:22px}
+ .studio .studio-settings-nav{display:flex;flex-wrap:wrap}
+ .studio .studio-track{grid-template-columns:repeat(5,minmax(0,1fr))}
+ .studio .studio-stage:nth-child(6):before{display:none}
+ .studio .studio-project-filter{width:100%}
+ .studio .studio-project-filter .f-select{width:auto;flex:1}
+ .studio .studio-progress{display:none}
+ .studio .studio-files{grid-template-columns:250px minmax(0,1fr)}
 }
-.i2p pre code,.i2p pre{font-family:var(--mono)}
 
-/* ===== 主体：左侧导航列 + 内容区（一律靠左） ===== */
-.i2p-body{flex:1;min-width:0;min-height:0;display:flex;align-items:stretch}
-.i2p-nav{flex:none;width:var(--i2p-nav-w,180px);border-right:1px solid var(--line);padding:18px 14px 18px 14px;
-  display:flex;flex-direction:column;gap:16px;position:relative;overflow:hidden;
-  transition:width .2s cubic-bezier(.2,.8,.2,1)}
-.i2p-nav.no-anim{transition:none}
-.i2p-nav-title{display:flex;align-items:center;gap:8px;min-width:0;padding:0 12px}
-.i2p-nav-title .tt{flex:none;font-size:16px;font-weight:600;color:var(--ink);letter-spacing:-0.01em}
-.i2p-nav-list{display:flex;flex-direction:column;gap:2px;list-style:none;padding:0;margin:0}
-.i2p-nav-cell{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border:none;
-  background:none;border-radius:3px;font-size:14.5px;color:var(--ink-2);text-align:left;width:100%;
-  position:relative;cursor:pointer;
-  animation:i2p-cell-in .3s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*45ms);
-  transition:background .14s,color .14s}
-.i2p-nav-cell svg{flex:none}
-.i2p-nav-cell:hover{background:var(--hover)}
-.i2p-nav-cell.on{background:var(--nav-on);color:var(--accent);font-weight:600}
-.i2p-nav-cell.on svg{color:var(--accent)}
-.i2p-nav-cell .cnt{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--muted);transition:color .14s}
-.i2p-nav-cell .cnt.alert{color:var(--warn);font-weight:600;animation:i2p-breathe 1.8s ease-in-out infinite}
-.i2p-nav-note{margin-top:auto;padding:0 12px;font-size:12.5px;color:var(--muted);line-height:1.6}
-/* 拖宽手柄：贴 nav 右缘内侧（勿伸出——nav overflow:hidden 会裁掉导致点不到），
-   hover 显色；双击恢复默认宽 */
-.i2p-nav-grip{position:absolute;top:0;bottom:0;right:0;width:8px;z-index:5;cursor:col-resize;
-  border-radius:5px;background:transparent;transition:background .15s}
-.i2p-nav-grip:hover,.i2p-nav-grip:focus-visible{background:var(--hover);background:color-mix(in srgb,var(--accent) 26%,transparent)}
-body.i2p-dragging{cursor:col-resize}
-body.i2p-dragging *{cursor:col-resize!important}
-body.i2p-dragging{user-select:none}
-/* 收起态（激活「收起侧边栏」）= 图标栏 rail：菜单项仅图标，标题文字/计数/说明/拖宽隐藏 */
-.i2p-nav.rail{width:52px;padding-left:8px;padding-right:8px}
-.i2p-nav.rail .i2p-nav-title{padding:0;justify-content:center}
-.i2p-nav.rail .i2p-nav-title .tt{display:none}
-.i2p-nav.rail .i2p-nav-cell{justify-content:center;padding:0;gap:0}
-.i2p-nav.rail .i2p-nav-cell .lb,.i2p-nav.rail .i2p-nav-cell .cnt{display:none}
-.i2p-nav.rail .i2p-nav-note{display:none}
-.i2p-nav.rail .i2p-nav-grip{display:none}
-.i2p-main{flex:1;min-width:0;overflow-y:auto;padding:22px clamp(16px,3vw,36px) 48px}
-@media (max-width:880px){
-  .i2p-body{flex-direction:column}
-  .i2p-nav{width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px;
-    border-right:none;border-bottom:1px solid var(--line);padding:10px 14px}
-  .i2p-nav-grip{display:none}
-  .i2p-nav.rail{width:auto;padding-left:14px;padding-right:14px}
-  .i2p-nav-list{flex-direction:row;flex-wrap:wrap}
-  .i2p-nav-note{display:none}
-  .i2p-main{padding:16px 16px 32px}
-}
-@media (max-width:560px){
-  .i2p-page-body,.i2p,.i2p-body{min-width:0;width:100%}
-  .i2p-nav{min-width:0;max-width:100%;box-sizing:border-box;flex:0 1 auto}
-  .i2p-nav-title,.i2p-nav-title .tt{min-width:0}
-  .i2p-nav-title .tt{overflow:hidden;text-overflow:ellipsis}
-  .i2p-main{min-width:0;overflow-x:hidden;padding-left:12px;padding-right:12px}
-  .i2p .run-bar .f-select{flex:1 1 180px;min-width:0;max-width:100%}
-}
-
-/* ===== 区块标题（无衬线 600 + 一行说明，层级靠字重与颜色） ===== */
-.i2p .sec{margin-bottom:6px}
-.i2p .sec h2{font-size:24px;line-height:1.25;font-weight:680;margin:0 0 4px;color:var(--ink);letter-spacing:0}
-.i2p .sec .sub{margin:0 0 16px;font-size:13.5px;color:var(--muted)}
-.i2p .sec .sub b{color:var(--ink-2);font-weight:600}
-
-/* ===== 卡片 / callout（白面 + hairline 边，层级靠留白与分隔线） ===== */
-.i2p .card{background:var(--card);border:1px solid var(--line);border-radius:3px;padding:16px 18px}
-.i2p .card h4{font-size:13.5px;color:var(--ink-2);
-  margin:0 0 10px;font-weight:600}
-.i2p .card p{margin:0 0 8px;font-size:14px}
-.i2p .card ul{margin:6px 0 0;padding-left:18px;font-size:14px}
-.i2p .card ul li{margin-bottom:4px}
-.i2p .callout{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--card);
-  border-radius:0 3px 3px 0;padding:12px 14px}
-.i2p .callout h4{margin:0 0 8px}
-.i2p .callout.acc{border-left-color:var(--accent)}
-.i2p .callout.warn{border-left-color:var(--warn);background:var(--warn-bg);border-color:transparent;border-left-color:var(--warn)}
-.i2p .callout.warn h4{color:var(--warn)}
-.i2p .callout.good{border-left-color:var(--good);background:var(--good-bg);border-color:transparent;border-left-color:var(--good)}
-.i2p .callout.good h4{color:var(--good)}
-.i2p .callout.err{border-left-color:var(--err);background:var(--err-bg);border-color:transparent;border-left-color:var(--err)}
-.i2p .callout.err h4{color:var(--err)}
-/* 复核门：标准警示卡（左粗条 + 浅警示底），去签章化 */
-.i2p .callout.gate{border:1px solid var(--line);border-left:3px solid var(--warn);background:var(--warn-bg)}
-.i2p .callout.gate h4{color:var(--warn)}
-
-/* ===== 表格 ===== */
-.i2p .tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin:12px 0}
-.i2p .tbl th{border-bottom:1px solid var(--line-2);font-size:12px;color:var(--muted);
-  font-weight:600;text-align:left;padding:6px 10px}
-.i2p .tbl td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-.i2p .tbl tr:last-child td{border-bottom:none}
-.i2p .tbl code{font-family:var(--mono);background:var(--hover);padding:1px 6px;border-radius:4px;
-  font-size:12px;color:var(--ink-2)}
-
-/* ===== 状态 tag（tint 胶囊：无边框浅色底 + 语义色文字；running 保留语义脉冲点） ===== */
-.i2p .tg{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
-  padding:2px 9px;border-radius:999px;background:var(--hover);color:var(--ink-2);
-  white-space:nowrap;vertical-align:middle}
-.i2p .tg.t-good{color:var(--good);background:var(--good-bg)}
-.i2p .tg.t-warn{color:var(--warn);background:var(--warn-bg)}
-.i2p .tg.t-err{color:var(--err);background:var(--err-bg)}
-.i2p .tg.t-acc{color:var(--accent);background:var(--acc-soft)}
-.i2p .tg.t-off{color:var(--muted);background:none}
-.i2p .tg.run::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
-  background:var(--accent);animation:i2p-pulse 1.1s ease-in-out infinite}
-@keyframes i2p-pulse{0%,100%{opacity:1}50%{opacity:.25}}
-@media (prefers-reduced-motion:reduce){.i2p .tg.run::before{animation:none}}
-
-/* ===== 按钮 ===== */
-.i2p .btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:3px;
-  border:1px solid var(--line-2);background:none;color:var(--ink-2);font-size:13.5px;transition:background .15s,border-color .15s}
-.i2p .btn:hover{background:var(--hover);color:var(--ink);border-color:var(--muted)}
-.i2p .btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
-.i2p .btn.pri:hover{background:var(--accent-strong);border-color:var(--accent-strong);color:var(--accent-ink)}
-.i2p .btn.danger{border-color:var(--line-2);color:var(--err)}
-.i2p .btn.danger:hover{background:var(--err-bg);border-color:var(--err)}
-.i2p .btn:disabled{opacity:.45;cursor:not-allowed}
-.i2p .btn.sm{height:28px;padding:0 9px;font-size:12.5px;gap:5px}
-
-/* ===== 表单 ===== */
-.i2p label.f-label,span.f-label{display:block;font-size:12px;color:var(--muted);margin:0 0 5px;font-weight:600}
-.i2p .f-input,.i2p .f-select{width:100%;background:var(--card);border:1px solid var(--line-2);
-  border-radius:3px;color:var(--ink);padding:7px 10px;font-size:14px;font-family:inherit;transition:border-color .15s}
-.i2p textarea.f-input{resize:vertical}
-.i2p .f-input.mono,.i2p .f-select.mono{font-family:var(--mono);font-size:13px}
-.i2p .f-input:focus,.i2p .f-select:focus{border-color:var(--accent)}
-.i2p .f-input::placeholder{color:var(--caption)}
-.i2p .field{margin-bottom:13px}
-.i2p .field-row{display:grid;grid-template-columns:1fr 1fr;gap:13px}
-@media (max-width:760px){.i2p .field-row{grid-template-columns:1fr}}
-.i2p .dyn-row{display:flex;gap:6px;margin-bottom:6px;align-items:center}
-.i2p .dyn-row .f-input{flex:1}
-.i2p .dyn-row .rm{flex:none;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);
-  border:1px solid var(--line-2);background:none;border-radius:3px;width:30px;height:30px}
-.i2p .dyn-row .rm:hover{color:var(--err);border-color:var(--err)}
-.i2p .add-row{display:inline-flex;align-items:center;gap:5px;background:none;border:1px dashed var(--line-2);
-  color:var(--accent);border-radius:3px;padding:5px 11px;font-size:13px;margin-top:2px}
-.i2p .add-row:hover{border-color:var(--accent)}
-.i2p .run-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
-  border-radius:3px;border:1px solid var(--good);color:var(--good);background:none}
-.i2p .run-btn:hover{background:var(--good-bg)}
-.i2p fieldset.trig-src{border:1px solid var(--line);border-radius:3px;padding:12px 14px 14px;margin:0 0 13px}
-.i2p .trig-head{font-size:14px;font-weight:600;color:var(--ink-2);margin:10px 0 7px;
-  display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.i2p .trig-head .hint{font-weight:400;font-size:12.5px;color:var(--muted)}
-.i2p .trig-tag{font-family:var(--mono);font-size:11px;color:var(--accent);border:1px solid var(--accent);
-  border-radius:4px;padding:1px 6px;background:none}
-.i2p .trig-tag.issue{color:var(--warn);border-color:var(--warn)}
-
-/* 单选组（chip 式） */
-.i2p .radio-group{display:flex;gap:8px;flex-wrap:wrap}
-.i2p .radio-chip{display:flex;align-items:center;gap:7px;border:1px solid var(--line-2);border-radius:3px;
-  padding:5px 11px;font-size:13.5px;color:var(--ink-2);cursor:pointer;user-select:none;background:var(--card)}
-.i2p .radio-chip input{accent-color:var(--accent);margin:0}
-.i2p .radio-chip.on{border-color:var(--accent);color:var(--accent)}
-.i2p .radio-chip .hint{font-size:12px;color:var(--muted)}
-
-/* ===== 项目列表 ===== */
-.i2p .proj-list{display:flex;flex-direction:column;gap:6px}
-.i2p .proj-item{text-align:left;background:none;border:1px solid var(--line);border-radius:3px;
-  padding:9px 12px;color:var(--ink);transition:border-color .15s,background .15s}
-.i2p .proj-item:hover{border-color:var(--line-2);background:var(--hover)}
-.i2p .proj-item.on{border-color:var(--accent)}
-.i2p .proj-item .p-name{font-weight:600;font-size:14px}
-.i2p .proj-item .p-meta{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:2px}
-.i2p .project-layout{display:grid;grid-template-columns:310px minmax(0,1fr);gap:18px;align-items:start}
-@media (max-width:880px){.i2p .project-layout{grid-template-columns:1fr}}
-
-/* ===== 运行页布局 ===== */
-.i2p .run-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
-.i2p .run-bar .f-select{width:auto;min-width:300px}
-.i2p .pipe-layout{display:block;margin-top:18px}
-.i2p .pipe-layout > .steps{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:0 0 16px}
-.i2p .pipe-layout > .steps .step-row{min-height:112px;display:flex;flex-direction:column;align-items:stretch;
-  gap:8px;padding:12px;border:1px solid var(--line);border-radius:3px;background:var(--card);
-  transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
-.i2p .pipe-layout > .steps .step-row.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent);background:var(--accent-soft)}
-@media (hover:hover) and (pointer:fine){
-  .i2p .pipe-layout > .steps .step-row:hover{
-    border-color:var(--line-2);background:var(--card);transform:translateY(-2px);
-    box-shadow:0 4px 12px rgba(24,24,27,.08)}
-  .i2p .pipe-layout > .steps .step-row.on:hover{
-    border-color:var(--accent);background:var(--accent-soft);
-    box-shadow:inset 3px 0 0 var(--accent),0 4px 12px rgba(24,24,27,.08)}
-  .i2p .pipe-layout > .steps .step-row:active{transform:translateY(0);box-shadow:none}
-  .i2p .pipe-layout > .steps .step-row.on:active{box-shadow:inset 3px 0 0 var(--accent)}
-}
-@media (prefers-reduced-motion:reduce){
-  .i2p .pipe-layout > .steps .step-row{transition:none}
-  .i2p .pipe-layout > .steps .step-row:hover{transform:none}
-}
-.i2p .pipe-layout > .steps .step-row .sdot{align-self:flex-end;order:-1;margin-bottom:-16px}
-.i2p .pipe-layout > .steps .step-row .s-main{gap:4px;padding-right:0}
-.i2p .pipe-layout > .steps .step-row .s-name,.i2p .pipe-layout > .steps .step-row .s-desc{white-space:normal;overflow:visible;text-overflow:clip}
-.i2p .pipe-layout > .steps .step-row .s-name{font-size:13px;line-height:1.35}
-.i2p .pipe-layout > .steps .step-row .s-desc{font-size:10.5px;line-height:1.4}
-.i2p .pipe-layout > .steps .step-row .s-side{margin-top:auto;flex-direction:row;align-items:center;justify-content:space-between;gap:5px}
-@media (max-width:880px){
-  .i2p .pipe-layout > .steps{grid-template-columns:repeat(3,minmax(0,1fr))}
-}
-@media (max-width:560px){
-  .i2p .pipe-layout > .steps{grid-template-columns:1fr}
-}
-@media (max-width:560px){
-  .i2p .run-bar .f-select{width:100%;min-width:0;max-width:100%}
-}
-
-.i2p .run-hint{font-size:13.5px;color:var(--muted);margin:0 0 4px}
-.i2p .run-hint b{color:var(--ink-2);font-weight:600}
-
-/* ===== 阶段时间线（行式列表 + 状态点） ===== */
-.i2p .steps{display:flex;flex-direction:column;gap:1px}
-.i2p .step-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
-  width:100%;text-align:left;background:none;border:none;padding:7px 9px;border-radius:3px;transition:background .15s}
-.i2p .step-row:hover{background:var(--hover)}
-.i2p .step-row.on{background:var(--nav-on);box-shadow:inset 3px 0 0 var(--accent)}
-.i2p .sdot{width:10px;height:10px;border-radius:50%;border:2px solid var(--line-2);background:none;flex:none}
-.i2p .step-row.approved .sdot{border-color:var(--good);background:var(--good)}
-.i2p .step-row.failed .sdot,.i2p .step-row.stopped .sdot{border-color:var(--err);background:var(--err)}
-.i2p .step-row.awaiting_review .sdot{border-color:var(--warn);background:var(--warn)}
-.i2p .step-row.running .sdot{border-color:var(--accent);background:var(--accent);animation:i2p-pulse 1.1s ease-in-out infinite}
-.i2p .step-row.bypass .sdot{border-style:dashed}
-@media (prefers-reduced-motion:reduce){.i2p .step-row.running .sdot{animation:none}}
-.i2p .s-main{min-width:0;display:flex;flex-direction:column;gap:1px}
-.i2p .s-name{font-size:13.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.i2p .step-row.on .s-name{color:var(--accent)}
-.i2p .s-desc{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.i2p .s-side{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
-.i2p .s-dur{font-family:var(--mono);font-size:11px;color:var(--muted)}
-
-/* ===== 阶段详情 ===== */
-.i2p .detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-.i2p .detail-head h3{font-size:16px;font-weight:600;margin:0;letter-spacing:-0.01em}
-.i2p .detail-head .path{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:3px;word-break:break-all}
-.i2p .a-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
-.i2p .a-tab{background:none;border:1px solid var(--line);color:var(--ink-2);border-radius:3px;
-  padding:2px 9px;font-size:12.5px;font-family:var(--mono)}
-.i2p .a-tab.on{border-color:var(--accent);color:var(--accent)}
-
-/* ===== 代码 / 产物预览（固定深底，等价嵌入式终端） ===== */
-.i2p pre.view{background:var(--code-bg);color:#dfe3ec;padding:13px 15px;border-radius:3px;overflow-x:auto;
-  margin:0;font-family:var(--mono);font-size:13px;line-height:1.6;max-height:420px;overflow-y:auto;
-  border:1px solid var(--code-line)}
-.i2p pre.view .k{color:#ef9ab0}
-.i2p pre.view .s{color:#9ece6a}
-.i2p pre.view .c{color:#6b7382;font-style:italic}
-.i2p pre.view .hunk{color:#e0b341}
-.i2p pre.view .add{color:#9ece6a;background:rgba(158,206,106,.12);display:inline-block;width:100%}
-.i2p pre.view .del{color:#f0877a;background:rgba(240,135,122,.12);display:inline-block;width:100%}
-
-/* .md 产物走宿主官方 MarkdownText（全套样式在宿主全局样式表，与聊天区 1:1）；此处只做滚动容器 */
-.i2p .md-view{max-height:420px;overflow-y:auto;padding:2px}
-
-/* ===== 复核门 / 复核历史 ===== */
-.i2p .review-actions{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:4px}
-.i2p .review-actions textarea{flex:1;min-width:220px;min-height:60px}
-.i2p .gate-note{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:10px}
-.i2p .rev-item{display:grid;grid-template-columns:auto auto 1fr;gap:8px;align-items:baseline;
-  padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
-.i2p .rev-item:last-child{border-bottom:none}
-.i2p .rev-item .at{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
-.i2p .rev-item .cm{color:var(--ink-2)}
-
-/* ===== 过程事件（LLM / git / 测试 / 工具调用） ===== */
-.i2p .ev-head{display:flex;align-items:baseline;gap:8px;margin-top:14px;flex-wrap:wrap}
-.i2p .ev-head .f-label{margin:0}
-.i2p .ev-head .hint{font-size:12px;color:var(--muted)}
-.i2p .ev-list{border:1px solid var(--line);border-radius:3px;margin-top:6px;max-height:280px;overflow-y:auto}
-.i2p .ev-row{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;gap:8px;align-items:center;
-  width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--line);padding:6px 10px;font-size:13px}
-.i2p .ev-row:hover{background:var(--hover)}
-.i2p .ev-time{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
-.i2p .ev-kind{font-family:var(--mono);font-size:9.5px;padding:1px 6px;border-radius:4px;border:1px solid;white-space:nowrap}
-.i2p .ev-kind.k-llm{color:var(--accent);border-color:var(--accent)}
-.i2p .ev-kind.k-git{color:var(--good);border-color:var(--good)}
-.i2p .ev-kind.k-test{color:var(--warn);border-color:var(--warn)}
-.i2p .ev-kind.k-tool,.i2p .ev-kind.k-stage,.i2p .ev-kind.k-info{color:var(--muted);border-color:var(--line-2)}
-.i2p .ev-name{color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  font-family:var(--mono);font-size:12.5px;text-align:left}
-.i2p .ev-ms{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
-.i2p .ev-ok{width:7px;height:7px;border-radius:50%;background:var(--good)}
-.i2p .ev-row.bad .ev-ok{background:var(--err)}
-.i2p .ev-empty{padding:8px 12px;font-size:13px;color:var(--muted)}
-.i2p pre.ev-detail{margin:0;border-top:1px solid var(--line);border-radius:0;max-height:220px;
-  white-space:pre-wrap;word-break:break-word}
-
-/* ===== P7 ledger ===== */
-.i2p .ledger-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;
-  padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
-.i2p .ledger-row:last-child{border-bottom:none}
-.i2p .ledger-row .no{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
-.i2p .ledger-row .pf{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);word-break:break-all}
-.i2p .ledger-row .at{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
-
-/* ===== 产物 tab ===== */
-.i2p .art-layout{display:grid;grid-template-columns:310px minmax(0,1fr);gap:16px;align-items:start;margin-top:18px}
-@media (max-width:880px){.i2p .art-layout{grid-template-columns:1fr}}
-.i2p .art-layout > .artifact-tree-card{border:0;transition:none}
-.i2p .art-layout > .artifact-tree-card:hover{border-color:transparent;transform:none;box-shadow:none}
-.i2p .tree{font-family:var(--mono);font-size:14.5px;color:var(--ink-2);overflow-x:auto}
-.i2p .tree .dir{display:flex;width:100%;text-align:left;background:var(--hover);border:none;color:var(--ink);font-weight:600;
-  font-family:inherit;font-size:inherit;padding:6px 8px;border-radius:3px;cursor:pointer}
-.i2p .tree .dir:hover{background:var(--nav-on)}
-.i2p .tree .file{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;
-  border:none;color:var(--ink-2);padding:6px 8px;border-radius:3px;font-family:inherit;font-size:inherit}
-.i2p .tree .file:hover{background:var(--hover)}
-.i2p .tree .file.on{background:var(--nav-on);color:var(--accent)}
-.i2p .tree .ts{color:var(--muted);font-size:12px;flex:none}
-
-/* ===== 说明页 ===== */
-.i2p .guide .lede{font-size:14.5px;color:var(--ink-2);max-width:760px;line-height:1.7;margin:0 0 16px}
-.i2p ol.tight{padding-left:20px;margin:8px 0 16px;font-size:14px}
-.i2p ol.tight li{margin-bottom:5px}
-.i2p ol.tight li b{color:var(--ink-2)}
-.i2p .grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 0 12px}
-@media (max-width:760px){.i2p .grid-2{grid-template-columns:1fr}}
-.i2p .hint-line{font-size:13px;color:var(--muted);margin:12px 0 0}
-.i2p .hint-line code{font-family:var(--mono);background:var(--hover);padding:1px 6px;border-radius:4px;font-size:12px;color:var(--ink-2)}
-.i2p .empty-hint{color:var(--muted);font-size:14px;padding:14px 0}
-
-/* ===== 阶段详情二级菜单（项目/运行/产物/配置/说明，聚焦当前阶段） ===== */
-.i2p .stg-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:2px 0 14px}
-.i2p .stg-tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--ink-2);
-  padding:6px 12px 9px;font-size:13.5px;transition:color .14s,border-color .14s;margin-bottom:-1px}
-.i2p .stg-tab:hover{color:var(--ink)}
-.i2p .stg-tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
-.i2p .stg-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-/* 阶段产物 tab：左文件列表（目录分组）+ 右预览 */
-.i2p .stg-art{display:grid;grid-template-columns:280px minmax(0,1fr);gap:12px;align-items:start}
-@media (max-width:760px){.i2p .stg-art{grid-template-columns:1fr}}
-.i2p .stg-fgroup{font-family:var(--mono);font-size:11px;color:var(--muted);padding:8px 8px 3px;
-  text-transform:none;letter-spacing:.02em}
-.i2p .stg-fgroup:first-child{padding-top:0}
-.i2p .stg-file{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;
-  border:none;color:var(--ink-2);padding:4px 8px;border-radius:6px;font-family:var(--mono);font-size:12.5px}
-.i2p .stg-file:hover{background:var(--hover)}
-.i2p .stg-file.on{background:var(--nav-on);color:var(--accent)}
-.i2p .stg-file .ts{color:var(--muted);font-size:11px;flex:none}
-/* 阶段项目 tab：键值信息行 */
-.i2p .kv{display:grid;grid-template-columns:150px minmax(0,1fr);gap:7px 14px;font-size:13.5px}
-@media (max-width:600px){.i2p .kv{grid-template-columns:1fr}}
-.i2p .kv .k{color:var(--muted)}
-.i2p .kv .v{color:var(--ink);min-width:0;word-break:break-all}
-.i2p .kv .v.mono{font-family:var(--mono);font-size:12.5px}
-
-/* ===== 配置页 ===== */
-.i2p .cfg-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:16px;align-items:start;margin-top:18px}
-@media (max-width:880px){.i2p .cfg-layout{grid-template-columns:1fr}}
-/* 阶段选择行：已自定义 → 名字后跟一枚小蓝点；委托开启 → 右侧"委"标 */
-.i2p .cfg-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
-  width:100%;text-align:left;background:none;border:none;padding:8px 9px;border-radius:3px;transition:background .15s}
-.i2p .cfg-row:hover{background:var(--hover)}
-.i2p .cfg-row.on{background:var(--nav-on)}
-.i2p .cfg-row .cdot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--accent);
-  margin-left:6px;vertical-align:2px}
-.i2p .cfg-row .wtg{font-family:var(--mono);font-size:10px;color:var(--warn);border:1px solid var(--warn);
-  border-radius:4px;padding:0 4px;white-space:nowrap}
-/* 提示词编辑：等宽小字号 textarea + 角色头（角色名 + 默认值标记 + 恢复默认按钮） */
-.i2p .pr-head{display:flex;align-items:center;gap:8px;margin:12px 0 5px;flex-wrap:wrap}
-.i2p .pr-head:first-child{margin-top:0}
-.i2p .pr-head .f-label{margin:0}
-.i2p .pr-head .mark{font-family:var(--mono);font-size:10.5px;color:var(--accent);border:1px solid var(--accent);
-  border-radius:4px;padding:0 5px}
-.i2p textarea.pr-input{width:100%;min-height:88px;resize:vertical;background:var(--card);border:1px solid var(--line-2);
-  border-radius:3px;color:var(--ink);padding:7px 10px;font-size:12.5px;line-height:1.6;
-  font-family:var(--mono);transition:border-color .15s}
-.i2p textarea.pr-input:focus{border-color:var(--accent)}
-/* 委托开关行 */
-.i2p .dlg-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
-.i2p .dlg-row input[type=checkbox]{accent-color:var(--accent);margin:3px 0 0;flex:none}
-.i2p .dlg-row .lbl{font-size:14px;color:var(--ink);font-weight:600}
-.i2p .dlg-row .sub{font-size:12.5px;color:var(--muted);line-height:1.55}
-/* 文件导入按钮（外部智能体简介导入） */
-.i2p .imp-label{display:inline-flex;align-items:center;gap:5px;background:none;border:1px dashed var(--line-2);
-  color:var(--accent);border-radius:8px;padding:4px 11px;font-size:13px;cursor:pointer}
-.i2p .imp-label:hover{border-color:var(--accent)}
-.i2p .imp-label input{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0)}
-.i2p .cfg-foot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px}
-
-/* ===== toast ===== */
-.i2p-toast{position:fixed;bottom:26px;left:36px;background:var(--dsw-alias-bg-layer-2,#fff);
-  border:1px solid var(--dsw-alias-border-l1,#e5e6ec);border-left:3px solid var(--dsw-alias-state-success-primary,#1c7c43);
-  color:var(--dsw-alias-label-primary,#17181f);padding:9px 16px;border-radius:10px;font-size:14px;
-  z-index:2100;max-width:70%;box-shadow:0 4px 18px rgba(9,12,20,.14)}
-.i2p-toast.t-bad{border-left-color:var(--dsw-alias-state-error-primary,#d5463a)}
-.i2p-toast.t-warn{border-left-color:var(--dsw-alias-state-warn-label,#9a6700)}
-
-/* ===== Git 托管连接（项目页）：host 徽章 + 连接列表 ===== */
-.i2p .host-badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:2px 8px;
-  border-radius:3px;border:1px solid var(--line);color:var(--muted);max-width:100%}
-.i2p .host-badge.ok{color:var(--good);border-color:transparent;background:var(--good-bg)}
-.i2p .host-badge.warn{color:var(--warn);border-color:transparent;background:var(--warn-bg)}
-.i2p .host-badge .hb-host{font-family:var(--mono);font-size:11.5px}
-.i2p .repo-row-2{display:flex;gap:6px;margin:-2px 0 8px;align-items:center;flex-wrap:wrap}
-.i2p .conn-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 10px}
-.i2p .conn-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);
-  border-radius:3px;flex-wrap:wrap}
-.i2p .conn-row .cn-kind{flex:none;font-size:12px;font-weight:600;color:var(--accent)}
-.i2p .conn-row .cn-host{font-family:var(--mono);font-size:12.5px;color:var(--ink)}
-.i2p .conn-row .cn-tok{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
-.i2p .conn-row .cn-store{font-size:11px;color:var(--muted);border-left:1px solid var(--line);padding-left:7px}
-.i2p .conn-row .cn-store.warn{color:var(--warn)}
-.i2p .conn-row .cn-store-warning{flex:1 0 100%;font-size:11px;color:var(--warn);overflow-wrap:anywhere}
-.i2p .conn-row .cn-act{margin-left:auto;display:flex;gap:6px}
-
-/* ===== 委外智能体绑定卡（项目页 P6=claude / 配置页 P6 共用）：多方式发现 + 测试门禁 ===== */
-.i2p .agent-bind{border:1px solid var(--line);border-radius:3px;padding:10px 12px;margin-top:10px}
-.i2p .agent-cands{display:flex;flex-direction:column;gap:5px;margin:8px 0 2px}
-.i2p .agent-cand{display:flex;align-items:center;gap:10px;width:100%;text-align:left;cursor:pointer;
-  background:none;border:1px solid var(--line);border-radius:3px;padding:5px 10px;
-  transition:border-color .15s,background .15s;font-family:inherit;font-size:inherit;color:inherit}
-.i2p .agent-cand:hover{background:var(--hover)}
-.i2p .agent-cand.on{border-color:var(--accent);background:var(--nav-on)}
-.i2p .agent-cand .ac-path{font-size:12.5px;color:var(--ink);min-width:0;word-break:break-all}
-.i2p .agent-cand .ac-path.mono{font-family:var(--mono)}
-.i2p .agent-cand .ac-meta{margin-left:auto;flex:none;display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)}
-.i2p .agent-cand .ac-src{border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:10.5px;white-space:nowrap}
-.i2p .agent-cand .miss{color:var(--warn)}
-.i2p .agent-gate{margin-top:8px;font-size:12.5px;line-height:1.6}
-.i2p .agent-gate .ag-line{margin:0;font-weight:600}
-.i2p .agent-gate.ok .ag-line{color:var(--good)}
-.i2p .agent-gate.bad .ag-line{color:var(--err)}
-.i2p .agent-gate .ag-steps{margin:4px 0 0;display:flex;gap:6px;flex-wrap:wrap}
-.i2p .agent-gate .ag-step{font-family:var(--mono);font-size:11px;border-radius:4px;padding:0 6px;border:1px solid var(--line)}
-.i2p .agent-gate .ag-step.ok{color:var(--good)}
-.i2p .agent-gate .ag-step.bad{color:var(--err);border-color:currentColor}
-.i2p .agent-gate .ag-hint{margin:6px 0 0;color:var(--warn)}
-/* 发现扫描走马灯：滚动展示解析全过程（各来源阶段）；标记位当前阶段文字轮播 */
-.i2p .scan-ticker{margin:8px 0 0;overflow:hidden;white-space:nowrap;border:1px dashed var(--line-2);
-  border-radius:3px;background:var(--card)}
-.i2p .scan-ticker .tk{display:inline-block;padding-left:100%;line-height:22px;font-size:12px;
-  color:var(--muted);animation:i2p-tk 12s linear infinite}
-@keyframes i2p-tk{from{transform:translateX(0)}to{transform:translateX(-100%)}}
-@media (prefers-reduced-motion:reduce){.i2p .scan-ticker .tk{animation:none;padding-left:8px}}
-.i2p .scan-now{color:var(--accent)}
-.i2p .scan-fail{margin:8px 0 0}
-
-/* ---- 侧边栏入口按钮：1:1 复刻宿主设置按钮（settings-general VOzbGW_trigger 配方） ---- */
 .i2p-entry{box-sizing:border-box;cursor:pointer;width:calc(100% + 4px);height:42px;
   color:var(--dsw-alias-label-primary);background:none;border:none;border-radius:3px;
   flex:none;align-items:center;gap:8px;margin:4px -2px;padding:0 10px 0 8px;
@@ -574,42 +365,10 @@ body.i2p-dragging{user-select:none}
 .i2p-entry.rail{border-radius:50%;justify-content:center;gap:0;width:36px;height:36px;margin:8px 0 10px;padding:0}
 .i2p-entry-label{white-space:nowrap;overflow:hidden}
 
-/* ---- 主区整页工作台：贴合 conversation 列（JS 实时测量 rect 定位，随
-   sidebar 拖动/窗口缩放跟随），无遮罩非模态，视觉上即"右边的框" ---- */
-.i2p-page{position:fixed;display:flex;flex-direction:column;overflow:hidden;
-  background:var(--panel);color:var(--ink)}
-.i2p-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:14px;position:relative;
-  height:56px;padding:0 20px;border-bottom:1px solid var(--line);background:var(--panel);
-  backdrop-filter:blur(14px)}
-.i2p-head .brand{display:flex;align-items:center;gap:10px;min-width:0}
-.i2p-head .brand b{font-size:16.5px;font-weight:680;letter-spacing:.3px}
-	.i2p-head .brand .brand-mark{display:block;flex:0 0 auto;width:24px;height:24px;color:var(--ink-2)}
-	.i2p-head .brand .brand-copy{display:flex;align-items:baseline;gap:10px;min-width:0}
-	.i2p-head .brand span{font-family:var(--mono);font-size:11.5px;color:var(--dsw-alias-label-tertiary,#82848f);letter-spacing:.08em}
-	.i2p-head .om{font-family:var(--mono);font-size:11.5px;color:var(--dsw-alias-label-tertiary,#82848f)}
-/* right:78px 避开宿主右上角的悬浮按钮排（better-sidebar：底部面板/侧边栏展开钮占右缘约 70px） */
-.i2p-close{position:relative;right:auto;top:auto;transform:none;
-  display:inline-flex;align-items:center;justify-content:center;cursor:pointer;width:28px;height:28px;
-  color:var(--dsw-alias-label-primary);background:none;border:none;border-radius:3px}
-.i2p-close:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.i2p-close:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.i2p-page-body{flex:1;min-width:0;min-height:0;display:flex}
-
 /* ===== 悬浮智能助手（轻量工具面板，绿色只做强调色） ===== */
 .i2p-ai{position:absolute;inset:0;pointer-events:none;z-index:9999}
 .i2p-ai button{font-family:inherit;cursor:pointer;color:inherit}
 /* 入口 = 中性工具钮（非"AI 球"）：sparkle 图标，hover 才显底；开启态反色 */
-.i2p-ai-fab{pointer-events:auto;position:absolute;top:64px;right:88px;width:30px;height:30px;border-radius:3px;
-  border:1px solid var(--line-2,#d8dae3);
-  border:1px solid color-mix(in srgb,var(--accent,#177b62) 24%,var(--line-2,#d8dae3));
-  background:var(--panel,#fff);
-  background:color-mix(in srgb,var(--accent,#177b62) 9%,var(--panel,#fff));color:var(--ink-2,#414351);
-  display:inline-flex;align-items:center;justify-content:center;
-  box-shadow:0 1px 4px rgba(9,12,20,.08);
-  transition:background .18s,color .18s,border-color .18s,transform .12s}
-.i2p-ai-fab:hover{background:var(--hover);background:color-mix(in srgb,var(--accent,#177b62) 16%,var(--panel,#fff));color:var(--ink);transform:translateY(-1px)}
-.i2p-ai-fab:active{transform:scale(.95)}
-.i2p-ai-fab.on{background:var(--ink,#17181f);color:var(--card,#fff);border-color:var(--ink,#17181f)}
 @keyframes i2p-ai-in{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
 /* 面板：轻绿色底（color-mix 混主题底色，官方 Markdown 文字两主题可读），
    全部强调（边框/focus/hover/chip 圆点）统一同一绿色系，避免杂色。
@@ -728,67 +487,8 @@ body.i2p-dragging{user-select:none}
 .i2p-ai-send:hover:not(:disabled){border-color:var(--accent);border-color:color-mix(in srgb,var(--accent,#177b62) 55%,var(--line-2,#d8dae3));color:var(--ink)}
 .i2p-ai-send:active:not(:disabled){transform:scale(.95)}
 .i2p-ai-send:disabled{opacity:.4;cursor:default}
-@media (max-width:880px){
-  .i2p-ai-fab{right:88px;top:60px}
-}
-@media (max-width:560px){
-  .i2p-ai-fab{right:16px}
-  .i2p-ai-panel{left:8px;right:8px;width:auto;min-width:0}
-}
 
-/* ===== 动效与质感层（丰富但克制：150-300ms、语义化、可关） ===== */
-/* 整页进场：淡入 + 轻微上浮 */
-@keyframes i2p-in{from{opacity:0;transform:translateY(10px) scale(.997)}to{opacity:1;transform:none}}
-.i2p-page{animation:i2p-in .22s cubic-bezier(.2,.8,.2,1)}
-/* 目录项逐个滑入（stagger，CSS 变量 --i 由 JSX 提供） */
-@keyframes i2p-cell-in{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
-/* 待复核计数呼吸提醒 */
-@keyframes i2p-breathe{50%{opacity:.5}}
-/* 运行中状态徽章呼吸（与 .sdot 脉冲呼应） */
-.i2p .tg.run{animation:i2p-breathe 1.6s ease-in-out infinite}
-/* 卡片：hover 浮起一线 + 边框加重 */
-.i2p .card{transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
-.i2p .card:hover{border-color:var(--line-2);transform:translateY(-1px);box-shadow:0 2px 12px rgba(24,24,27,.06)}
-/* 按钮：按压回弹 */
-.i2p .btn{cursor:pointer;transition:background .15s,border-color .15s,color .15s,transform .1s}
-.i2p .btn:active{transform:scale(.97)}
-/* 表格行 hover 扫过 */
-.i2p .tbl tbody tr{transition:background .12s}
-.i2p .tbl tbody tr:hover{background:var(--hover)}
-/* 项目卡：hover 边框亮起 */
-.i2p .proj-item{cursor:pointer;transition:border-color .16s,background .16s,transform .16s}
-.i2p .proj-item:hover{border-color:var(--line-2);transform:translateY(-1px)}
-/* 收起/展开侧边栏按钮（标题行左侧，仅图标；文字含义交给 aria-label/title） */
-.i2p-nav-collapse{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;
-  border:none;border-radius:8px;background:none;color:var(--muted);cursor:pointer;
-  transition:background .14s,color .14s}
-.i2p-nav-collapse:hover{background:var(--hover);color:var(--ink)}
-.i2p-nav-collapse:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-/* 空状态：虚线卡片化，引导感（线稿档案盒图标 + 一句引导） */
-.i2p .empty-hint{border:1.5px dashed var(--line-2);border-radius:12px;padding:26px 16px;text-align:center}
-.i2p .empty-hint .eh-ic{color:var(--caption);margin-bottom:8px}
-.i2p .empty-hint .eh-t{margin:0;color:var(--muted);font-size:13.5px}
-/* 数据加载骨架：shimmer 扫过代替"加载中…"文案；reduce-motion 时静止 */
-.i2p .skel-box{padding:10px 2px}
-.i2p .skel{height:12px;border-radius:6px;background:var(--line-2);position:relative;overflow:hidden;margin:9px 0}
-.i2p .skel::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
-  animation:i2p-skel 1.4s ease infinite}
-[data-i2p-theme=dark] .i2p .skel::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent)}
-@keyframes i2p-skel{to{transform:translateX(100%)}}
-/* 细滚动条 */
-.i2p-main::-webkit-scrollbar,.i2p-nav::-webkit-scrollbar{width:6px;height:6px}
-.i2p-main::-webkit-scrollbar-thumb,.i2p-nav::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
-.i2p-main::-webkit-scrollbar-thumb:hover,.i2p-nav::-webkit-scrollbar-thumb:hover{background:var(--muted)}
-.i2p-main::-webkit-scrollbar-track,.i2p-nav::-webkit-scrollbar-track{background:transparent}
-.i2p-main{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
-/* 尊重系统减弱动效 */
-@media (prefers-reduced-motion:reduce){
-  .i2p-page,.i2p-nav-cell,.i2p-nav{animation:none!important;transition:none!important}
-  .i2p .card,.i2p .btn,.i2p .proj-item,.i2p .tbl tbody tr,.i2p .tg.run,
-  .i2p-nav-cell .cnt.alert,.i2p-nav-grip,.i2p-nav-collapse,.i2p .skel::after{animation:none!important;transition:none!important}
-  .i2p-ai-panel,.i2p-ai-fab,.i2p-ai-send,.i2p-ai-dots i{animation:none!important;transition:none!important}
-}
+
 `;
 
 		const tagId = "dsh-issue2pr/styles";
@@ -799,21 +499,22 @@ body.i2p-dragging{user-select:none}
 			tag.textContent = css;
 			document.head.appendChild(tag);
 		}
-		// 档案色板明暗跟随：宿主 dsw 令牌的值随宿主主题变化但没有属性可直接查询，
-		// 轮询宿主底色亮度给 <html> 打 data-i2p-theme，CSS 据此切换纸底/墨底两套令牌
+		// DSH 主题挂在 body 的 data-ds-*-theme；兼容旧宿主时再读取背景亮度。
+		function detectHostDark(doc) {
+			if (doc.body?.hasAttribute("data-ds-dark-theme")) return true;
+			if (doc.body?.hasAttribute("data-ds-light-theme")) return false;
+			let value = "";
+			try { value = getComputedStyle(doc.body || doc.documentElement).getPropertyValue("--dsw-alias-bg-base").trim(); } catch { /* 退回主题属性 */ }
+			const hex = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+			const rgb = hex ? (hex[1].length === 3 ? [...hex[1]].map(c => parseInt(c + c, 16)) : hex[1].match(/../g).map(c => parseInt(c, 16)))
+				: /^rgba?\(/.test(value) ? (value.match(/[\d.]+/g) || []).slice(0, 3).map(Number) : [];
+			return rgb.length === 3 ? (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000 < 128 : doc.documentElement.dataset.theme === "dark";
+		}
 		if (typeof document !== "undefined" && document.documentElement
 			&& !document.documentElement.dataset.i2pThemeWatch) {
 			document.documentElement.dataset.i2pThemeWatch = "1";
 			const detectArchTheme = function () {
-				let dark = document.documentElement.dataset.theme === "dark";
-				try {
-					const v = getComputedStyle(document.documentElement).getPropertyValue("--dsw-alias-bg-base") || "";
-					const nums = (v.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
-					if (nums.length === 3 && nums.every(function (n) { return Number.isFinite(n); })) {
-						dark = (nums[0] * 299 + nums[1] * 587 + nums[2] * 114) / 1000 < 128;
-					}
-				} catch (err) { /* 取值失败时退回 data-theme 判断 */ }
-				document.documentElement.dataset.i2pTheme = dark ? "dark" : "light";
+				document.documentElement.dataset.i2pTheme = detectHostDark(document) ? "dark" : "light";
 			};
 			detectArchTheme();
 			setInterval(detectArchTheme, 1000);
@@ -868,14 +569,11 @@ body.i2p-dragging{user-select:none}
 			return ({ every: "每阶段都停", "key-only": "只停关键门", auto: "全自动" })[m] || String(m || "");
 		}
 		function p6ModeLabel(m) {
-			return ({ builtin: "插件内多智能体", session: "交给 DSH 会话", claude: "委托 Claude Code", dsh: "DSH 原生智能体" })[m] || String(m || "");
+			// 执行器文案单一源：与新建任务弹窗的"代码执行器"下拉共用 STUDIO_EXECUTORS 一张表
+			const match = STUDIO_EXECUTORS.find(([id]) => id === m);
+			return match ? match[1] : String(m || "");
 		}
 		// 委外门禁结果键：bin + 认证中转摘要（改路径或换预设后 key 不匹配即失效需重测）
-		function agentGateKey(bin, preset, baseUrl) {
-			return (bin ? "bin:" + bin : "auto") + "|auth:" + (preset || "none")
-				+ (preset === "custom" && baseUrl ? "@" + baseUrl : "");
-		}
-		function kindLabel(k) { return k === "issue" ? "Issue" : "需求"; }
 		function fmtClock(iso) {
 			if (!iso) return "";
 			const d = new Date(iso);
@@ -883,7 +581,6 @@ body.i2p-dragging{user-select:none}
 			const p = (x) => String(x).padStart(2, "0");
 			return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
 		}
-		const EV_KIND = { llm: "LLM", git: "git", test: "测试", tool: "工具", stage: "阶段", info: "信息" };
 		function fmtTime(iso) {
 			if (!iso) return "";
 			const d = new Date(iso);
@@ -891,23 +588,17 @@ body.i2p-dragging{user-select:none}
 			const p = (x) => String(x).padStart(2, "0");
 			return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
 		}
-		function fmtDur(startIso, endIso) {
-			if (!startIso || !endIso) return "";
-			const ms = new Date(endIso) - new Date(startIso);
-			if (!(ms >= 0)) return "";
-			if (ms < 1000) return ms + "ms";
-			if (ms < 60000) return (ms / 1000).toFixed(1) + "s";
-			if (ms < 3600000) return Math.floor(ms / 60000) + "m" + Math.round(ms % 60000 / 1000) + "s";
-			return (ms / 3600000).toFixed(1) + "h";
-		}
 		function fmtSize(n) {
 			if (n == null) return "";
 			if (n < 1024) return n + " B";
 			if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
 			return (n / 1024 / 1024).toFixed(1) + " MB";
 		}
-		function apiGet(path) {
-			return fetch(API + path).then(function (r) { return r.json().catch(function () { return {}; }); });
+		function apiGet(path, signal) {
+			return fetch(API + path, { signal }).then(async function (response) {
+				const result = await response.json().catch(() => ({ ok: false, message: "响应不是有效 JSON" }));
+				return response.ok ? result : { ...result, ok: false, message: result.message || "HTTP " + response.status };
+			});
 		}
 		function apiPost(path, body) {
 			return fetch(API + path, {
@@ -930,6 +621,10 @@ body.i2p-dragging{user-select:none}
 
 		// SVG 描边图标（24 网格 lucide 路径，按 width/height 缩放；stroke 继承 currentColor）
 		const ICONS = {
+			git: '<circle cx="6" cy="5" r="3"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 8v8M18 9a10 10 0 0 1-10 10"/>',
+			branch: '<circle cx="6" cy="5" r="3"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 8v8M18 9a10 10 0 0 1-10 10"/>',
+			right: '<path d="m9 5 7 7-7 7"/>',
+			file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5"/>',
 			play: '<path d="M7 4.5v15l12-7.5z" fill="currentColor" stroke="none"/>',
 			stop: '<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none"/>',
 			redo: '<path d="M3 2v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L3 8"/>',
@@ -970,30 +665,6 @@ body.i2p-dragging{user-select:none}
 		 * 工作台目录列几何（宽窄/显隐）：模块级 store，localStorage 记忆，
 		 * WorkbenchPage 头部按钮与 Section 目录列共享
 		 * ================================================================ */
-		const navStore = {
-			open: localStorage.getItem("i2p.navOpen") !== "0",
-			// 默认取拖宽下限 180：目录列只有五个菜单项，更宽只是留白；拖过/双击手柄仍走 180–460
-			width: (function (v) { return v >= 180 && v <= 460 ? v : 180; })(parseInt(localStorage.getItem("i2p.navW") || "", 10)),
-			listeners: new Set(),
-			setOpen(v) {
-				this.open = v;
-				localStorage.setItem("i2p.navOpen", v ? "1" : "0");
-				this.emit();
-			},
-			setWidth(w, persist) {
-				this.width = Math.max(180, Math.min(460, Math.round(w)));
-				if (persist) localStorage.setItem("i2p.navW", String(this.width));
-				this.emit();
-			},
-			emit() { for (const fn of this.listeners) fn(); },
-			subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
-		};
-		function useNavState() {
-			const [s, setS] = React.useState({ open: navStore.open, width: navStore.width });
-			React.useEffect(() => navStore.subscribe(() => setS({ open: navStore.open, width: navStore.width })), []);
-			return s;
-		}
-
 		/* ================================================================
 		 * 视图位置（当前页面 / 选中项目 / 选中 Run）：模块级 store，
 		 * Section 写入、悬浮智能助手读取（"聚焦现在的页面"）
@@ -1036,8 +707,6 @@ body.i2p-dragging{user-select:none}
 		 * 运行页现场（选中阶段 / 二级菜单 / 产物文件）：模块级 store，
 		 * RunsPanel 每次渲染写回；切走一级标签卸载后重挂载，runId 一致则恢复
 		 * ================================================================ */
-		const runsViewStore = { runId: null, selStage: null, stTab: "run", selArt: null };
-
 		/* ================================================================
 		 * Git 托管连接辅助：host 解析（与服务端 lib/infra/connections.js 对齐）。
 		 * 支持 https / ssh:// / scp（git@host:path）三种形态。
@@ -1054,11 +723,6 @@ body.i2p-dragging{user-select:none}
 			return /^(ssh|git):\/\//i.test(s) || /^git@[^\/:?#]+:/i.test(s);
 		}
 		// 本地绝对路径触发源（Windows 盘符 / POSIX / ~ 开头且非 URL）
-		function isLocalPath(uri) {
-			const s = String(uri || "").trim();
-			return !!s && !/^https?:\/\//i.test(s) && /^([a-zA-Z]:[\\/]|\/|~)/.test(s);
-		}
-		const LLM_SOURCE_LABEL = { host: "宿主默认模型", plugin: "插件配置", default: "插件内置兜底", stage: "阶段覆盖" };
 
 		/* ================================================================
 		 * 01 项目
@@ -1071,726 +735,6 @@ body.i2p-dragging{user-select:none}
 			gitlab: { label: "GitLab", host: "gitlab.com", hostFixed: false, needsUser: false, tokenLabel: "Access Token", hint: "自建实例请改 host；token 需 read_api + read_repository 权限" },
 			codearts: { label: "CodeArts", host: "", hostFixed: false, needsUser: true, tokenLabel: "HTTPS 密码", hint: "华为云 CodeArts 仓库页右上角 → 个人设置 → HTTPS 密码；用户名形如 租户名/IAM用户名" },
 		};
-		function ConnectionsCard(props) {
-			const p = props;
-			const [draft, setDraft] = React.useState({ kind: "github", host: "", token: "", username: "" });
-			const [adding, setAdding] = React.useState(false);
-			const [busy, setBusy] = React.useState(false);
-			const meta = CONN_KIND_META[draft.kind] || CONN_KIND_META.github;
-			const list = p.connections || [];
-
-			const setD = function (k, v) { setDraft(function (d) { return Object.assign({}, d, { [k]: v }); }); };
-			// 保存用的 host：github/gitlab 留空时由服务端补默认域名
-			const payload = function () {
-				const host = meta.hostFixed ? meta.host : (draft.host || "").trim() || meta.host;
-				return { kind: draft.kind, host: host, token: (draft.token || "").trim(), username: (draft.username || "").trim() };
-			};
-			const testDraft = function () {
-				const o = payload();
-				if (!o.token) { p.toast("请先填写" + meta.tokenLabel, "bad"); return; }
-				setBusy(true);
-				apiPost("/connections/test", o).then(function (r) {
-					setBusy(false);
-					if (r && r.ok) p.toast(meta.label + " 已连接" + (r.account ? "：@" + r.account : ""));
-					else p.toast((r && r.message) || "测试失败", "bad");
-				}).catch(function (e) { setBusy(false); p.toast("请求失败: " + e, "bad"); });
-			};
-			const save = function () {
-				const o = payload();
-				if (!o.token) { p.toast("请先填写" + meta.tokenLabel, "bad"); return; }
-				setBusy(true);
-				apiPost("/connections", o).then(function (r) {
-					setBusy(false);
-					if (!r || !r.ok) { p.toast((r && r.message) || "保存失败", "bad"); return; }
-					p.toast("已保存 " + (r.connection ? r.connection.host : o.host) + " 连接");
-					p.reloadConnections();
-					setAdding(false);
-					setDraft({ kind: "github", host: "", token: "", username: "" });
-				}).catch(function (e) { setBusy(false); p.toast("请求失败: " + e, "bad"); });
-			};
-			const testSaved = function (c) {
-				setBusy(true);
-				apiPost("/connections/test", { id: c.id }).then(function (r) {
-					setBusy(false);
-					if (r && r.ok) p.toast(c.host + " 已连接" + (r.account ? "：" + r.account : ""));
-					else p.toast((r && r.message) || "测试失败", "bad");
-				}).catch(function (e) { setBusy(false); p.toast("请求失败: " + e, "bad"); });
-			};
-			const remove = function (c) {
-				if (!window.confirm("删除 " + c.host + " 的连接？使用该域名的私有仓库将无法克隆。")) return;
-				apiDelete("/connections/" + encodeURIComponent(c.id)).then(function (r) {
-					if (r && r.ok) { p.toast("已删除 " + c.host + " 连接"); p.reloadConnections(); }
-					else p.toast((r && r.message) || "删除失败", "bad");
-				}).catch(function (e) { p.toast("请求失败: " + e, "bad"); });
-			};
-
-			return h("div", { className: "field" },
-				h("span", { className: "f-label" }, "Git 托管连接（全局 · 所有项目共用）"),
-				h("p", { className: "hint-line" },
-					"私有仓库克隆与 Issue 抓取（GitHub / GitLab / 华为云 CodeArts）用这里配置的凭据；",
-					"按仓库地址的域名自动匹配，SSH 地址则走本机密钥。主配置只存引用，实际存储状态显示在连接行。"),
-				list.length ? h("div", { className: "conn-list" }, list.map(function (c) {
-					const km = CONN_KIND_META[c.kind] || {};
-					const storage = c.secretStorage === "keychain" ? "系统密钥环"
-						: c.secretStorage === "file-fallback" ? "文件回退（非加密）" : "存储状态未知";
-					const storageClass = c.secretStorage === "file-fallback" ? " warn" : "";
-					const warning = String(c.secretWarning || "").trim();
-					return h("div", { key: c.id, className: "conn-row" },
-						h("span", { className: "cn-kind" }, km.label || c.kind),
-						h("span", { className: "cn-host" }, c.host),
-						h("span", { className: "cn-tok" }, c.token + (c.username ? " · " + c.username : "")),
-						h("span", { className: "cn-store" + storageClass, title: warning || storage }, storage),
-						warning ? h("span", { className: "cn-store-warning", role: "note" }, "警告：" + warning) : null,
-						h("span", { className: "cn-act" },
-							c.kind !== "codearts" ? h("button", {
-								type: "button", className: "btn sm", disabled: busy,
-								onClick: function () { testSaved(c); },
-							}, "测试") : h("span", { className: "hint" }, "在上方仓库行点「测试」"),
-							h("button", {
-								type: "button", className: "btn sm danger", disabled: busy,
-								onClick: function () { remove(c); },
-							}, "删除")));
-				})) : h("p", { className: "hint-line" }, "尚无连接——只用公开仓库（或本机 SSH 密钥）时无需配置。"),
-				adding ? h("div", { style: { border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginTop: 6 } },
-					h("div", { className: "radio-group", role: "radiogroup", "aria-label": "托管类型" },
-						Object.keys(CONN_KIND_META).map(function (k) {
-							const on = draft.kind === k;
-							return h("label", { key: k, className: "radio-chip" + (on ? " on" : "") },
-								h("input", { type: "radio", name: "conn-kind", value: k, checked: on, onChange: function () { setD("kind", k); } }),
-								CONN_KIND_META[k].label);
-						})),
-					h("p", { className: "hint-line" }, meta.hint),
-					meta.hostFixed ? h("p", { className: "hint-line" }, "域名固定为 ", h("code", null, meta.host)) : h("div", { className: "field", style: { marginTop: 6 } },
-						h("label", { className: "f-label", htmlFor: "conn-host" }, meta.needsUser ? "域名（CodeArts 仓库 HTTPS 地址的域名，因区域/实例而异）" : "域名（自建实例请修改，公网默认 " + meta.host + "）"),
-						h("input", {
-							className: "f-input mono", id: "conn-host", value: draft.host,
-							placeholder: meta.host || "如 codehub.devcloud.cn-north-4.huaweicloud.com",
-							onChange: function (e) { setD("host", e.target.value); },
-						})),
-					h("div", { className: "field", style: { marginTop: 6 } },
-						h("label", { className: "f-label", htmlFor: "conn-user" }, meta.needsUser ? "HTTPS 用户名（租户名/IAM用户名）" : "HTTPS 用户名（可选）"),
-						h("input", {
-							className: "f-input mono", id: "conn-user", value: draft.username,
-							placeholder: meta.needsUser ? "如 mytenant/iamuser" : "通常留空即可",
-							onChange: function (e) { setD("username", e.target.value); },
-						})),
-					h("div", { className: "field", style: { marginTop: 6 } },
-						h("label", { className: "f-label", htmlFor: "conn-token" }, meta.tokenLabel),
-						h("input", {
-							className: "f-input mono", id: "conn-token", type: "password", value: draft.token,
-							placeholder: meta.tokenLabel, "aria-label": meta.tokenLabel,
-							onChange: function (e) { setD("token", e.target.value); },
-						})),
-					h("div", { style: { display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" } },
-						h("button", { type: "button", className: "btn sm", disabled: busy, onClick: testDraft }, "测试连接"),
-						h("button", { type: "button", className: "btn sm pri", disabled: busy, onClick: save }, "保存"),
-						h("button", { type: "button", className: "btn sm", disabled: busy, onClick: function () { setAdding(false); } }, "取消")))
-					: h("button", { type: "button", className: "add-row", onClick: function () { setAdding(true); } }, Ic("plus", 12), " 添加连接"));
-		}
-
-		// 委外智能体发现扫描阶段（与服务端 discoverAgents 探测顺序一致；走马灯滚动展示全过程）
-		const AGENT_SCAN_STEPS = [
-			"读取项目配置 stageConfig.P6.params.claudeBin",
-			"检查环境变量 ISSUE2PR_CLAUDE_BIN",
-			"扫描常见安装位置（.npm-global / .npm_global / AppData\\Roaming\\npm / .local\\bin）",
-			"查询 npm 全局目录（npm config get prefix）",
-			"PATH 查找 claude（where / which）",
-			"候选去重合并 · 存在性校验",
-		];
-		const AGENT_SCAN_SHORT = ["读项目配置", "查环境变量", "扫常见位置", "查 npm 全局", "PATH 查找", "去重校验"];
-
-		/* 委外智能体绑定卡（项目页 P6=claude 与「配置」页 P6 共用）：
-		 * 发现——五种来源（项目配置/环境变量/常见安装位置/npm 全局目录/PATH）+ 手动路径；
-		 * 门禁——定位 → 版本 → 认证微任务（一次极小真实调用，403 IP 白名单等在绑定时拦截而非 Run 中暴露）；
-		 * 认证中转——GLM Coding Plan / 自定义网关预设，relay-auth.json 只存 secretRef（403 IP 白名单根治路径）。
-		 * gate 状态由父组件持有（控制保存按钮）：{key: agentGateKey(bin,preset,baseUrl), status, result}
-		 * 扫描过程走马灯可见：请求 20s 超时 / 404（旧版 node 半）显式报错 + 重试，不再无限「解析中…」。 */
-		function AgentBindCard(props) {
-			const p = props; // { bin, onBinChange, authPreset, authBaseUrl, onAuthPreset, onAuthBaseUrl, gate, onGate, toast, slug }
-			const [found, setFound] = React.useState(null);
-			// 扫描态：status scanning|done|fail；phase 驱动标记位阶段轮播与走马灯
-			const [scan, setScan] = React.useState({ status: "scanning", phase: 0, error: "" });
-			const [testing, setTesting] = React.useState(false);
-			// 认证中转 token（卡内输入-保存，门禁请求带新值或回落已存值）
-			const [relay, setRelay] = React.useState({ exists: false, masked: "", storage: "", encrypted: false, warning: "" });
-			const [tokenInput, setTokenInput] = React.useState("");
-			const [savingToken, setSavingToken] = React.useState(false);
-			React.useEffect(function () {
-				apiGet("/relay-auth").then(function (r) {
-					if (r && r.ok) setRelay({ exists: !!r.exists, masked: r.masked || "", storage: r.storage || "", encrypted: r.encrypted === true, warning: r.warning || "" });
-				}).catch(function () { /* 留空态；保存时会再暴露错误 */ });
-			}, []);
-
-			const doDiscover = React.useCallback(function () {
-				setFound(null);
-				setScan({ status: "scanning", phase: 0, error: "" });
-				const q = p.slug ? "?slug=" + encodeURIComponent(p.slug) : "";
-				const req = apiGet("/agents/discover" + q).catch(function () { return null; });
-				const guard = new Promise(function (r) { setTimeout(function () { r({ __timeout: true }); }, 20000); });
-				Promise.race([req, guard]).then(function (r) {
-					if (r && r.ok) {
-						setFound({ agents: r.agents || [], resolved: r.resolved || "" });
-						setScan({ status: "done", phase: 0, error: "" });
-						return;
-					}
-					const msg = !r ? "发现请求失败（网络错误）"
-						: r.__timeout ? "发现请求超时（20 秒无响应）"
-						: "发现接口不可用" + (r.message ? "：" + r.message : "");
-					setScan({ status: "fail", phase: 0, error: msg + "——若刚升级插件，node 半需重启 DSH 生效后重试" });
-				});
-			}, [p.slug]);
-			React.useEffect(function () { doDiscover(); }, [doDiscover]);
-			// 扫描期间阶段轮播（标记位「读项目配置…」→「查环境变量…」→ …）
-			React.useEffect(function () {
-				if (scan.status !== "scanning") return;
-				const t = setInterval(function () { setScan(function (s) { return Object.assign({}, s, { phase: s.phase + 1 }); }); }, 1200);
-				return function () { clearInterval(t); };
-			}, [scan.status]);
-
-			const cur = (p.bin || "").trim();
-			const preset = p.authPreset || "none";
-			const baseUrl = (p.authBaseUrl || "").trim();
-			const gateKey = agentGateKey(cur, preset, baseUrl);
-			const gateLive = p.gate && p.gate.key === gateKey ? p.gate : null;
-			const saveToken = function () {
-				const t = tokenInput.trim();
-				if (!t) { p.toast("请先填写 token", "bad"); return; }
-				setSavingToken(true);
-				apiPut("/relay-auth", { token: t }).then(function (r) {
-					setSavingToken(false);
-					if (!r || !r.ok) { p.toast((r && r.message) || "保存失败", "bad"); return; }
-					setRelay({ exists: true, masked: r.masked || "", storage: r.storage || "", encrypted: r.encrypted === true, warning: r.warning || "" });
-					setTokenInput("");
-					p.toast("中转 token 已保存（" + (r.storage === "keychain" ? "系统密钥环" : "非加密文件回退") + "）");
-				}).catch(function (e) { setSavingToken(false); p.toast("请求失败: " + e, "bad"); });
-			};
-			const runGate = function () {
-				if (testing) return;
-				setTesting(true);
-				const body = { executor: "claude-code" };
-				if (cur) body.bin = cur;
-				if (preset !== "none") body.auth = { preset: preset, baseUrl: baseUrl, token: tokenInput.trim() };
-				apiPost("/agents/test", body).then(function (r) {
-					setTesting(false);
-					if (!r || typeof r.ok !== "boolean") { p.toast("门禁请求失败", "bad"); return; }
-					// r.gate 缺失 = 接口 404/异常（常见于 UI 已新版而 node 半未随重启更新）——给出可操作文案
-					const res = r.gate || { message: (r && r.message) ? ("接口异常：" + r.message) : "接口不可用——若刚升级插件，请重启 DSH 后重试" };
-					p.onGate({ key: gateKey, status: r.ok ? "pass" : "fail", result: res });
-					if (r.ok) p.toast("委外智能体门禁通过" + (r.gate && r.gate.version ? "：" + r.gate.version : ""));
-				}).catch(function (e) { setTesting(false); p.toast("请求失败: " + e, "bad"); });
-			};
-
-			return h("div", { className: "agent-bind" },
-				h("span", { className: "f-label" }, "委外智能体 · Claude Code（测试门禁通过后才能保存）"),
-				h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
-					"P6「委托 Claude Code」由本机 claude CLI 无人值守执行。绑定 = 从候选选择或手动指定可执行文件；",
-					"「测试门禁」真实跑一次极小调用（定位 → 版本 → 认证，费用可忽略）——403 IP 白名单 / 未登录这类错误在绑定时拦截，而不是等 Run 失败后才暴露。"),
-				h("div", { className: "agent-cands", role: "radiogroup", "aria-label": "发现的 claude 安装" },
-					h("button", {
-						type: "button", key: "__auto__", className: "agent-cand" + (!cur ? " on" : ""),
-						onClick: function () { p.onBinChange(""); },
-					},
-						h("span", { className: "ac-path" }, "自动探测"),
-						h("span", { className: "ac-meta" },
-							found ? "当前解析 " + (found.resolved || "claude")
-								: scan.status === "fail" ? h("span", { className: "miss" }, "发现失败")
-								: h("span", { className: "scan-now" }, AGENT_SCAN_SHORT[scan.phase % AGENT_SCAN_SHORT.length] + "…"))),
-					(found ? found.agents : []).map(function (a, i) {
-						return h("button", {
-							type: "button", key: "a" + i,
-							className: "agent-cand" + (cur && cur.toLowerCase() === a.path.toLowerCase() ? " on" : ""),
-							onClick: function () { p.onBinChange(a.path); },
-						},
-							h("span", { className: "ac-path mono" }, a.path),
-							h("span", { className: "ac-meta" },
-								h("span", { className: "ac-src" }, a.label),
-								a.exists ? "已就绪" : h("span", { className: "miss" }, "不存在")));
-					})),
-				// —— 解析过程走马灯（标记位下方通栏滚动）——
-				scan.status === "scanning" ? h("div", { className: "scan-ticker", role: "status", "aria-live": "polite" },
-					h("span", { className: "tk" }, "正在解析 claude 安装　▸　" + AGENT_SCAN_STEPS.join("　▸　") + "　▸　")) : null,
-				scan.status === "done" && found ? h("p", { className: "hint-line", style: { margin: "8px 0 0" } },
-					found.agents.length
-						? "扫描完成：发现 " + found.agents.length + " 个候选 · 自动解析 → " + (found.resolved || "claude")
-						: "扫描完成：未发现已安装的 claude——请手动指定完整路径（如 C:\\Users\\you\\AppData\\Roaming\\npm\\claude.cmd），或先安装 claude CLI。") : null,
-				scan.status === "fail" ? h("div", { className: "scan-fail" },
-					h("p", { className: "hint-line", style: { margin: 0, color: "var(--err)" } }, "✗ " + scan.error),
-					h("button", { type: "button", className: "btn sm", style: { marginTop: 6 }, onClick: doDiscover }, "重试扫描")) : null,
-				h("div", { className: "dyn-row", style: { marginTop: 6 } },
-					h("input", {
-						className: "f-input mono", value: p.bin || "",
-						placeholder: "手动指定可执行文件（留空 = 自动探测）",
-						"aria-label": "claude 可执行文件路径",
-						onChange: function (e) { p.onBinChange(e.target.value); },
-					}),
-					h("button", {
-						type: "button", className: "btn sm" + (gateLive && gateLive.status === "pass" ? "" : " pri"),
-						disabled: testing, onClick: runGate,
-					}, testing ? "测试中…" : "测试门禁")),
-				testing ? h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
-					"门禁测试中：真实调用一次 claude（通常 5–30 秒），请勿关闭本页…") : null,
-				// —— 认证中转（可选）：公司出口漂移导致 403 IP 白名单时，改走 Anthropic 兼容端点根治 ——
-				h("div", { className: "field", style: { marginTop: 10 } },
-					h("span", { className: "f-label" }, "认证中转（可选 · 403 IP 白名单根治）"),
-					h("div", { className: "dyn-row" },
-						h("select", {
-							className: "f-select", value: preset, "aria-label": "claude 认证预设",
-							onChange: function (e) { p.onAuthPreset(e.target.value); },
-						},
-							h("option", { value: "none" }, "继承本机 claude 登录态"),
-							h("option", { value: "glm" }, "GLM Coding Plan（推荐）"),
-							h("option", { value: "custom" }, "自定义网关 baseUrl")),
-						preset === "custom" ? h("input", {
-							className: "f-input mono", value: baseUrl,
-							placeholder: "https://gw.example.com/api/anthropic（不带 /v1/messages）",
-							"aria-label": "自定义中转 baseUrl",
-							onChange: function (e) { p.onAuthBaseUrl(e.target.value); },
-						}) : null),
-					preset !== "none" ? h("div", { className: "dyn-row", style: { marginTop: 6 } },
-						h("input", {
-							className: "f-input mono", type: "password", value: tokenInput, autoComplete: "new-password",
-							placeholder: relay.exists
-								? "已保存 " + relay.masked + " · 输入新值覆盖"
-								: "中转 API token（Anthropic 兼容端点的 key）",
-							"aria-label": "中转 token",
-							onChange: function (e) { setTokenInput(e.target.value); },
-						}),
-						h("button", { type: "button", className: "btn sm", disabled: savingToken, onClick: saveToken },
-							savingToken ? "保存中…" : "保存 token")) : null,
-					h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
-						"公司网络出口漂移会让带 IP 白名单的 API Key 间歇 403。中转让 claude 改打 Anthropic 兼容端点（GLM Coding Plan 官方支持，无 IP 白名单校验），",
-						"relay-auth.json 只保存引用，门禁与 Run 走同一条路径。")),
-					relay.exists ? h("p", { className: "hint-line", style: { margin: "4px 0 0", color: relay.encrypted && !relay.warning ? "var(--good)" : "var(--warn)" } },
-						relay.encrypted
-							? "存储：系统密钥环（由操作系统保护）" + (relay.warning ? "；警告：" + relay.warning : "")
-							: "存储：非加密文件回退。" + (relay.warning ? " 警告：" + relay.warning : "")) : null,
-				gateLive ? (function () {
-					const g = gateLive.result || {};
-					return h("div", { className: "agent-gate " + (gateLive.status === "pass" ? "ok" : "bad") },
-						h("p", { className: "ag-line" },
-							gateLive.status === "pass"
-								? "✓ 门禁通过" + (g.version ? " · " + g.version : "") + (g.ms != null ? " · " + (Math.round(g.ms / 100) / 10) + "s" : "")
-								: "✗ 未通过：" + (g.message || "未知错误")),
-						(g.steps || []).length ? h("p", { className: "ag-steps" }, g.steps.map(function (s, i) {
-							return h("span", { key: i, className: "ag-step " + (s.ok ? "ok" : "bad") }, (s.ok ? "✓" : "✗") + s.name);
-						})) : null,
-						g.hint ? h("p", { className: "ag-hint" }, g.hint) : null);
-				})() : null);
-		}
-
-		/* DSH 原生智能体绑定卡（p6Mode=dsh）：宿主进程内执行，零外部进程/认证。
-		 * 门禁两步：智能体服务 + 模型路由 → 一次极小真实调用；gate.key 固定 "dsh"。 */
-		function DshAgentCard(props) {
-			const p = props; // { gate, onGate, toast }
-			const [testing, setTesting] = React.useState(false);
-			const gateLive = p.gate && p.gate.key === "dsh" ? p.gate : null;
-			const runGate = function () {
-				if (testing) return;
-				setTesting(true);
-				apiPost("/agents/test", { executor: "dsh-agent" }).then(function (r) {
-					setTesting(false);
-					if (!r || typeof r.ok !== "boolean") { p.toast("门禁请求失败", "bad"); return; }
-					const res = r.gate || { message: (r && r.message) ? ("接口异常：" + r.message) : "接口不可用——若刚升级插件，请重启 DSH 后重试" };
-					p.onGate({ key: "dsh", status: r.ok ? "pass" : "fail", result: res });
-					if (r.ok) p.toast("DSH 智能体门禁通过");
-				}).catch(function (e) { setTesting(false); p.toast("请求失败: " + e, "bad"); });
-			};
-			return h("div", { className: "agent-bind" },
-				h("span", { className: "f-label" }, "委外智能体 · DSH 原生智能体（测试门禁通过后才能保存）"),
-				h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
-					"P6「DSH 原生智能体」由宿主内置 agent loop 进程内执行（bash/pwsh/文件工具随宿主全局层），",
-					"模型走宿主路由（如 zai-coding-cn/glm-5.2，Models 页可换），无外部进程、无外部 CLI 认证，不受出口 IP 漂移影响。",
-					"「测试门禁」真实跑一次极小调用验证模型路由与工具层。"),
-				h("div", { className: "dyn-row", style: { marginTop: 6 } },
-					h("button", {
-						type: "button", className: "btn sm" + (gateLive && gateLive.status === "pass" ? "" : " pri"),
-						disabled: testing, onClick: runGate,
-					}, testing ? "测试中…" : "测试门禁")),
-				testing ? h("p", { className: "hint-line", style: { margin: "6px 0 0" } },
-					"门禁测试中：真实创建一次宿主智能体（通常 5–30 秒），请勿关闭本页…") : null,
-				gateLive ? (function () {
-					const g = gateLive.result || {};
-					return h("div", { className: "agent-gate " + (gateLive.status === "pass" ? "ok" : "bad") },
-						h("p", { className: "ag-line" },
-							gateLive.status === "pass"
-								? "✓ 门禁通过" + (g.ms != null ? " · " + (Math.round(g.ms / 100) / 10) + "s" : "")
-								: "✗ 未通过：" + (g.message || "未知错误")),
-						(g.steps || []).length ? h("p", { className: "ag-steps" }, g.steps.map(function (s, i) {
-							return h("span", { key: i, className: "ag-step " + (s.ok ? "ok" : "bad") }, (s.ok ? "✓" : "✗") + s.name);
-						})) : null,
-						g.hint ? h("p", { className: "ag-hint" }, g.hint) : null);
-				})() : null);
-		}
-
-		function ProjectsPanel(props) {
-			const p = props;
-			const [form, setForm] = React.useState(null);
-			const [saving, setSaving] = React.useState(false);
-			// 本地触发源存在性检查结果：uri → true/false（check-local 端点；onBlur 与载入时触发）
-			const [trigCheck, setTrigCheck] = React.useState({});
-			// 委外智能体测试门禁结果：{key:"bin:<路径>"|"auto", status:"pass"|"fail", result}（p6Mode=claude 时保存前置条件）
-			const [agentGate, setAgentGate] = React.useState(null);
-
-			const blankForm = function () {
-				return { name: "", slug: "", repos: [{ uri: "" }], triggers: [], reviewMode: "every", p6Mode: "builtin", testCommand: "", claudeBin: "", claudeAuthPreset: "none", claudeBaseUrl: "" };
-			};
-
-			React.useEffect(function () {
-				const pr = p.projects ? p.projects.find(function (x) { return x.slug === p.slug; }) : null;
-				if (!pr) { setForm(blankForm()); return; }
-				setForm({
-					name: pr.name || "",
-					slug: pr.slug || "",
-					repos: (pr.repos || []).map(function (r) {
-						return typeof r === "string" ? { uri: r } : { uri: (r && r.uri) || "" };
-					}),
-					triggers: (pr.triggers || []).map(function (t) { return { kind: t.kind, uri: (t.uri || "") }; }),
-					reviewMode: pr.reviewMode || "every",
-					p6Mode: pr.p6Mode || "builtin",
-					testCommand: pr.testCommand || "",
-					// 委外智能体绑定：claudeBin/认证中转存于 stageConfig.P6.params（「配置」页同源），空 = 自动探测/默认
-					claudeBin: (pr.stageConfig && pr.stageConfig.P6 && pr.stageConfig.P6.params && pr.stageConfig.P6.params.claudeBin) || "",
-					claudeAuthPreset: (pr.stageConfig && pr.stageConfig.P6 && pr.stageConfig.P6.params && pr.stageConfig.P6.params.claudeAuthPreset) || "none",
-					claudeBaseUrl: (pr.stageConfig && pr.stageConfig.P6 && pr.stageConfig.P6.params && pr.stageConfig.P6.params.claudeBaseUrl) || "",
-				});
-				setTrigCheck({});
-				setAgentGate(null);
-				(pr.triggers || []).forEach(function (t) { checkLocal(t.uri); }); // 载入即查本地触发源存在性
-			}, [p.slug, p.projects]);
-
-			if (!form) return h(Skel);
-
-			const setField = function (k, v) { setForm(function (f) { return Object.assign({}, f, { [k]: v }); }); };
-			const setRepo = function (i, uri) { setForm(function (f) { const r = f.repos.slice(); r[i] = { uri: uri }; return Object.assign({}, f, { repos: r }); }); };
-			const rmRepo = function (i) { setForm(function (f) { if (f.repos.length <= 1) return f; const r = f.repos.slice(); r.splice(i, 1); return Object.assign({}, f, { repos: r }); }); };
-			const addRepo = function () { setForm(function (f) { return Object.assign({}, f, { repos: f.repos.concat([{ uri: "" }]) }); }); };
-			const setTrig = function (i, uri) { setForm(function (f) { const t = f.triggers.slice(); t[i] = Object.assign({}, t[i], { uri: uri }); return Object.assign({}, f, { triggers: t }); }); };
-			const rmTrig = function (i) { setForm(function (f) { const t = f.triggers.slice(); t.splice(i, 1); return Object.assign({}, f, { triggers: t }); }); };
-			const addTrig = function (kind) { setForm(function (f) { return Object.assign({}, f, { triggers: f.triggers.concat([{ kind: kind, uri: "" }]) }); }); };
-
-			const collect = function () {
-				const f = form;
-				// stageConfig（「配置」页维护）与项目表单互不感知：原样透传，避免保存项目时丢失阶段配置；
-				// 唯一例外 P6 委外绑定三件套——绑定卡在本表单维护，合并进 P6.params（清空 = 移除覆盖恢复默认）
-				const pr = p.projects ? p.projects.find(function (x) { return x.slug === p.slug; }) : null;
-				const stageConfig = JSON.parse(JSON.stringify((pr && pr.stageConfig) || {}));
-				const bin = (f.claudeBin || "").trim();
-				const preset = f.claudeAuthPreset || "none";
-				const baseUrl = (f.claudeBaseUrl || "").trim();
-				const hasOld = stageConfig.P6 && stageConfig.P6.params && ["claudeBin", "claudeAuthPreset", "claudeBaseUrl"].some(function (k) { return stageConfig.P6.params[k] != null; });
-				if (bin || preset !== "none" || hasOld) {
-					const p6 = stageConfig.P6 || {};
-					const params = Object.assign({}, p6.params);
-					if (bin) params.claudeBin = bin; else delete params.claudeBin;
-					if (preset !== "none") params.claudeAuthPreset = preset; else delete params.claudeAuthPreset;
-					if (preset === "custom" && baseUrl) params.claudeBaseUrl = baseUrl; else delete params.claudeBaseUrl;
-					if (Object.keys(params).length) p6.params = params; else delete p6.params;
-					if (Object.keys(p6).length) stageConfig.P6 = p6; else delete stageConfig.P6;
-				}
-				return {
-					name: (f.name || "").trim(),
-					slug: (f.slug || "").trim(),
-					repos: f.repos.map(function (r) { return (r.uri || "").trim(); }).filter(Boolean).map(function (uri) { return { uri: uri }; }),
-					triggers: f.triggers
-						.map(function (t) { return { kind: t.kind, uri: (t.uri || "").trim() }; })
-						.filter(function (t) { return t.uri; }),
-					reviewMode: f.reviewMode,
-					p6Mode: f.p6Mode,
-					testCommand: (f.testCommand || "").trim(),
-					stageConfig: stageConfig,
-				};
-			};
-			const validate = function (o) {
-				if (!o.name) return "请填写项目名称";
-				if (!/^[a-z0-9-]+$/.test(o.slug)) return "slug 只允许小写字母/数字/连字符";
-				if (o.repos.length === 0) return "至少填写一个 Git 仓库链接";
-				return null;
-			};
-			// 委外智能体门禁是否对当前绑定有效：claude/dsh 需通过；改路径或换认证预设后 key 失效需重测
-			const agentGateOk = function () {
-				if (form.p6Mode === "dsh") return !!(agentGate && agentGate.status === "pass" && agentGate.key === "dsh");
-				if (form.p6Mode !== "claude") return true;
-				return !!(agentGate && agentGate.status === "pass"
-					&& agentGate.key === agentGateKey((form.claudeBin || "").trim(), form.claudeAuthPreset, form.claudeBaseUrl));
-			};
-
-			const ensureSaved = function () {
-				const o = collect();
-				const err = validate(o);
-				if (err) { p.toast(err, "bad"); return Promise.resolve(null); }
-				if (!agentGateOk()) {
-					p.toast("P6 委外执行：请先通过「委外智能体」测试门禁再保存", "bad");
-					return Promise.resolve(null);
-				}
-				setSaving(true);
-				return apiPost("/projects", o).then(function (r) {
-					setSaving(false);
-					if (!r || !r.ok) { p.toast((r && r.message) || "保存失败", "bad"); return null; }
-					p.onSaved(o.slug);
-					return o.slug;
-				}).catch(function (e) { setSaving(false); p.toast("请求失败: " + e, "bad"); return null; });
-			};
-
-			const startRun = function (kind, uri) {
-				const u = (uri || "").trim();
-				if (!u) { p.toast("请先填写该触发源路径", "bad"); return; }
-				ensureSaved().then(function (slug) {
-					if (!slug) return;
-					// 轻预检（不阻断）：主仓库是 https 且无匹配连接 → 私有仓库会克隆失败，提前亮黄；
-					// 公开仓库匿名可克隆，不受影响，所以只提示不拦截
-					const o = collect();
-					const mainUri = o.repos.length ? o.repos[0].uri : "";
-					if (/^https?:\/\//i.test(mainUri)) {
-						const host = hostOfUri(mainUri);
-						const has = p.connections && p.connections.some(function (c) { return c.host === host; });
-						if (host && !has) p.toast("提示：" + host + " 未配置连接，私有仓库将无法克隆（公开仓库不受影响）", "warn");
-					}
-					apiPost("/projects/" + slug + "/runs", { kind: kind, uri: u }).then(function (r) {
-						if (!r || !r.ok) { p.toast((r && r.message) || "发起 Run 失败", "bad"); return; }
-						p.onRunStarted(slug, r.runId);
-					}).catch(function (e) { p.toast("请求失败: " + e, "bad"); });
-				});
-			};
-
-			const runFirst = function () {
-				const o = collect();
-				if (o.triggers.length === 0) { p.toast("请先添加触发源（需求文档或 Issue）", "bad"); return; }
-				startRun(o.triggers[0].kind, o.triggers[0].uri);
-			};
-
-			// —— 仓库行 host 徽章：按域名匹配连接（匹配=已连接；https 未匹配=黄牌提示；SSH=本机密钥） ——
-			const connOf = function (uri) {
-				const host = hostOfUri(uri);
-				if (!host || !p.connections) return null;
-				return p.connections.find(function (c) { return c.host === host; }) || null;
-			};
-			const repoBadge = function (uri) {
-				const u = (uri || "").trim();
-				if (!u) return null;
-				if (isSshUri(u)) return h("span", { className: "host-badge", title: "SSH 地址使用本机密钥认证" }, "SSH · 本机密钥");
-				const host = hostOfUri(u);
-				if (!host) return null;
-				const c = connOf(u);
-				if (c) return h("span", { className: "host-badge ok", title: "已配置该域名的连接凭据" },
-					Ic("check", 11), h("span", { className: "hb-host" }, host), "已连接" + (c.username ? " · " + c.username : ""));
-				return h("span", { className: "host-badge warn", title: "私有仓库需要凭据才能克隆；在下方「Git 托管连接」添加后自动匹配" },
-					h("span", { className: "hb-host" }, host), "未配置连接");
-			};
-			const testRepo = function (uri) {
-				const u = (uri || "").trim();
-				if (!u) { p.toast("请先填写仓库地址", "bad"); return; }
-				p.toast("正在测试连通（git ls-remote）…");
-				apiPost("/connections/test-repo", { uri: u }).then(function (r) {
-					if (r && r.ok) p.toast("仓库可达：" + r.message);
-					else p.toast("仓库不可达：" + ((r && r.message) || "未知错误"), "bad");
-				}).catch(function (e) { p.toast("请求失败: " + e, "bad"); });
-			};
-			// —— 本地触发源存在性（check-local 端点）：失焦时检查，结果随 uri 键缓存 ——
-			// （函数声明：表单载入 effect 也要调它，且 smoke 的 mock effect 同步执行需提升）
-			function checkLocal(uri) {
-				const u = (uri || "").trim();
-				if (!u || !isLocalPath(u)) return;
-				apiPost("/check-local", { path: u }).then(function (r) {
-					if (r && r.ok) setTrigCheck(function (m) { return Object.assign({}, m, { [u]: !!r.exists }); });
-				}).catch(function () { /* 检查失败静默：发起 Run 时服务端仍会硬校验 */ });
-			}
-
-			const deleteProject = function () {
-				const slug = form.slug;
-				if (!slug) { p.toast("新建中的项目无需删除", "bad"); return; }
-				if (!window.confirm("确认删除项目 " + slug + "？\n其全部 Run 产物与本地 repo 克隆都会被删除，不可恢复。")) return;
-				apiDelete("/projects/" + slug + "?confirm=" + encodeURIComponent(slug))
-					.then(function (r) {
-						if (r && r.ok) { p.toast("项目已删除"); p.onDeletedProject(); }
-						else p.toast((r && r.message) || "删除失败", "bad");
-					})
-					.catch(function (e) { p.toast("请求失败: " + e, "bad"); });
-			};
-
-			const radioGroup = function (labelId, opts, value, onChange, name) {
-				return h("div", { className: "radio-group", role: "radiogroup", "aria-labelledby": labelId },
-					opts.map(function (o) {
-						const on = value === o.value;
-						return h("label", { key: o.value, className: "radio-chip" + (on ? " on" : "") },
-							h("input", { type: "radio", name: name, value: o.value, checked: on, onChange: function () { onChange(o.value); } }),
-							o.label,
-							h("span", { className: "hint" }, o.hint));
-					}));
-			};
-
-			const trigGroup = function (kind, title, tagCls, tagText, hint) {
-				const rows = [];
-				form.triggers.forEach(function (t, i) {
-					if (t.kind !== kind) return;
-					const checked = isLocalPath(t.uri) && trigCheck[(t.uri || "").trim()] !== undefined
-						? trigCheck[(t.uri || "").trim()] : null;
-					rows.push(h("div", { key: "tr" + i, className: "dyn-row" },
-						h("input", {
-							className: "f-input mono", value: t.uri,
-							placeholder: kind === "requirement" ? "D:\\path\\to\\spec.md 或 https://…" : "D:\\issues\\xxx.md 或 issue 链接，格式不限",
-							"aria-label": title + " " + (i + 1),
-							onChange: function (e) { setTrig(i, e.target.value); },
-							onBlur: function (e) { checkLocal(e.target.value); },
-						}),
-						checked !== null ? h("span", {
-							className: "host-badge " + (checked ? "ok" : "warn"),
-							title: checked ? "发起 Run 前会重新读取该文件" : "文件不存在：发起 Run 时将报「触发文档不存在」",
-						}, checked ? "文件存在" : "不存在") : null,
-						h("button", {
-							type: "button", className: "run-btn",
-							title: "用此" + title + "发起 Run", "aria-label": "用此" + title + "发起 Run",
-							onClick: function () { startRun(kind, t.uri); },
-						}, Ic("play", 12)),
-						h("button", {
-							type: "button", className: "rm", "aria-label": "删除该行",
-							onClick: function () { rmTrig(i); },
-						}, Ic("x", 12))));
-				});
-				return h("div", { className: "trig-head-group", key: kind },
-					h("div", { className: "trig-head" },
-						h("span", { className: "trig-tag" + (tagCls ? " " + tagCls : "") }, tagText),
-						title,
-						h("span", { className: "hint" }, hint)),
-					rows,
-					h("button", { type: "button", className: "add-row", onClick: function () { addTrig(kind); } },
-						Ic("plus", 12), " 添加" + (kind === "issue" ? " Issue" : "需求文档")));
-			};
-
-			const listItems = (p.projects || []).map(function (pr) {
-				const on = pr.slug === p.slug;
-				return h("button", {
-					key: pr.slug, className: "proj-item" + (on ? " on" : ""), role: "option",
-					"aria-selected": on ? "true" : "false",
-					onClick: function () { p.onSelectProject(pr.slug); },
-				},
-					h("div", { className: "p-name" }, pr.name),
-					h("div", { className: "p-meta" },
-						(pr.repos || []).length + " 仓库 · " + (pr.triggers || []).length + " 触发源"));
-			});
-			listItems.push(h("button", { key: "__new__", className: "add-row", onClick: function () { p.onSelectProject(null); } },
-				Ic("plus", 12), " 新建项目"));
-
-			// —— 环境健康横幅（preflight 只读探测）：git 缺失 / claude CLI 未就绪（仅 p6Mode=claude 时才相关） ——
-			const pf = p.preflight;
-			const banners = [];
-			if (pf && pf.git && !pf.git.ok) banners.push(h("div", { key: "git", className: "callout err", style: { marginBottom: 12 } },
-				h("h4", null, "未检测到 git"),
-				h("p", { style: { margin: 0 } }, "克隆仓库（P2 前）与应用补丁（P7）都依赖 git 命令。请安装 git 并加入 PATH 后刷新本页。")));
-			if (pf && pf.claude && !pf.claude.ok && form.p6Mode === "claude") banners.push(h("div", { key: "claude", className: "callout warn", style: { marginBottom: 12 } },
-				h("h4", null, "未探测到 claude CLI"),
-				h("p", { style: { margin: 0 } },
-					"尝试路径 ", h("code", null, pf.claude.path || "claude"), " 不存在。请在下方 P6 执行模式选「委托 Claude Code」后，用「委外智能体」卡片从扫描候选选择或手动指定路径，并通过测试门禁后保存。")));
-			// —— LLM 路由行：默认模型从哪来 + 几个阶段已覆盖（key 由 DSH 宿主管理，插件无法预检其有效性） ——
-			const llmRoute = pf && pf.llm
-				? (function () {
-					const ovN = pf.llm.overrides ? Object.keys(pf.llm.overrides).length : 0;
-					return h("p", { className: "hint-line", style: { margin: "0 0 14px" } },
-						"LLM 默认 ", h("code", null, (pf.llm.provider || "?") + " / " + (pf.llm.model || "?")),
-						"（来源：" + (LLM_SOURCE_LABEL[pf.llm.source] || pf.llm.source) + (ovN > 0 ? " · 本项目 " + ovN + " 个阶段已覆盖模型" : "") + "）；",
-						ovN > 0 ? "覆盖清单见「配置」页。" : "各阶段可在「配置」页按阶段覆盖。", "模型凭据由 DSH 宿主管理。");
-				})()
-				: null;
-
-			return h("div", null,
-				banners,
-				h("div", { className: "callout acc", style: { marginBottom: 16 } },
-					h("h4", null, "三步上手"),
-					h("p", { style: { margin: 0 } },
-						h("b", null, "① 填项目名与仓库"), " → ", h("b", null, "② 添加触发源（需求文档 / Issue）"),
-						" → ", h("b", null, "③ 点 ▶ 发起 Run"), "，随后到「运行」跟进 11 阶段流水线。")),
-				llmRoute,
-				h("div", { className: "project-layout" },
-					h("div", { className: "proj-list", role: "listbox", "aria-label": "项目列表" }, listItems),
-					h("form", {
-						className: "card", onSubmit: function (e) { e.preventDefault(); ensureSaved(); },
-					},
-						h("h4", null, "项目配置"),
-						h("div", { className: "field-row" },
-							h("div", { className: "field" },
-								h("label", { className: "f-label", htmlFor: "f-name" }, "项目名称"),
-								h("input", { className: "f-input", id: "f-name", value: form.name, onChange: function (e) { setField("name", e.target.value); } })),
-							h("div", { className: "field" },
-								h("label", { className: "f-label", htmlFor: "f-slug" }, "目录名（slug · 产物根下的项目文件夹）"),
-								h("input", { className: "f-input mono", id: "f-slug", value: form.slug, onChange: function (e) { setField("slug", e.target.value); } }))),
-						h("div", { className: "field" },
-							h("label", { className: "f-label" }, "Git 仓库链接（可多个 · 第一个为主仓库，发起 Run 时自动 clone）"),
-							form.repos.map(function (r, i) {
-								const badge = repoBadge(r.uri);
-								return h("div", { key: i },
-									h("div", { className: "dyn-row" },
-										h("input", {
-											className: "f-input mono", value: r.uri, placeholder: "https://github.com/org/repo.git",
-											"aria-label": "仓库链接 " + (i + 1),
-											onChange: function (e) { setRepo(i, e.target.value); },
-										}),
-										h("button", {
-											type: "button", className: "btn sm",
-											title: "测试连通（git ls-remote，私有仓库验证已配置的连接凭据）",
-											"aria-label": "测试仓库 " + (i + 1) + " 连通",
-											onClick: function () { testRepo(r.uri); },
-										}, "测试"),
-										h("button", {
-											type: "button", className: "rm", "aria-label": "删除该行",
-											onClick: function () { rmRepo(i); },
-										}, Ic("x", 12))),
-									badge ? h("div", { className: "repo-row-2" }, badge) : null);
-							}),
-							h("button", { type: "button", className: "add-row", onClick: addRepo }, Ic("plus", 12), " 添加仓库")),
-						h("fieldset", { className: "trig-src" },
-							h("span", { className: "f-label", style: { display: "block" } }, "触发源 · 需求文档与 Issue 均可单独发起 Run（可多个，格式不限）"),
-							trigGroup("requirement", "需求文档", "", "需求", "本地路径或 URL"),
-							trigGroup("issue", "Issue 文档", "issue", "Issue", "md / txt / 工单导出 / issue 链接…")),
-						h("div", { className: "field-row" },
-							h("div", { className: "field" },
-								h("span", { className: "f-label", id: "rg-review-label" }, "人工复核模式"),
-								radioGroup("rg-review-label", [
-									{ value: "every", label: "每阶段都停", hint: "默认" },
-									{ value: "key-only", label: "只停关键门", hint: "P5/P6/P9/P11" },
-									{ value: "auto", label: "全自动", hint: "事后可打回" },
-								], form.reviewMode, function (v) { setField("reviewMode", v); }, "review")),
-							h("div", { className: "field" },
-								h("span", { className: "f-label", id: "rg-exec-label" }, "P6 代码优化执行模式"),
-								radioGroup("rg-exec-label", [
-									{ value: "builtin", label: "插件内多智能体", hint: "Planner/Coder/Reviewer" },
-									{ value: "session", label: "交给 DSH 会话", hint: "真 workflow" },
-									{ value: "claude", label: "委托 Claude Code", hint: "claude CLI 自动执行" },
-									{ value: "dsh", label: "DSH 原生智能体", hint: "宿主内执行 · 零外部认证" },
-								], form.p6Mode, function (v) { setField("p6Mode", v); }, "exec"))),
-						// 委外智能体绑定（claude=发现+门禁+认证中转；dsh=宿主智能体门禁），通过后才能保存
-						form.p6Mode === "claude" ? h(AgentBindCard, {
-							key: "agent-bind", bin: form.claudeBin, gate: agentGate,
-							authPreset: form.claudeAuthPreset, authBaseUrl: form.claudeBaseUrl,
-							onBinChange: function (v) { setField("claudeBin", v); },
-							onAuthPreset: function (v) { setField("claudeAuthPreset", v); },
-							onAuthBaseUrl: function (v) { setField("claudeBaseUrl", v); },
-							onGate: setAgentGate, toast: p.toast, slug: p.slug,
-						}) : form.p6Mode === "dsh" ? h(DshAgentCard, {
-							key: "dsh-bind", gate: agentGate, onGate: setAgentGate, toast: p.toast,
-						}) : null,
-						h("div", { className: "field" },
-							h("label", { className: "f-label", htmlFor: "f-test" }, "测试命令（可选 · P8 使用）"),
-							h("input", {
-								className: "f-input mono", id: "f-test", value: form.testCommand,
-								placeholder: "如 npm test / python -m pytest …",
-								onChange: function (e) { setField("testCommand", e.target.value); },
-							})),
-						h(ConnectionsCard, { connections: p.connections, toast: p.toast, reloadConnections: p.reloadConnections }),
-						h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
-							h("button", {
-								type: "submit", className: "btn pri",
-								disabled: saving || !agentGateOk(),
-								title: form.p6Mode !== "builtin" && form.p6Mode !== "session" && !agentGateOk() ? "P6 委外执行需先通过委外智能体测试门禁" : "",
-							}, "保存配置"),
-							h("button", { type: "button", className: "btn", onClick: runFirst }, Ic("play"), " 用该项目发起 Run"),
-							form.slug && p.slug ? h("button", { type: "button", className: "btn danger", onClick: deleteProject }, Ic("trash"), " 删除项目") : null),
-						h("p", { className: "hint-line" },
-							"配置写入 ", h("code", null, "…\\issue2pr\\projects\\" + (form.slug || "<slug>") + "\\project.json"), "。"))));
-		}
-
-		/* ================================================================
-		 * 02 运行
-		 * ================================================================ */
-		// 键值信息行（项目 / 说明 tab 共用）：左灰标签右值，靠左两列
 		function kvRow(k, v, mono) {
 			return h(React.Fragment, null,
 				h("span", { className: "k" }, k),
@@ -1814,36 +758,7 @@ body.i2p-dragging{user-select:none}
 						"确定性执行阶段（不调用大模型），无 LLM 输出契约。"));
 		}
 
-		// 阶段详情 · 项目 tab：本 Run 所属项目的只读上下文（阶段执行读的配置）
-		function StageProjectCard(props) {
-			const pr = props.project;
-			if (!pr) {
-				return h("p", { className: "empty-hint" },
-					"当前未选择项目。请先在左侧项目列表（或「项目」页）选择一个项目。");
-			}
-			return h("div", null,
-				h("p", { className: "run-hint", style: { margin: "0 0 12px" } },
-					"本 Run 所属项目的配置——阶段执行读的就是这些值：复核模式决定每阶段是否停顿，",
-					"P6 执行模式决定代码修改由谁完成，测试命令供 P8 使用。编辑请到「项目」页。"),
-				h("div", { className: "kv" },
-					kvRow("项目", (pr.name || "") + "（slug " + (pr.slug || "") + "）"),
-					kvRow("Git 仓库", (pr.repos || []).map(function (r, i) {
-						return h("div", { key: i }, r.uri || "");
-					}) || "（无）", true),
-					kvRow("触发源", (pr.triggers || []).length
-						? (pr.triggers || []).map(function (t, i) {
-							return h("div", { key: i }, kindLabel(t.kind) + " · " + (t.uri || ""));
-						})
-						: "（无）", true),
-					kvRow("人工复核模式", reviewModeLabel(pr.reviewMode) + "（" + (pr.reviewMode || "every") + "）"),
-					kvRow("P6 执行模式", p6ModeLabel(pr.p6Mode) + "（" + (pr.p6Mode || "builtin") + "）"),
-					kvRow("测试命令", pr.testCommand ? pr.testCommand : "（未配置 · P8 自动探测 npm test）", !!pr.testCommand)),
-				h("div", { style: { marginTop: 14 } },
-					h("button", { type: "button", className: "btn sm", onClick: props.onGoProjects },
-						Ic("folder", 12), " 到「项目」页编辑")));
-		}
-
-		// 阶段详情 · 说明 tab：职责 / 输入输出 / 委托契约 / 专属参数表
+		// 任务详情弹窗中的阶段职责、输入输出、委托契约与专属参数说明。
 		function StageGuideCard(props) {
 			const s = STAGES.find(function (x) { return x.id === props.stageId; });
 			if (!s) return null;
@@ -1877,1104 +792,685 @@ body.i2p-dragging{user-select:none}
 							h("td", null, meta.label + "——" + meta.hint));
 					})))
 					: h("p", { className: "hint-line", style: { margin: "4px 0 0" } },
-						"本阶段没有专属参数；通用项（提示词 / 模型 / 思考深度 / 超时 / 委托）在「配置」tab 调整。"),
+						"本阶段没有专属参数；新任务的通用项在「设置 → 阶段提示词」中调整。"),
 				h("p", { className: "hint-line" },
-					"参数与提示词的当前生效值都可以在「配置」tab 修改；保存后对进行中的 Run 从下一阶段起生效。"));
+					"这里展示系统默认说明；当前任务的启动配置可在任务上下文中查看。全局设置保存后仅影响新任务。"));
 		}
 
-		function RunsPanel(props) {
-			const p = props;
-			const [rerunStage, setRerunStage] = React.useState(null);
-			const [selStage, setSelStage] = React.useState(null);
-			// 阶段详情二级菜单（与工作台一级目录同名同序：项目/运行/产物/配置/说明，聚焦当前阶段）
-			const [stTab, setStTab] = React.useState("run");
-			const [selArt, setSelArt] = React.useState(null);
-			const [artText, setArtText] = React.useState(null);
-			const [comment, setComment] = React.useState("");
-			const [reviews, setReviews] = React.useState(null);
-			const [ledger, setLedger] = React.useState(null);
-			const [events, setEvents] = React.useState(null);
-			const [openEv, setOpenEv] = React.useState(-1);
-			const evRef = React.useRef(null);
-			const commentRef = React.useRef(null);
-			const artRef = React.useRef({ stageId: null, path: null, requestId: 0 });
-			const resetArtifactView = function (stageId, path) {
-				artRef.current = {
-					stageId: stageId || null,
-					path: path || null,
-					requestId: artRef.current.requestId + 1,
+
+		// v9 工作台：切换视图后旧响应不能覆盖新选择。
+		function readPreference(key, fallback) {
+			try { const value = JSON.parse(localStorage.getItem(key)); return value == null ? fallback : value; }
+			catch { return fallback; }
+		}
+		function writePreference(key, value) {
+			try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* 内存状态仍可用 */ }
+		}
+		function usePreference(key, fallback) {
+			const [value, setValue] = React.useState(() => readPreference(key, fallback));
+			React.useEffect(() => { writePreference(key, value); }, [key, value]);
+			return [value, setValue];
+		}
+		async function readOk(path, signal) {
+			const result = await apiGet(path, signal);
+			if (!result || result.ok === false) throw new Error(result?.message || "读取失败");
+			return result;
+		}
+		function useResource(key, loader, interval = 0) {
+			const [data, setData] = React.useState({ key: null, value: null, error: "" });
+			const [revision, setRevision] = React.useState(0);
+			const loaderRef = React.useRef(loader); loaderRef.current = loader;
+			React.useEffect(() => {
+				if (!key) return;
+				let active = true, timer;
+				const controller = new AbortController();
+				const tick = async () => {
+					try {
+						const value = await loaderRef.current(controller.signal);
+						if (active) setData({ key, value, error: "" });
+					} catch (error) {
+						if (active) setData(prev => ({ key, value: prev.key === key ? prev.value : null,
+							error: error.message || "连接中断" }));
+					} finally { if (active && interval) timer = setTimeout(tick, interval); }
 				};
-			};
-			const selectStage = function (stageId) {
-				// 阶段是详情视图的边界：先失效旧请求，再清空所有阶段级现场。
-				resetArtifactView(stageId);
-				setSelStage(stageId);
-				setStTab("run");
-				setSelArt(null);
-				setArtText(null);
-				setComment("");
-				setLedger(null);
-				setOpenEv(-1);
-			};
-
-			// run 切换：重置选择（二级菜单回「运行」）；同一 Run 重挂载（切走一级标签再回来）
-			// 则从模块级 runsViewStore 恢复现场（选中阶段 / 二级菜单 / 产物文件）
-			React.useEffect(function () {
-				const saved = runsViewStore.runId === p.runId ? runsViewStore : null;
-				const initialStage = saved && saved.selStage
-					? saved.selStage : p.run ? (p.run.current || "P1") : null;
-				setSelArt(saved ? saved.selArt : null);
-				resetArtifactView(initialStage, saved ? saved.selArt : null);
-				setArtText(null); setComment(""); setRerunStage(null);
-				setStTab(saved && saved.stTab ? saved.stTab : "run");
-				setReviews(null); setLedger(null); setEvents(null); setOpenEv(-1); evRef.current = null;
-				setSelStage(initialStage);
-				// eslint-disable-next-line react-hooks/exhaustive-deps
-			}, [p.runId]);
-			// 现场写回模块级 store（每次渲染同步；卸载后由重挂载恢复）
-			React.useEffect(function () {
-				runsViewStore.runId = p.runId; runsViewStore.selStage = selStage;
-				runsViewStore.stTab = stTab; runsViewStore.selArt = selArt;
+				tick();
+				return () => { active = false; controller.abort(); clearTimeout(timer); };
+			}, [key, revision, interval]);
+			return { value: data.key === key ? data.value : null, error: data.key === key ? data.error : "",
+				reload: () => setRevision(value => value + 1) };
+		}
+		function ResourceNotice({ resource }) {
+			return resource.error ? h("div", { className: "callout err studio-row", role: "alert" },
+				h("span", { className: "studio-grow" }, "读取失败，保留上次内容：" + resource.error),
+				h("button", { className: "btn sm", onClick: resource.reload }, "重试")) : null;
+		}
+		function StatusBadge({ status }) {
+			const entry = TAG[status] || ["t-off", status || "未开始"];
+			return h("span", { className: "tg " + entry[0] }, entry[1]);
+		}
+		function studioButton(label, onClick, className = "", disabled = false) {
+			return h("button", { type: "button", className: "btn " + className, onClick, disabled }, label);
+		}
+		function EmptyState({ title, children }) {
+			return h("div", { className: "studio-empty" }, Ic("box", 28), h("h3", null, title), children);
+		}
+		function StudioDialog({ title, onClose, children, wide = false }) {
+			const ref = React.useRef(null);
+			React.useEffect(() => {
+				const previous = document.activeElement, dialog = ref.current;
+				dialog.showModal();
+				return () => { dialog.close(); if (previous?.isConnected) previous.focus(); };
+			}, []);
+			return h("dialog", { ref, className: "studio-dialog" + (wide ? " wide" : ""), "aria-label": title,
+				onCancel: e => { e.preventDefault(); onClose(); } },
+				h("div", { className: "studio-row studio-dialog-head" }, h("h2", { className: "studio-grow" }, title),
+					studioButton("关闭", onClose, "ghost sm")), h("div", { className: "studio-dialog-body" }, children));
+		}
+		function useRunArtifact(slug, runId, path, tree, mode = "") {
+			const file = (tree || []).find(entry => entry.path === path);
+			const param = mode === "tail" ? "&tail=1" : mode === "full" ? "&full=1" : "";
+			return useResource(slug && runId && path && file
+				? [slug, runId, path, file.mtimeMs, file.size, mode].join("|") : null,
+				async signal => (await readOk("/projects/" + slug + "/runs/" + runId
+					+ "/artifact?path=" + encodeURIComponent(path) + param, signal)).text);
+		}
+		function parseJson(text) { try { return JSON.parse(text); } catch { return null; } }
+		function parseLines(text) {
+			return String(text || "").split("\n").map((line, index) => {
+				const row = parseJson(line); return row && { ...row, lineNo: index };
+			}).filter(Boolean);
+		}
+		async function copyStudio(text, toast) {
+			try { await navigator.clipboard.writeText(String(text)); toast("已复制"); }
+			catch { toast("复制失败，请选择文本后手动复制", "bad"); }
+		}
+		function downloadStudio(path, text) {
+			const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+			const link = document.createElement("a"); link.href = url;
+			link.download = path.split("/").pop(); link.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+		}
+		function ArtifactContent({ text, path, raw = false }) {
+			if (text == null) return h("p", { className: "hint" }, "读取中…");
+			if (!text) return h("p", { className: "hint" }, "空文件");
+			return !raw && /\.md$/i.test(path) ? h("div", { className: "md-view" }, h(MarkdownText, { text }))
+				: h("pre", { className: "view", tabIndex: 0,
+					dangerouslySetInnerHTML: { __html: raw ? esc(text) : renderView(text, path) } });
+		}
+		function executionPatchPath(value) {
+			if (typeof value !== "string" || !value.trim()) return null;
+			const raw = value.trim().replace(/\\/g, "/");
+			if (raw.split("/").includes("..")) return null;
+			return raw.startsWith("06-implementation/") ? raw : "06-implementation/" + raw.replace(/^\/+/, "");
+		}
+		function artifactOwner(path, run, instances = []) {
+			if (/^(trace\/|reviews\/|run\.json$)/.test(path)) return { stage: "task", label: "任务级记录" };
+			const delegated = path.match(/^delegate\/(P\d+)(?:-|\/)/);
+			const stage = STAGES.find(item => item.id === delegated?.[1])?.id || STAGES.find(item => path === item.art || (item.art.endsWith("/") && path.startsWith(item.art)))?.id
+				|| (path === "08-test-output.txt" ? "P8" : path === "11-eval-report.json" ? "P11" : null)
+				|| STAGES.find(item => run?.stages?.[item.id]?.artifact === path)?.id;
+			const owners = instances.filter(item => item && executionPatchPath(item.patch) === path);
+			return { stage: stage || "other", label: stage ? stage + " " + STUDIO_STAGE_NAMES[stage] : "其他文件 · 归属未确认",
+				instance: owners.length === 1 && typeof owners[0].node === "string" ? owners[0].node : null };
+		}
+		function artifactLabel(path) {
+			if (/events\.jsonl$/.test(path)) return "全过程事件";
+			if (/spans\.jsonl$/.test(path)) return "阶段耗时记录";
+			if (/^reviews\//.test(path)) return "人工复核记录";
+			if (/task\.md$/.test(path)) return "委托输入";
+			if (/\.(diff|patch)$/.test(path)) return "代码补丁";
+			if (/external-exec\.log$/.test(path)) return "外部执行输出";
+			if (/coder-report\.json$/.test(path)) return "实例结果汇总";
+			if (/test-report\.json$/.test(path)) return "任务测试结论";
+			if (/test-output\.txt$/.test(path)) return "测试命令输出";
+			if (/review-report\.json$/.test(path)) return "任务审查结论";
+			if (/eval-report\.json$/.test(path)) return "交付评测";
+			return /\.md$/.test(path) ? "Markdown 文档" : /\.jsonl?$/.test(path) ? "结构化记录" : "文本文件";
+		}
+		// 按统一 diff 头（@@ -o,n +p,m @@）推算每行的旧/新文件行号；文件头与 "\ No newline" 行不计数。
+		function diffLineNumbers(lines) {
+			let oldNo = null, newNo = null;
+			return lines.map(line => {
+				if (line.startsWith("@@")) {
+					const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+					if (match) { oldNo = Number(match[1]); newNo = Number(match[2]); }
+					return { old: null, new: null };
+				}
+				if ((oldNo === null && newNo === null) || line.startsWith("diff --git ") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ ") || line.startsWith("\\ ")) return { old: null, new: null };
+				if (line.startsWith("+")) return { old: null, new: newNo === null ? null : newNo++ };
+				if (line.startsWith("-")) return { old: oldNo === null ? null : oldNo++, new: null };
+				const numbers = { old: oldNo, new: newNo };
+				if (oldNo !== null) oldNo++;
+				if (newNo !== null) newNo++;
+				return numbers;
 			});
-			// 重挂载即拉一次最新状态（不等 3s 轮询）：切回「运行」页立刻看到真实进度
-			React.useEffect(function () { if (p.onChanged) p.onChanged(); }, []);
-			// 流水线停住（待复核/失败/停止/完成）时钉到 run.current
-			React.useEffect(function () {
-				if (!p.run) return;
-				if (["awaiting_review", "failed", "completed", "stopped"].indexOf(p.run.status) >= 0) {
-					setSelStage(p.run.current || null);
-					if (!rerunStage) setRerunStage(p.run.current || null);
-				} else if (!selStage) {
-					setSelStage(p.run.current || null);
-				}
-				// eslint-disable-next-line react-hooks/exhaustive-deps
-			}, [p.run && p.run.status, p.run && p.run.current, p.runId]);
-
-			// 阶段产物文件列表（来自 run 产物树，按阶段产物根过滤）
-			const listFiles = function (stageId) {
-				const s = STAGES.find(function (x) { return x.id === stageId; });
-				if (!s || !p.tree) return [];
-				const root = s.art;
-				return p.tree.filter(function (f) {
-					return f.path === root || f.path.indexOf(root + "/") === 0;
-				});
-			};
-			const files = listFiles(selStage);
-			const filesKey = selStage + "|" + files.map(function (f) { return f.path; }).join(",");
-
-			const fetchArt = function (path, stageId) {
-				const targetStage = stageId || selStage;
-				const requestId = artRef.current.requestId + 1;
-				artRef.current = { stageId: targetStage, path: path, requestId: requestId };
-				setSelArt(path);
-				setArtText(null);
-				apiGet("/projects/" + p.slug + "/runs/" + p.runId + "/artifact?path=" + encodeURIComponent(path))
-					.then(function (r) {
-						const current = artRef.current;
-						if (current.requestId !== requestId || current.stageId !== targetStage || current.path !== path) return;
-						if (r && r.ok) setArtText(r.text);
-						else p.toast((r && r.message) || "读取产物失败", "bad");
-					})
-					.catch(function (e) {
-						const current = artRef.current;
-						if (current.requestId !== requestId || current.stageId !== targetStage || current.path !== path) return;
-						p.toast("请求失败: " + e, "bad");
-					});
-			};
-
-			// 阶段或产物文件变化 → 选中产物并读取（恢复上次选中的文件；新产物落盘不抢占已选）
-			React.useEffect(function () {
-				if (!selStage || !p.runId) return;
-				const fs = listFiles(selStage);
-				if (!fs.length) {
-					resetArtifactView(selStage);
-					setSelArt(null); setArtText(null); return;
-				}
-				const current = artRef.current;
-				const keep = current.stageId === selStage && current.path
-					&& fs.some(function (f) { return f.path === current.path; });
-				const pick = keep ? current.path : fs[0].path;
-				fetchArt(pick, selStage);
-				// eslint-disable-next-line react-hooks/exhaustive-deps
-			}, [selStage, filesKey, p.runId]);
-
-			// 复核历史：reviews/*.json 全量读取（文件名含时间戳，倒序 = 最新在前）
-			React.useEffect(function () {
-				if (!p.tree || !p.runId) { setReviews(null); return; }
-				const revs = p.tree.filter(function (f) { return f.path.indexOf("reviews/") === 0; })
-					.sort().reverse();
-				if (!revs.length) { setReviews([]); return; }
-				Promise.all(revs.map(function (f) {
-					return apiGet("/projects/" + p.slug + "/runs/" + p.runId + "/artifact?path=" + encodeURIComponent(f.path))
-						.then(function (r) {
-							if (!r || !r.ok) return null;
-							try { return JSON.parse(r.text); } catch (e) { return null; }
-						}).catch(function () { return null; });
-				})).then(function (list) { setReviews(list.filter(Boolean)); });
-				// eslint-disable-next-line react-hooks/exhaustive-deps
-			}, [p.tree, p.runId]);
-
-			// P7：解析 patch ledger（每行一个 JSON：applied 记录 / rollback 记录）
-			React.useEffect(function () {
-				if (selStage !== "P7" || !p.tree || !p.runId) { setLedger(null); return; }
-				const ent = p.tree.find(function (f) { return f.path === "ledger/patch-ledger.jsonl"; });
-				if (!ent) { setLedger([]); return; }
-				apiGet("/projects/" + p.slug + "/runs/" + p.runId + "/artifact?path=" + encodeURIComponent(ent.path))
-					.then(function (r) {
-						if (!r || !r.ok) { setLedger([]); return; }
-						const rows = String(r.text).split("\n").filter(Boolean).map(function (line, i) {
-							try { return { no: i, ...JSON.parse(line) }; } catch (e) { return { no: i, raw: line }; }
-						});
-						setLedger(rows);
-					}).catch(function () { setLedger([]); });
-				// eslint-disable-next-line react-hooks/exhaustive-deps
-			}, [selStage, p.tree, p.runId]);
-
-			// 过程事件：trace/events.jsonl（mtime 未变不重拉；轮询刷新 = 近实时跟进）
-			React.useEffect(function () {
-				if (!p.tree || !p.runId) { setEvents(null); return; }
-				const ent = p.tree.find(function (f) { return f.path === "trace/events.jsonl"; });
-				if (!ent) { setEvents([]); return; }
-				const key = p.runId + "|" + ent.mtimeMs;
-				if (evRef.current === key) return;
-				evRef.current = key;
-				apiGet("/projects/" + p.slug + "/runs/" + p.runId + "/artifact?path=" + encodeURIComponent("trace/events.jsonl"))
-					.then(function (r) {
-						if (evRef.current !== key) return; // 乱序守卫
-						if (!r || !r.ok) { setEvents([]); return; }
-						const list = String(r.text).split("\n").filter(Boolean).map(function (line, i) {
-							try { return Object.assign(JSON.parse(line), { no: i }); } catch (e) { return null; }
-						}).filter(Boolean);
-						setEvents(list);
-					}).catch(function () { setEvents([]); });
-				// eslint-disable-next-line react-hooks/exhaustive-deps
-			}, [p.tree, p.runId]);
-
-			const review = function (decision) {
-				if (!p.runId) return;
-				if (decision === "reject" && !(comment || "").trim()) {
-					p.toast("打回需要填写复核意见", "bad");
-					if (commentRef.current) commentRef.current.focus();
-					return;
-				}
-				apiPost("/projects/" + p.slug + "/runs/" + p.runId + "/review", { decision: decision, comment: comment })
-					.then(function (r) {
-						if (r && r.ok) {
-							p.toast(r.message || (decision === "approve" ? "已通过" : "已打回"));
-							setComment("");
-							p.onChanged();
-						} else {
-							p.toast((r && r.message) || "复核提交失败", "bad");
-						}
-					})
-					.catch(function (e) { p.toast("请求失败: " + e, "bad"); });
-			};
-
-			// —— Run 控制：停止 / 回退重跑 / 删除 / 打开目录 ——
-			const runStatus = p.run && p.run.status;
-			const stopRun = function () {
-				apiPost("/projects/" + p.slug + "/runs/" + p.runId + "/stop", {})
-					.then(function (r) {
-						p.toast((r && r.message) || (r && r.ok ? "已停止" : "停止失败"), r && r.ok ? "ok" : "bad");
-						if (r && r.ok) p.onChanged();
-					})
-					.catch(function (e) { p.toast("请求失败: " + e, "bad"); });
-			};
-			const rerunFrom = function () {
-				if (!rerunStage) { p.toast("请选择要回退到的阶段", "bad"); return; }
-				apiPost("/projects/" + p.slug + "/runs/" + p.runId + "/rerun", { stage: rerunStage })
-					.then(function (r) {
-						p.toast((r && r.message) || (r && r.ok ? "已重跑" : "重跑失败"), r && r.ok ? "ok" : "bad");
-						if (r && r.ok) p.onChanged();
-					})
-					.catch(function (e) { p.toast("请求失败: " + e, "bad"); });
-			};
-			const deleteRun = function () {
-				if (!window.confirm("确认删除 Run " + p.runId + "？产物目录将一并删除，不可恢复。")) return;
-				apiDelete("/projects/" + p.slug + "/runs/" + p.runId)
-					.then(function (r) {
-						if (r && r.ok) { p.toast("已删除"); p.onDeleted(); }
-						else p.toast((r && r.message) || "删除失败", "bad");
-					})
-					.catch(function (e) { p.toast("请求失败: " + e, "bad"); });
-			};
-			const openDir = function () {
-				apiPost("/projects/" + p.slug + "/runs/" + p.runId + "/open", {})
-					.then(function (r) {
-						if (r && r.ok) p.toast(r.message || "已打开产物目录");
-						else p.toast((r && r.message) || "打开失败", "bad");
-					})
-					.catch(function (e) { p.toast("请求失败: " + e, "bad"); });
-			};
-			const rollback = function (lineNo) {
-				if (!window.confirm("回滚 ledger 第 " + lineNo + " 行的 patch？\n只反向撤销该 patch，不影响其他修改。")) return;
-				apiPost("/projects/" + p.slug + "/runs/" + p.runId + "/rollback", { lineNo: lineNo })
-					.then(function (r) {
-						if (r && r.ok) { p.toast("已回滚 patch #" + lineNo); p.onChanged(); }
-						else p.toast((r && r.message) || "回滚失败", "bad");
-					})
-					.catch(function (e) { p.toast("请求失败: " + e, "bad"); });
-			};
-
-			// —— 渲染 ——
-			const options = (p.runs && p.runs.length ? p.runs : []).map(function (r) {
-				const c = tag(r.status);
-				return h("option", { key: r.id, value: r.id },
-					r.id + "（" + c[1] + " · " + kindLabel(r.trigger && r.trigger.kind) + "）");
+		}
+		function DiffContent({ text, path }) {
+			if (text == null) return h("p", { className: "hint" }, "正在读取补丁…");
+			const lines = String(text).split("\n");
+			const numbers = diffLineNumbers(lines);
+			return h("div", { className: "studio-diff" }, h("div", { className: "studio-diff-head mono studio-path" }, path),
+				h("div", { className: "studio-diff-lines", tabIndex: 0, "aria-label": "补丁内容" }, lines.map((line, index) => {
+					const kind = line.startsWith("@@") ? "hunk" : /^\+[^+]/.test(line) ? "add" : /^-[^-]/.test(line) ? "del" : "";
+					return h("div", { key: index, className: "studio-diff-line " + kind },
+						h("small", null, numbers[index].old ?? ""),
+						h("small", null, numbers[index].new ?? ""),
+						h("span", null, line || " "));
+				})));
+		}
+		function ArtifactsPanel(p) {
+			const memoryKey = "i2p.file." + p.slug + "." + p.runId;
+			const [selected, setSelected] = React.useState(() => p.initialPath || readPreference(memoryKey, ""));
+			const [search, setSearch] = React.useState("");
+			const [raw, setRaw] = React.useState(false);
+			const [page, setPage] = React.useState(0);
+			const [collapsed, setCollapsed] = usePreference(memoryKey + ".collapsed", {});
+			const reader = React.useRef(null), treeRef = React.useRef(null);
+			const files = p.tree || [];
+			const path = files.some(file => file.path === selected) ? selected : files[0]?.path || "";
+			const file = files.find(item => item.path === path), owner = artifactOwner(path, p.run, p.instances);
+			const content = useRunArtifact(p.slug, p.runId, path, p.tree);
+			React.useEffect(() => {
+				if (!p.initialPath) return;
+				setSelected(p.initialPath); setSearch("");
+				const target = artifactOwner(p.initialPath, p.run, p.instances);
+				setCollapsed(previous => ({ ...previous, [target.stage]: false, [target.stage + ":" + target.instance]: false }));
+			}, [p.initialPath]);
+			React.useEffect(() => { if (path) writePreference(memoryKey, path); setPage(0); }, [path, memoryKey]);
+			React.useLayoutEffect(() => {
+				if (reader.current && content.value != null) reader.current.scrollTop = readPreference(memoryKey + ".scroll." + path, 0);
+			}, [path, content.value != null]);
+			React.useLayoutEffect(() => { if (treeRef.current) treeRef.current.scrollTop = readPreference(memoryKey + ".tree-scroll", 0); }, [memoryKey]);
+			const query = search.trim().toLowerCase();
+			const visible = files.filter(file => {
+				const info = artifactOwner(file.path, p.run, p.instances);
+				return [file.path, artifactLabel(file.path), info.label, info.instance].join(" ").toLowerCase().includes(query);
 			});
-			if (!options.length) {
-				options.push(h("option", { key: "__none__", value: "" },
-					p.restoring ? "（恢复 Run 列表…）" : "（暂无 Run · 请先在「01 项目」发起）"));
+			const nodes = [];
+			for (const stage of [...STAGES.map(item => item.id), "task", "other"]) {
+				const stageFiles = visible.filter(file => artifactOwner(file.path, p.run, p.instances).stage === stage);
+				if (!stageFiles.length && (query || ["task", "other"].includes(stage))) continue;
+				const expanded = !!query || !collapsed[stage], label = stage === "task" ? "任务级记录" : stage === "other" ? "其他文件 · 归属未确认" : stage + " " + STUDIO_STAGE_NAMES[stage];
+				nodes.push(h("button", { key: stage, className: "dir", "aria-expanded": expanded, onClick: () => setCollapsed(prev => ({ ...prev, [stage]: expanded })) },
+					h("span", null, expanded ? "▾" : "▸"), Ic("folder", 15), h("span", { className: "studio-grow" }, label), h("span", { className: "ts" }, stageFiles.length || tag(p.run?.stages?.[stage]?.status)[1])));
+				if (!expanded) continue;
+				const groups = [...new Set(stageFiles.map(file => artifactOwner(file.path, p.run, p.instances).instance))].sort((a, b) => a == null ? -1 : b == null ? 1 : a.localeCompare(b));
+				for (const instance of groups) {
+					const groupKey = stage + ":" + instance, groupExpanded = !!query || !collapsed[groupKey];
+					if (instance) nodes.push(h("button", { key: groupKey, className: "dir", style: { paddingLeft: 18 }, "aria-expanded": groupExpanded,
+						onClick: () => setCollapsed(prev => ({ ...prev, [groupKey]: groupExpanded })) }, (groupExpanded ? "▾ " : "▸ ") + instance));
+					if (instance && !groupExpanded) continue;
+					for (const entry of stageFiles.filter(file => artifactOwner(file.path, p.run, p.instances).instance === instance)) nodes.push(h("button", {
+						key: entry.path, className: "file" + (path === entry.path ? " on" : ""), style: { paddingLeft: instance ? 36 : 18 }, title: entry.path,
+						"aria-current": path === entry.path ? "true" : undefined, onClick: () => setSelected(entry.path)
+					}, Ic("file", 15), h("span", { className: "studio-grow studio-path" }, entry.path.split("/").at(-1), h("small", null, artifactLabel(entry.path))), h("span", { className: "ts" }, fmtSize(entry.size))));
+				}
 			}
+			const pages = Math.max(1, Math.ceil((content.value?.length || 0) / 60000)), safePage = Math.min(page, pages - 1);
+			const partial = file?.size > 200 * 1024;
+			return h("div", { className: "studio-files" },
+				h("aside", { className: "studio-tree", "aria-label": "产物文件树" }, h("div", { className: "studio-row" }, h("strong", { className: "studio-grow" }, "文件与证据"), h("span", { className: "hint" }, files.length + " · 全部产物")),
+					h("input", { type: "search", className: "f-input", value: search, placeholder: "搜索文件、阶段或实例", "aria-label": "搜索文件", onChange: e => setSearch(e.target.value) }),
+					h("div", { className: "tree", ref: treeRef, onScroll: e => writePreference(memoryKey + ".tree-scroll", e.currentTarget.scrollTop) }, nodes.length ? nodes : h("p", { className: "hint" }, "没有匹配文件"))),
+				h("section", { className: "studio-file-content" },
+					h("div", { className: "studio-file-head" }, h("div", { className: "studio-row wrap" },
+						h("h3", { className: "studio-grow studio-path" }, path.split("/").at(-1) || "文件预览"),
+						p.onReturn ? studioButton("返回现场", p.onReturn, "ghost sm") : null,
+						studioButton("复制", () => copyStudio(content.value, p.toast), "ghost sm", content.value == null),
+						studioButton(partial ? "下载已读内容" : "下载", () => downloadStudio(path, content.value), "ghost sm", content.value == null),
+						studioButton("打开目录", async () => { try {
+							const result = await apiPost("/projects/" + p.slug + "/runs/" + p.runId + "/open", {}); p.toast(result.message || "已打开", result.ok ? "ok" : "bad");
+						} catch (error) { p.toast(error.message, "bad"); } }, "ghost sm")),
+						h("div", { className: "hint studio-path" }, (p.project?.name || p.slug) + " · " + owner.label + (owner.instance ? " · " + owner.instance : "") + " · 当前存储文件"),
+						h("div", { className: "mono hint studio-path" }, path),
+						h("div", { className: "studio-row" }, h("span", { className: "hint studio-grow" }, fmtSize(file?.size) + (content.value != null ? " · " + content.value.split("\n").length + " 行" : "")),
+						studioButton(raw ? "查看排版" : "查看源文件", () => setRaw(!raw), "ghost sm")),
+					owner.stage !== "task" && owner.stage !== "other" ? h("p", { className: "hint" }, evidenceState(p.run, owner.stage, file)) : null,
+						partial ? h("p", { className: "callout warn" }, "文件已超过预览上限，请打开目录查看原文件；如仍有预览内容，为上次读取的版本。") : null,
+					h(ResourceNotice, { resource: content }), pages > 1 ? h("div", { className: "studio-row" }, studioButton("上一段", () => setPage(safePage - 1), "sm", safePage === 0),
+						h("span", { className: "hint" }, (safePage + 1) + " / " + pages), studioButton("下一段", () => setPage(safePage + 1), "sm", safePage + 1 === pages)) : null),
+					h("div", { className: "studio-file-reader", ref: reader, onScroll: e => writePreference(memoryKey + ".scroll." + path, e.currentTarget.scrollTop) },
+						path ? !raw && /\.(diff|patch)$/i.test(path) ? h(DiffContent, { text: content.value?.slice(safePage * 60000, (safePage + 1) * 60000), path })
+							: h(ArtifactContent, { text: content.value == null ? null : content.value.slice(safePage * 60000, (safePage + 1) * 60000), path, raw: raw || pages > 1 })
+							: h(EmptyState, { title: "暂未生成文件" }))));
+		}
 
-			const sDef = STAGES.find(function (x) { return x.id === selStage; });
-			const st = p.run && p.run.stages ? p.run.stages[selStage] : null;
-			const stStatus = st ? st.status : null;
-			// session/claude/dsh 模式的 P6 待复核 = 任务包等外部执行（按 p6Mode 推导，兼容旧 run）
-			// 委托成功（externalExec.status=done）后实施已完成，走正常"待复核"；执行中显示"委外执行中"
-			const ee = p.run ? p.run.externalExec : null;
-			const stExternal = selStage === "P6" && stStatus === "awaiting_review"
-				&& !!(p.run && (p.run.p6Mode === "session" || p.run.p6Mode === "claude" || p.run.p6Mode === "dsh"))
-				&& !(ee && ee.status === "done");
-			const stClaudeRun = selStage === "P6" && stStatus === "running" && !!(ee && ee.status === "running");
-
-			let viewHtml = '<span class="c">点击左侧任一阶段查看产物。</span>';
-			if (p.restoring && !p.run) viewHtml = '<span class="c">正在恢复运行状态…</span>';
-			else if (!sDef) viewHtml = '<span class="c">点击左侧任一阶段查看产物。</span>';
-			else if (artText != null) viewHtml = renderView(artText, selArt);
-			else if (selArt) viewHtml = '<span class="c">读取中…</span>';
-			else if (!stStatus || stStatus === "pending") viewHtml = '<span class="c">该阶段尚未运行，暂无产物。</span>';
-			else if (stStatus === "failed") viewHtml = '<span class="c">该阶段执行失败：' + esc(st.error || "未知错误") + "</span>";
-			else viewHtml = '<span class="c">该阶段暂无文件产物（执行中或产物为目录）。</span>';
-			// .md 产物改走宿主官方 MarkdownText（替代源码文本）
-			const artMd = artText != null && /\.md$/i.test(selArt || "");
-
-			const showReview = stStatus === "awaiting_review";
-			const stageEvents = (events || []).filter(function (e) { return e.stage === selStage; });
-			const reached = STAGES.filter(function (s) {
-				const x = p.run && p.run.stages ? p.run.stages[s.id] : null;
-				return x && x.status !== "pending";
-			}).map(function (s) {
-				return h("option", { key: s.id, value: s.id }, s.id + " · " + s.name);
-			});
-
-			// 产物 tab：阶段文件按目录分组（patches/ 等子目录平铺为组；"·" = 产物根）
-			const artGroups = (function () {
-				if (!sDef) return [];
-				const root = sDef.art;
-				const groups = {};
-				files.forEach(function (f) {
-					const sub = root.charAt(root.length - 1) === "/" ? f.path.slice(root.length) : f.path.split("/").pop();
-					const seg = sub.split("/");
-					const g = seg.length > 1 ? seg[0] + "/" : "·";
-					(groups[g] || (groups[g] = [])).push(f);
-				});
-				return Object.keys(groups).sort().map(function (g) { return [g, groups[g]]; });
+		const STUDIO_STAGE_NAMES = {
+			P1: "需求分析", P2: "代码检索", P3: "代码理解", P4: "根因假设", P5: "任务规划",
+			P6: "代码实现", P7: "补丁应用", P8: "测试验证", P9: "代码审查", P10: "失败分析", P11: "交付评测"
+		};
+		const REVIEW_QUESTIONS = { P5: "这个实施计划可以开始吗？", P6: "这些修改符合预期吗？", P9: "验证与审查是否充分？", P11: "这份交付说明是否准确？" };
+		function stageFiles(stage, tree, run) { return (tree || []).filter(file => artifactOwner(file.path, run).stage === stage); }
+		function evidenceState(run, stage, file) {
+			const state = run?.stages?.[stage];
+			if (!file) return "未生成";
+			if (!state?.startedAt || !Number.isFinite(file.mtimeMs)
+				|| file.mtimeMs < Date.parse(state.startedAt)) return "本轮有效性未确认";
+			if (!["approved", "completed"].includes(state.status)) return "尚未通过本轮复核";
+			return "本轮阶段已通过";
+		}
+		function gateLabel(value) { return value === "pass" ? "通过" : value === "fail" ? "未通过" : value == null ? "未记录" : "格式异常"; }
+		function reportSummary(stage, raw) {
+			if (raw == null) return "正在读取结果…";
+			if (stage === "P7") { const rows = parseLines(raw); return "账本记录 " + rows.length + " 条 · 回滚 " + rows.filter(row => row.rollbackOf != null).length + " 条"; }
+			const report = parseJson(raw);
+			if (!report || typeof report !== "object" || Array.isArray(report)) return "报告格式异常，请查看原文";
+			if (stage === "P8") return (report.passed === true ? "测试通过" : report.passed === false ? "测试失败" : "测试结论未记录")
+				+ (typeof report.exitCode === "number" ? " · 退出码 " + report.exitCode : "") + (typeof report.command === "string" ? " · " + report.command : "");
+			if (stage === "P9") return "审查结论：" + gateLabel(report.verdict) + (typeof report.diff_scope === "string" ? " · " + report.diff_scope : "");
+			return "文件记录：" + ["ROOT", "PATCH", "TEST", "DIFF", "DESC", "ACCEPT"].filter(name => report[name] === "pass").length + " / 6 项评测通过";
+		}
+		function RunReportCard({ title, stage, path, run, tree, onFile, slug, runId }) {
+			const file = (tree || []).find(item => item.path === path);
+			const report = useRunArtifact(slug, runId, path, tree);
+			if ((run.stages?.[stage]?.status || "pending") === "pending" && !file)
+				return h("div", { className: "studio-check studio-row" }, h("span", { className: "studio-grow" }, title),
+					h("span", { className: "hint" }, stage + " 尚未执行"));
+			const result = parseJson(report.value);
+			const gates = ["ROOT", "PATCH", "TEST", "DIFF", "DESC", "ACCEPT"];
+			const passed = stage === "P8" ? result?.passed : stage === "P9" ? (result?.verdict === "pass" ? true : result?.verdict === "fail" ? false : null)
+				: stage === "P11" ? (gates.every(key => result?.[key] === "pass") ? true : gates.some(key => result?.[key] === "fail") ? false : null) : null;
+			return h("article", { className: "studio-check" }, h("div", { className: "studio-row" },
+				h("h3", { className: "studio-grow" }, title), stage === "P7" ? h(StatusBadge, { status: run.stages?.[stage]?.status }) :
+					h("span", { className: "tg " + (passed === true ? "t-good" : passed === false ? "t-err" : "t-off") }, passed === true ? "报告通过" : passed === false ? "报告未通过" : "尚无结论")),
+				h("p", { className: "hint" }, "阶段状态：" + evidenceState(run, stage, file)),
+				h(ResourceNotice, { resource: report }),
+				h("p", { className: "studio-path" }, run.stages?.[stage]?.error || (file ? reportSummary(stage, report.value) : "尚未生成结果文件")),
+				studioButton("查看证据", () => onFile(path), "sm", !file));
+		}
+		// P11 节点子页签：交付（P11 自身产物）与全流程汇总（跨阶段，明确标注归属）分开呈现。
+		function DeliveryPanel({ run, tree, description, evaluation, toast }) {
+			return h("div", { className: "studio-stack" },
+				h("div", { className: "studio-row wrap" }, h("h2", { className: "studio-grow" }, "交付与验收"), h("span", { className: "hint" }, "远程 PR 尚未创建"),
+					studioButton("复制说明", () => copyStudio(description.value, toast), "sm", description.value == null)),
+				h("div", { className: "studio-grid" }, ["ROOT", "PATCH", "TEST", "DIFF", "DESC", "ACCEPT"].map(name => h("div", { className: "studio-check studio-row", key: name }, h("span", { className: "studio-grow" }, ({ ROOT: "根因证据", PATCH: "补丁应用", TEST: "回归测试", DIFF: "变更审查", DESC: "说明忠实", ACCEPT: "验收门禁" })[name]), h("span", { className: "hint" }, gateLabel(parseJson(evaluation.value)?.[name]))))),
+				h("p", { className: "hint" }, evidenceState(run, "P11", tree.find(file => file.path === "11-eval-report.json"))), h(ResourceNotice, { resource: evaluation }), h(ResourceNotice, { resource: description }),
+				h("article", { className: "studio-delivery-prose" }, description.value != null ? h(ArtifactContent, { path: "10-pr-description.md", text: description.value }) : h(EmptyState, { title: "PR 说明尚未生成" })));
+		}
+		function DeliverySummaryPanel({ run, tree, slug, runId, onFile }) {
+			return h("div", { className: "studio-stack" },
+				h("div", { className: "studio-row wrap" }, h("h2", { className: "studio-grow" }, "全流程验证汇总"), h("span", { className: "hint" }, "跨阶段内容 · 不属于 P11 单一节点")),
+				[["补丁应用", "P7", "ledger/patch-ledger.jsonl"], ["测试验证", "P8", "07-test-report.json"], ["代码审查", "P9", "08-review-report.json"]].map(([title, stage, path]) => h(RunReportCard, { title, stage, path, key: stage, run, tree, slug, runId, onFile })));
+		}
+		function ReadableValue({ value, depth = 0 }) {
+			if (value == null) return h("span", { className: "muted" }, "未记录");
+			if (typeof value !== "object") return h("span", { className: "studio-path" }, String(value));
+			if (depth > 2) {
+				const count = Array.isArray(value) ? value.length : Object.keys(value).length;
+				return h("details", { className: "studio-json-fold" },
+					h("summary", null, "展开 " + count + " 项"),
+					h(ReadableValue, { value, depth: depth + 1 }));
+			}
+			if (Array.isArray(value)) return h("ul", null, value.slice(0, 60).map((item, i) => h("li", { key: i }, h(ReadableValue, { value: item, depth: depth + 1 }))));
+			const names = { phenomenon: "现象", trigger: "触发条件", risk_level: "风险等级", candidates: "候选文件", hypotheses: "根因假设", verification: "验证方式", title: "标题", summary: "总结", scope: "影响范围", symptom: "现象", symptoms: "现象", root_cause: "根因", hypothesis: "假设", evidence: "证据", confidence: "置信度", path: "文件", reason: "说明", success_criteria: "通过条件", constraints: "约束", risk: "风险", deps: "依赖", input: "输入", output: "输出", status: "状态", verdict: "审查结论", passed: "测试通过", exitCode: "退出码", command: "测试命令", diff_scope: "变更范围", api_safety: "API 与安全", test_coverage: "测试覆盖" };
+			return h("div", { className: "kv" }, Object.entries(value).slice(0, 40).map(([key, item]) => h(React.Fragment, { key },
+				h("span", { className: "k" }, names[key] || key), h("div", { className: "v" }, h(ReadableValue, { value: item, depth: depth + 1 })))));
+		}
+		function StageResult(p) {
+			const candidates = stageFiles(p.stage, p.tree, p.run).filter(file => !/\/task|task\.md$|\.log$|\.jsonl$/.test(file.path));
+			const file = candidates.find(file => file.path === p.run?.stages?.[p.stage]?.artifact) || candidates[0];
+			const resource = useRunArtifact(p.slug, p.runId, file?.path, p.tree);
+			const parsed = parseJson(resource.value);
+			const nodes = Array.isArray(parsed?.nodes) ? parsed.nodes.filter(node => node && typeof node === "object") : null;
+			const text = value => value == null ? "" : Array.isArray(value) ? value.map(text).join("、") : typeof value === "object" ? JSON.stringify(value) : String(value);
+			return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource }),
+				!file ? h(EmptyState, { title: "本阶段尚未生成结果" }, h("p", null, "执行结果生成后会显示在这里，过程事件可在下方查看。")) :
+				resource.value == null ? null : /\.md$/.test(file.path) ? h(ArtifactContent, { text: resource.value, path: file.path }) :
+				p.stage === "P5" && nodes ? h("div", null, h("p", { className: "hint" }, nodes.length + " 项任务，按依赖关系安排执行。"),
+					nodes.map((node, i) => h("article", { className: "studio-plan-item", key: String(node.id || i) },
+						h("span", { className: "mono hint" }, text(node.id)), h("div", null, h("h3", null, text(node.title) || "任务"),
+							node.success_criteria ? h("p", null, text(node.success_criteria)) : null,
+							h("div", { className: "studio-plan-tags" }, node.output ? h("span", null, "输出 · " + text(node.output)) : null,
+								h("span", null, Array.isArray(node.deps) && node.deps.length ? "依赖 " + text(node.deps) : "无前置依赖"),
+								node.risk ? h("span", null, ({ low: "低风险", medium: "中风险", high: "高风险" })[node.risk] || text(node.risk)) : null),
+							node.input ? h("details", { className: "hint" }, h("summary", null, "输入依据"), h(ReadableValue, { value: node.input })) : null))),
+					parsed.review_gates || parsed.pr_gate ? h("div", { className: "callout acc" }, h(ReadableValue, { value: { ...(parsed.review_gates ? { "复核门": parsed.review_gates } : {}), ...(parsed.pr_gate ? { "PR 门": parsed.pr_gate } : {}) } })) : null) :
+				parsed && typeof parsed === "object" ? h(ReadableValue, { value: parsed }) : h(ArtifactContent, { text: resource.value, path: file.path }),
+				file ? studioButton("查看结果文件", () => p.onFile(file.path), "ghost sm") : null);
+		}
+		function OutputPanel({ text = "", resource, full, onFull, label, memoryKey, filename, toast, onFile, partial = false }) {
+			const [search, setSearch] = React.useState("");
+			const [follow, setFollow] = usePreference(memoryKey + ".follow", true);
+			const [wrap, setWrap] = usePreference(memoryKey + ".wrap", true);
+			const [expanded, setExpanded] = React.useState(false);
+			const ref = React.useRef(null), expandButton = React.useRef(null), returnFocus = React.useRef(false);
+			React.useLayoutEffect(() => { if (!expanded && returnFocus.current) { expandButton.current?.focus(); returnFocus.current = false; } }, [expanded]);
+			const lines = String(text).split("\n"), query = search.toLowerCase();
+			const searchSource = query && full && full.value != null ? String(full.value) : null;
+			const searchLines = searchSource !== null ? searchSource.split("\n") : lines;
+			const filtered = query ? searchLines.filter(line => line.toLowerCase().includes(query)) : lines;
+			const errorLine = /(error|failed|fatal|失败|✖|exit code [1-9]|exit [1-9]\b)/i;
+			const visibleLines = text ? (query ? filtered : lines.slice(-600)) : null;
+			React.useLayoutEffect(() => { if (!search && ref.current) ref.current.scrollTop = readPreference(memoryKey + ".scroll", 0); }, [memoryKey, expanded, !!search]);
+			React.useEffect(() => { if (follow && !search && ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [text, follow, search, expanded]);
+			React.useEffect(() => { if (query && onFull) onFull(); }, [!!query]);
+			const content = h("div", { className: "studio-terminal-shell" },
+				h("div", { className: "studio-terminal-head studio-row" }, h("span", { className: "studio-grow" }, label), h("button", { ref: expandButton, onClick: () => { returnFocus.current = true; setExpanded(!expanded); } }, expanded ? "还原" : "放大")),
+				h("div", { className: "studio-terminal-tools studio-row" },
+					h("input", { type: "search", value: search, placeholder: "搜索输出", "aria-label": "搜索日志", onChange: e => setSearch(e.target.value) }),
+					h("button", { onClick: () => setWrap(!wrap), "aria-pressed": wrap }, "换行"),
+					h("button", { onClick: () => setFollow(!follow) }, follow ? "暂停跟随" : "恢复跟随"),
+					h("button", { onClick: () => copyStudio(text, toast), disabled: !text }, "复制日志"),
+					h("button", { onClick: () => downloadStudio(filename, text), disabled: !text }, partial ? "下载已读内容" : "下载日志"),
+					search ? h("span", null, filtered.length + " 行匹配") : null),
+				h("div", { className: "studio-terminal" + (wrap ? " wrapped" : ""), ref, role: "log", tabIndex: 0, "aria-label": label,
+					onScroll: e => { const node = e.currentTarget; if (!search) { writePreference(memoryKey + ".scroll", node.scrollTop); if (node.scrollHeight - node.scrollTop - node.clientHeight > 40) setFollow(false); } } },
+					visibleLines ? visibleLines.map((line, i) => errorLine.test(line) ? h("div", { key: i, className: "bad" }, line) : h("div", { key: i }, line))
+							: query ? "没有匹配输出" : resource?.error ? "输出暂不可读取" : "尚未记录输出"),
+				h("div", { className: "studio-terminal-foot studio-row wrap" }, h("span", { className: "studio-grow" },
+					partial ? "文件超过预览上限，仅显示尾部最近内容；复制/下载为该部分"
+						: query ? (full && full.loading ? "正在加载全量日志…" : "匹配 " + filtered.length + " / 共 " + searchLines.length + " 行" + (searchSource !== null ? " · 全量" : ""))
+						: text ? "共 " + lines.length + " 行 · 显示最近 600 行" : "尚无输出；开始执行后这里会显示日志"),
+					onFile ? h("button", { onClick: onFile }, "查看源文件") : null));
+			return h(React.Fragment, null, resource ? h(ResourceNotice, { resource }) : null,
+				expanded ? h(StudioDialog, { title: label, wide: true, onClose: () => setExpanded(false) }, content) : content);
+		}
+		function executionItems(run, report) {
+			const tasks = Array.isArray(report?.tasks) ? report.tasks : Array.isArray(report?.patches) ? report.patches.map(item => ({ ...item, status: "patched" })) : [];
+			// An external invocation executes the task graph as a whole; its nodes are not separate CLI sessions.
+			if (run.externalExec) return [{ ...run.externalExec, id: "external", title: run.externalExec.executor === "claude-code" ? "Claude Code" : "DSH 原生智能体", external: true }];
+			const valid = tasks.filter(item => item && typeof item === "object");
+			return valid.map((item, index) => ({ ...item, patch: executionPatchPath(item.patch),
+				id: String(item.node || "record") + (valid.filter(other => other.node === item.node).length > 1 || !item.node ? "#" + index : ""),
+				title: String(item.node || "任务 " + (index + 1)) + (item.file ? " · " + item.file : "") }));
+		}
+		function instanceStatus(value) {
+			return ({ patched: "已生成补丁", no_change: "无需修改", failed: "失败", running: "执行中", done: "执行结束", stopped: "已停止", skipped: "未启动" })[value] || "结果已记录";
+		}
+		// 委外 agent 日志：stream-json 帧逐条美化（只格式化，不做语义映射）；非 JSON 行原样保留。
+		function formatAgentLog(text) {
+			return String(text || "").split("\n").map(line => {
+				const t = line.trim();
+				if (!t.startsWith("{")) return line;
+				try {
+					const frame = JSON.parse(t);
+					if (frame.type === "system" && frame.subtype && frame.subtype !== "init") return null; // 纯遥测帧（计数心跳）滤噪
+					return JSON.stringify(frame, null, 2);
+				} catch { return line; }
+			}).filter((line) => line !== null).join("\n");
+		}
+		function ExecutionsPanel(p) {
+			const [filter, setFilter] = React.useState("all"), [search, setSearch] = React.useState("");
+			const [view, setView] = usePreference("i2p.execution-view." + p.slug + "/" + p.runId, "output");
+			const externalLog = useRunArtifact(p.slug, p.runId, "06-implementation/external-exec.log", p.tree, "tail"); // 委外日志常超限，尾部读取（原始保真）
+			const agentTimeline = useRunArtifact(p.slug, p.runId, "06-implementation/external-exec.timeline.log", p.tree); // 写入时已格式化的人读时间线
+			const [agentFullSearch, setAgentFullSearch] = React.useState(false);
+			const agentTimelineFull = useRunArtifact(p.slug, p.runId, agentFullSearch ? "06-implementation/external-exec.timeline.log" : null, p.tree, "full"); // 搜索时才加载全量
+			const sessionTask = useRunArtifact(p.slug, p.runId, "06-implementation/session-task.md", p.tree); // 交给外部 agent 的任务包（输入）
+			const [inputOpen, setInputOpen] = React.useState(false);
+			const hasSessionTask = p.tree.some(file => file.path === "06-implementation/session-task.md");
+			const report = parseJson(p.coder.value), items = executionItems(p.run, report);
+			const selected = items.find(item => item.id === p.selection);
+			const filtered = items.filter(item => (filter === "all" || (filter === "done" ? ["done", "patched", "no_change"].includes(item.status) : item.status === filter))
+				&& [item.title, item.reason, item.patch, item.executor].join(" ").toLowerCase().includes(search.toLowerCase()));
+			const files = stageFiles("P6", p.tree, p.run).filter(file => !selected || selected.external || selected.patch === file.path);
+			const rawTail = externalLog.value != null ? formatAgentLog(externalLog.value) : null;
+			const timelineDisplay = agentTimeline.value != null
+				? agentTimeline.value.split("\n")
+					.filter(l => l.trim() && !/^(\d{2}:\d{2}:\d{2}\|)?raw\|(=== |bin=|permission=|auth=|--- )/.test(l.trim()))
+					.join("\n\n")
+				: null;
+			const output = selected?.external
+				? (timelineDisplay != null ? timelineDisplay : rawTail != null ? rawTail : p.eventsText)
+				: "此执行报告未记录独立实例输出。返回全部实例可查看阶段事件。";
+			const logPath = selected?.external && externalLog.value != null ? "06-implementation/external-exec.log" : "trace/events.jsonl";
+			// 最终回复：优先时间线的 result 行，回退原始日志的 result 帧
+			const finalReply = (() => {
+				if (!selected?.external) return null;
+				const outLines = String(output).split("\n");
+				for (let i = outLines.length - 1; i >= 0; i--) {
+					const m = /^\d{2}:\d{2}:\d{2}\|result\|(.+)$/.exec(outLines[i]);
+					if (m && m[1].trim()) return m[1];
+				}
+				for (let i = outLines.length - 1; i >= 0; i--) {
+					try { const f = JSON.parse(outLines[i]); if (f.type === "result" && f.result) return String(f.result).slice(0, 500); } catch { /* 继续扫 */ }
+				}
+				return null;
 			})();
-			const curProject = p.projects ? p.projects.find(function (x) { return x.slug === p.slug; }) : null;
-			// 恢复期（重挂载后详情未到位）：阶段徽章统一占位「…」，不渲染误导性的「未开始」
-			const restoringAll = p.restoring && !p.run;
-
-			return h("div", null,
-				h("div", { className: "run-bar" },
-					h("label", { className: "f-label", htmlFor: "run-select", style: { margin: 0 } }, "当前 Run"),
-					h("select", {
-						className: "f-select mono", id: "run-select", value: p.runId || "",
-						onChange: function (e) { p.onPickRun(e.target.value); },
-					}, options),
-					runStatus ? h("span", { className: "tg " + tag(runStatus)[0] + (runStatus === "running" ? " run" : "") }, tag(runStatus)[1]) : null,
-					p.runId && (runStatus === "running" || runStatus === "awaiting_review")
-						? h("button", { type: "button", className: "btn sm", title: "当前阶段执行完即停", onClick: stopRun }, Ic("stop", 12), " 停止") : null,
-					p.runId && runStatus && runStatus !== "running" && reached.length
-						? h("span", { style: { display: "inline-flex", gap: 6, alignItems: "center" } },
-							h("select", {
-								className: "f-select mono", style: { minWidth: 170 }, value: rerunStage || "",
-								"aria-label": "回退到的阶段",
-								onChange: function (e) { setRerunStage(e.target.value); },
-							}, reached),
-							h("button", { type: "button", className: "btn sm", title: "该阶段及其后全部重跑", onClick: rerunFrom }, Ic("redo", 12), " 重跑")) : null,
-					p.runId ? h("button", { type: "button", className: "btn sm", onClick: openDir }, Ic("folder", 13), " 打开目录") : null,
-					p.runId ? h("button", { type: "button", className: "btn sm danger", onClick: deleteRun }, Ic("trash", 12), " 删除") : null),
-				h("p", { className: "run-hint", title: "停止 = 当前阶段跑完即停；重跑 = 从所选阶段重新推进；删除 = 移除整个 Run 目录。P10 为失败旁路（仅失败时执行）。" },
-					"点击阶段查看详情（每阶段含 ", h("b", null, "项目 / 运行 / 产物 / 配置 / 说明"), " 五视图，配置可直接调参）；",
-					h("b", null, "待复核"), " 时在「运行」视图通过或打回。"),
-				// 失败分析（P10）结果横幅：后端写回 run.failureAnalysis 后台面化，
-				// 失败现场直接给出分类与建议动作，不必再点开 09-failure-analysis.json
-				runStatus === "failed" && p.run && p.run.failureAnalysis ? h("div", { className: "card", style: { margin: "0 0 10px", padding: "10px 14px" } },
-					h("span", { className: "f-label" }, "失败分析（P10 已生成）"),
-					h("div", { style: { marginTop: 6, fontSize: 12.5, lineHeight: 1.7 } },
-						h("span", { className: "tg t-warn" }, p.run.failureAnalysis.category || "未分类"),
-						" ",
-						h("span", null, (p.run.failureAnalysis.detail || "") + "（建议：" + (p.run.failureAnalysis.action || "?") + "）"))) : null,
-				h("div", { className: "pipe-layout" },
-					h("div", { className: "steps", role: "list", "aria-label": "流水线阶段" },
-					STAGES.map(function (s) {
-						const cur = p.run && p.run.stages ? p.run.stages[s.id] : null;
-						const status = restoringAll ? "…" : (cur ? cur.status : "pending");
-						// session/claude/dsh 模式的 P6 待复核 = 任务包等外部执行（委托成功后显示正常"待复核"）
-						const eeRow = p.run ? p.run.externalExec : null;
-						const ext = s.id === "P6" && status === "awaiting_review"
-							&& !!(p.run && (p.run.p6Mode === "session" || p.run.p6Mode === "claude" || p.run.p6Mode === "dsh"))
-							&& !(eeRow && eeRow.status === "done");
-						// 委外执行中：P6 处于 running，徽标准明示由哪个执行器执行
-						const claudeRun = s.id === "P6" && status === "running" && !!(eeRow && eeRow.status === "running");
-						const execBadge = claudeRun ? (eeRow && eeRow.executor === "dsh-agent" ? "dsh 执行中" : "claude 执行中") : "";
-						const c = restoringAll ? ["t-off", "…"] : claudeRun ? ["t-acc", execBadge] : ext ? ["t-warn", "等外部执行"] : tag(status);
-							const dur = cur ? fmtDur(cur.startedAt, cur.finishedAt) : "";
-							const extra = cur && cur.attempts ? " · 重试" + cur.attempts : "";
-							const xp = (ext || claudeRun) ? p.run.externalProgress : null;
-							const extMeta = (ext || claudeRun)
-								? "patch " + (xp ? xp.patches : 0) + "/" + (xp && xp.tasks != null ? xp.tasks : "?") + (xp && xp.report ? " · report 已写" : "")
-								: "";
-							return h("button", {
-								key: s.id, role: "listitem",
-								className: "step-row " + status + (s.bypass ? " bypass" : "") + (s.id === selStage ? " on" : ""),
-								onClick: function () { selectStage(s.id); },
-							},
-								h("span", { className: "sdot" }),
-								h("span", { className: "s-main" },
-									h("span", { className: "s-name" }, s.id + " · " + s.name),
-									h("span", { className: "s-desc" }, s.desc + " · " + s.art)),
-								h("span", { className: "s-side" },
-									h("span", { className: "tg " + c[0] + (status === "running" ? " run" : "") }, c[1]),
-									(extMeta || dur || extra) ? h("span", { className: "s-dur" }, extMeta || (dur + extra)) : null));
-						})),
-					h("div", { className: "card" },
-						h("div", { className: "detail-head" },
-							h("div", null,
-								h("h3", null, sDef ? sDef.id + " · " + sDef.name : "阶段详情"),
-								h("div", { className: "path" },
-									"产物：" + (p.runId ? "runs\\" + p.runId + "\\" + (sDef ? sDef.art.replace(/\//g, "\\") : "") : ""))),
-							h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
-								stStatus ? h("span", { className: "tg " + tag(stStatus)[0] + (stClaudeRun ? " run" : "") }, stClaudeRun ? "claude 执行中" : stExternal ? "等外部执行" : tag(stStatus)[1]) : null)),
-						// 二级菜单条：五项与工作台一级目录同名同序，全部聚焦当前阶段
-						// （运行=过程与复核；项目=本 Run 项目上下文；产物=本阶段文件树；配置=本阶段全量参数；说明=职责契约）
-						sDef ? h("div", { className: "stg-tabs", role: "tablist", "aria-label": "阶段视图" },
-							[["run", "运行"], ["project", "项目"], ["artifacts", "产物"], ["config", "配置"], ["guide", "说明"]].map(function (t) {
-								return h("button", {
-									key: t[0], role: "tab", className: "stg-tab" + (stTab === t[0] ? " on" : ""),
-									"aria-selected": stTab === t[0] ? "true" : "false",
-									onClick: function () { setStTab(t[0]); },
-								}, t[1]);
-							})) : null,
-						stTab === "run" ? h("div", null,
-						// —— 阶段契约（本阶段输入 → 输出约定；过程与复核见下方） ——
-						h(StageContractCard, { stageId: selStage, defaults: p.defaults }),
-						files.length ? h("div", { className: "a-tabs" },
-							files.map(function (f) {
-								return h("button", {
-									key: f.path,
-									className: "a-tab" + (f.path === selArt ? " on" : ""),
-									onClick: function () { fetchArt(f.path, selStage); },
-								}, f.path.split("/").pop());
-							})) : null,
-						artMd
-							? h("div", { className: "md-view", tabIndex: 0 }, h(MarkdownText, { text: artText }))
-							: h("pre", { className: "view", tabIndex: 0, dangerouslySetInnerHTML: { __html: viewHtml } }),
-						// 过程事件：本阶段的 LLM 调用 / git / 测试 / 工具调用（点击行展开详情）
-						events != null && sDef ? h("div", { style: { marginTop: 14 } },
-							h("div", { className: "ev-head" },
-								h("span", { className: "f-label" }, "过程 · 本阶段调用记录"),
-								h("span", { className: "hint" },
-									"含大模型调用（蓝）、git（绿）、测试（黄）、工具（灰）；点击行展开 prompt / 输出详情")),
-							stageEvents.length ? h("div", { className: "ev-list", role: "log", "aria-label": "阶段过程事件" },
-								stageEvents.slice().reverse().map(function (e) {
-									const open = openEv === e.no;
-									return h(React.Fragment, { key: e.no },
-										h("button", {
-											className: "ev-row" + (e.ok ? "" : " bad"),
-											onClick: function () { setOpenEv(open ? -1 : e.no); },
-											"aria-expanded": open ? "true" : "false",
-										},
-											h("span", { className: "ev-time" }, fmtClock(e.at)),
-											h("span", { className: "ev-kind k-" + (e.kind || "info") }, EV_KIND[e.kind] || e.kind),
-											h("span", { className: "ev-name" }, e.name),
-											h("span", { className: "ev-ms" }, e.ms != null ? (e.ms >= 1000 ? (e.ms / 1000).toFixed(1) + "s" : e.ms + "ms") : ""),
-											h("span", { className: "ev-ok", title: e.ok ? "成功" : "失败" })),
-										open && e.detail ? h("pre", { className: "view ev-detail", tabIndex: 0,
-											dangerouslySetInnerHTML: { __html: esc(e.detail) } }) : null);
-								}))
-								: h("div", { className: "ev-list" },
-									h("p", { className: "ev-empty" }, "该阶段暂无调用记录（执行后自动写入 trace/events.jsonl）。"))) : null,
-						// P7 专属：patch ledger 逐条回滚
-						(selStage === "P7" && ledger && ledger.length) ? h("div", { className: "callout acc", style: { marginTop: 14 } },
-							h("h4", null, "Patch Ledger · 逐条回滚"),
-							h("p", { style: { margin: "0 0 6px", fontSize: 13.5 } },
-								"回滚只反向撤销该条 Agent patch，不动你的其他修改；回滚会追加记录到 ledger。"),
-							ledger.map(function (row) {
-								if (row.rollbackOf != null) {
-									return h("div", { key: "r" + row.no, className: "ledger-row" },
-										h("span", { className: "no" }, "#" + row.no),
-										h("span", { className: "pf" }, h("span", { className: "tg t-err" }, "回滚记录"), " 撤销了 #" + row.rollbackOf),
-										h("span", { className: "at" }, fmtTime(row.at)),
-										h("span", null));
-								}
-								return h("div", { key: "r" + row.no, className: "ledger-row" },
-									h("span", { className: "no" }, "#" + row.no),
-									h("span", { className: "pf" }, row.patch || row.raw || "?"),
-									h("span", { className: "at" }, fmtTime(row.appliedAt)),
-									h("button", { type: "button", className: "btn sm danger", onClick: function () { rollback(row.no); } }, "回滚"));
-							})) : null,
-						// P6 专属：外部执行（claude 委托）状态卡——执行中实时进度 / 完成统计（耗时·轮次·费用·总结）/ 失败原因
-						(selStage === "P6" && ee) ? (function () {
-							const running = ee.status === "running";
-							const xpRow = p.run ? p.run.externalProgress : null;
-							const stats = ee.stats || null;
-							const elapsed = running && ee.startedAt ? fmtDur(ee.startedAt, new Date().toISOString())
-								: fmtDur(ee.startedAt, ee.finishedAt);
-							const statLine = stats && (stats.turns != null || stats.costUsd != null || stats.durationMs != null)
-								? (stats.durationMs != null ? Math.round(stats.durationMs / 60000) + " 分钟" : "")
-									+ (stats.turns != null ? " · " + stats.turns + " 轮" : "")
-									+ (stats.costUsd != null ? " · $" + Number(stats.costUsd).toFixed(2) : "")
-								: (elapsed ? elapsed : "");
-							return h("div", { className: "callout acc", style: { marginTop: 14 } },
-								h("h4", null, "外部执行 · Claude Code"),
-								h("p", { style: { margin: "0 0 6px", fontSize: 13.5 } },
-									h("span", { className: "tg " + (running ? "t-acc run" : ee.status === "done" ? "t-good" : "t-err") },
-										running ? "执行中" : ee.status === "done" ? "已完成" : ee.status === "failed" ? "失败" : "未启动"),
-									" · " + (running ? "已用 " + (elapsed || "—") : (statLine ? "耗时 " + statLine : "—")),
-									running && xpRow ? h("span", null, " · patch ", h("b", null, String(xpRow.patches) + "/" + (xpRow.tasks != null ? xpRow.tasks : "?")) + (xpRow.report ? " · report 已写" : "")) : null),
-								h("p", { style: { margin: 0, fontSize: 12.5, wordBreak: "break-all" } },
-									"bin ", h("span", { style: { fontFamily: "var(--mono)" } }, String(ee.bin || "")),
-									ee.startedAt ? " · 开始 " + fmtClock(ee.startedAt) : "",
-									ee.finishedAt ? " · 结束 " + fmtClock(ee.finishedAt) : ""),
-								stats && stats.result
-									? h("p", { style: { margin: "6px 0 0", fontSize: 13 } },
-										h("span", { className: "f-label" }, "claude 总结"), h("br", null),
-										h("span", { style: { fontFamily: "var(--mono)", fontSize: 12.5 } }, stats.result))
-									: null);
-						})() : null,
-						// 复核门（session 模式的 P6：先外部执行任务包，未就绪不能通过）
-							showReview ? (function () {
-								const xp = p.run ? p.run.externalProgress : null;
-								const extReady = !stExternal || !!(xp && (xp.patches > 0 || xp.report));
-								return h("div", { className: "callout warn gate", style: { marginTop: 14 } },
-								stExternal
-									? h("div", null,
-										h("h4", null, ee && (ee.status === "failed" || ee.status === "skipped")
-											? "P6 · Claude Code 执行未成功，待人工接管"
-											: "P6 session 模式 · 任务包待外部执行"),
-										h("p", { style: { margin: "0 0 6px", fontSize: 13.5 } },
-											"本阶段只生成了任务包，代码修改还没有发生。流程：把 ",
-											h("span", { style: { fontFamily: "var(--mono)" } }, "runs\\…\\06-implementation\\session-task.md"),
-											" 交给 DSH 会话执行 → 会话产出 ",
-											h("span", { style: { fontFamily: "var(--mono)" } }, "patches\\*.diff"),
-											" 与 ", h("span", { style: { fontFamily: "var(--mono)" } }, "coder-report.json"),
-											" → 回到这里通过复核。"),
-										h("p", { style: { margin: "0 0 8px", fontSize: 13.5 } },
-											"当前进度：patch ", h("b", null, String(xp ? xp.patches : 0) + "/" + (xp && xp.tasks != null ? xp.tasks : "?")),
-											" · report ", h("b", null, xp && xp.report ? "已写" : "未写"),
-											extReady ? "" : "（未就绪，不能通过）"),
-										(ee && (ee.status === "failed" || ee.status === "skipped"))
-											? h("p", { style: { margin: "0 0 8px", fontSize: 13 } },
-												"Claude Code 未产出补丁：",
-												h("span", { style: { fontFamily: "var(--mono)" } }, String(ee.error || "无详情")),
-												"（详见 06-implementation\\external-exec.log）")
-											: null)
-									: h("p", { style: { margin: "0 0 8px", fontSize: 13.5 } },
-										"该阶段产物已生成。通过后进入下一阶段；打回将把意见注入本阶段重跑（决定写入 ",
-										h("span", { style: { fontFamily: "var(--mono)" } }, "reviews\\"), "）。"),
-								h("div", { className: "review-actions" },
-									h("textarea", {
-										className: "f-input", ref: commentRef, value: comment,
-										placeholder: "复核意见（打回必填，通过可选）…", "aria-label": "复核意见",
-										onChange: function (e) { setComment(e.target.value); },
-									}),
-									h("button", {
-										className: "btn pri", disabled: !extReady,
-										title: extReady ? "" : "patches/ 为空且无 coder-report.json：先在外部 DSH 会话执行任务包",
-										onClick: function () { review("approve"); },
-									}, Ic("check"), " 通过，继续"),
-									h("button", { className: "btn danger", onClick: function () { review("reject"); } }, Ic("x"), " 打回重跑")));
-						})() : null,
-						// 复核历史
-						(reviews && reviews.length) ? h("div", { style: { marginTop: 14 } },
-							h("span", { className: "f-label" }, "复核历史"),
-							reviews.map(function (r, i) {
-								return h("div", { key: i, className: "rev-item" },
-									h("span", { className: "tg " + (r.decision === "approve" ? "t-good" : "t-err") },
-										(r.decision === "approve" ? "通过" : "打回") + " " + (r.stage || "")),
-									h("span", { className: "at" }, fmtTime(r.at)),
-									h("span", { className: "cm" }, r.comment || "无意见"));
-							})) : null) : null,
-						// —— 项目 tab：本 Run 的项目上下文（阶段执行读的就是这些配置） ——
-						stTab === "project" ? h(StageProjectCard, { project: curProject, onGoProjects: p.onGoProjects }) : null,
-						// —— 产物 tab：本阶段文件树（目录分组）+ 预览 ——
-						stTab === "artifacts" && sDef ? h("div", { className: "stg-art" },
-							h("div", null,
-								artGroups.length ? artGroups.map(function (g) {
-									return h(React.Fragment, { key: g[0] },
-										h("div", { className: "stg-fgroup" }, g[0] === "·" ? "阶段产物" : g[0]),
-										g[1].map(function (f) {
-											return h("button", {
-														key: f.path, className: "stg-file" + (f.path === selArt ? " on" : ""),
-														onClick: function () { fetchArt(f.path, selStage); },
-											},
-												h("span", null, f.path.split("/").pop()),
-												h("span", { className: "ts" }, fmtSize(f.size)));
-										}));
-								}) : h("p", { className: "empty-hint" }, "该阶段暂无产物文件（执行后自动生成）。")),
-							artMd && artText != null
-								? h("div", { className: "md-view", tabIndex: 0 }, h(MarkdownText, { text: artText }))
-								: h("pre", { className: "view", tabIndex: 0, dangerouslySetInnerHTML: { __html: viewHtml } })) : null,
-						// —— 配置 tab：本阶段全量参数（「配置」页表单嵌入，无左列） ——
-						stTab === "config" ? h(StageConfigPanel, {
-							embedded: true, defaults: p.defaults, projects: p.projects, slug: p.slug,
-							selStage: selStage, toast: p.toast, onSaved: p.onSaved,
-						}) : null,
-						// —— 说明 tab：职责 / 契约 / 专属参数 ——
-						stTab === "guide" ? h(StageGuideCard, { stageId: selStage, defaults: p.defaults }) : null)));
+return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.coder }),
+				selected ? h(React.Fragment, null,
+					h("div", { className: "studio-row studio-execution-head wrap" }, studioButton("← 全部实例", () => p.onSelect(""), "ghost sm"),
+						h("h2", null, selected.title),
+						h("nav", { className: "studio-execution-tabs", "aria-label": "实例视图" }, [["output", "执行输出"], ["checks", "本实例检查"], ["artifacts", "本实例产物"]].map(([id, label]) => h("button", { key: id, className: view === id ? "on" : "", onClick: () => setView(id) }, label))),
+						hasSessionTask ? studioButton("输入 · 任务包", () => setInputOpen(true), "ghost sm") : null),
+					h("div", { className: "studio-row wrap" }, h("span", { className: "tg " + (selected.status === "failed" ? "t-err" : selected.status === "running" ? "t-acc" : "t-off") }, instanceStatus(selected.status)),
+						h("span", { className: "hint studio-path studio-grow" }, selected.external ? [selected.sessionId ? "会话 " + selected.sessionId : "", selected.startedAt ? "开始 " + fmtTime(selected.startedAt) : "", selected.exitCode != null ? "退出码 " + selected.exitCode : ""].filter(Boolean).join(" · ") : selected.reason)),
+					view === "checks" ? h("div", { className: "studio-stack" }, h("h3", null, "执行报告"),
+						h(ReadableValue, { value: selected.external ? { status: instanceStatus(selected.status), reason: selected.error || selected.stats?.result || "未记录独立检查结论" } : { status: instanceStatus(selected.status), reason: selected.reason || "未记录说明" } }),
+						h("p", { className: "hint" }, "实例执行结果不代表任务回归或最终验收通过。"), studioButton("查看原始报告", () => p.onFile("06-implementation/coder-report.json"), "ghost sm", p.coder.value == null)) :
+					view === "artifacts" ? h("div", { className: "studio-stack" }, files.length ? files.map(file => studioButton(file.path, () => p.onFile(file.path), "ghost sm")) : h("p", { className: "hint" }, "尚无明确归属到本实例的文件。")) :
+						h(OutputPanel, { key: selected.id, text: output, resource: selected.external ? (agentTimeline.value != null ? null : externalLog) : null, full: { value: agentTimelineFull.value, loading: agentFullSearch && agentTimelineFull.value == null && !agentTimelineFull.error }, onFull: () => setAgentFullSearch(true), label: selected.external && (agentTimeline.value != null || externalLog.value != null) ? selected.title + " · 执行输出" : selected.external ? "阶段调用事件" : "实例输出记录", memoryKey: p.outputKey + "." + selected.id, filename: p.runId + "-P6-" + selected.id + ".log", toast: p.toast,
+						partial: p.tree.find(file => file.path === logPath)?.size > 200 * 1024, onFile: selected.external ? () => p.onFile(logPath) : undefined }),
+					finalReply ? h("div", { className: "studio-final-reply" }, h("h3", null, "最终回复"), h("p", null, finalReply)) : null) :
+				h(React.Fragment, null,
+					h("div", { className: "studio-execution-filters" },
+						h("div", { className: "studio-segmented" }, [["all", "全部"], ["running", "执行中"], ["done", "完成"], ["failed", "失败"]].map(([id, label]) =>
+							h("button", { key: id, className: filter === id ? "on" : "", onClick: () => setFilter(id) }, label + " " + items.filter(item => id === "all" || (id === "done" ? ["done", "patched", "no_change"].includes(item.status) : item.status === id)).length))),
+						h("input", { className: "f-input", placeholder: "搜索实例或文件", "aria-label": "搜索执行实例", value: search, onChange: e => setSearch(e.target.value) })),
+					filtered.length ? h("div", null, filtered.map(item => h("button", { key: item.id, className: "studio-execution-row", onClick: () => p.onSelect(item.id) },
+						h("strong", null, item.title, h("small", null, item.external ? "外部会话" : "任务节点结果")), h("span", null, item.reason || item.error || (item.external ? "执行整个任务图" : item.patch || "结果报告")),
+						h("span", null, h("span", { className: "tg " + (item.status === "failed" ? "t-err" : item.status === "running" ? "t-acc" : "t-off") }, instanceStatus(item.status)), h("small", null, stageFiles("P6", p.tree, p.run).filter(file => item.external || item.patch === file.path).length + " 个产物")), Ic("right", 14)))) :
+						h("p", { className: "hint" }, items.length ? "没有匹配实例" : "尚无实例结果报告；阶段事件可在「执行日志」页签查看。")),
+				h("p", { className: "hint" }, "展示已有执行记录；未记录的实例生命周期与历史轮次不可用。"),
+				inputOpen ? h(StudioDialog, { title: "输入 · 任务包", wide: true, onClose: () => setInputOpen(false) }, sessionTask.value != null ? h(ArtifactContent, { text: sessionTask.value, path: "06-implementation/session-task.md" }) : h("p", { className: "hint" }, "任务包未生成")) : null);
 		}
-
-		/* ================================================================
-		 * 03 产物
-		 * ================================================================ */
-		function ArtifactsPanel(props) {
-			const p = props;
-			const [selFile, setSelFile] = React.useState(null);
-			const [fileText, setFileText] = React.useState(null);
-			// 目录折叠态：键为目录相对路径（如 "ledger"），存在即折叠
-			const [collapsed, setCollapsed] = React.useState({});
-			const fileRef = React.useRef(null);
-			React.useEffect(function () { fileRef.current = selFile; }, [selFile]);
-
-			React.useEffect(function () {
-				setSelFile(null); setFileText(null); setCollapsed({});
-			}, [p.runId]);
-
-			if (!p.runId) {
-				return h("div", { className: "empty-hint" },
-					h("div", { className: "eh-ic", "aria-hidden": "true" }, Ic("box", 30)),
-					h("p", { className: "eh-t" },
-						"还没有产物可查看。先在「项目」发起 Run，或在「运行」选择一个 Run，产物树会出现在这里。"));
+		function PatchPreview(p) {
+			const patches = p.tree.filter(file => /\.(diff|patch)$/.test(file.path));
+			const startedAt = Date.parse(p.run?.stages?.P6?.startedAt || "");
+			const current = Number.isFinite(startedAt) ? patches.filter(file => file.mtimeMs >= startedAt) : [];
+			const stale = patches.length - current.length;
+			const [selected, setSelected] = React.useState("");
+			const path = current.some(file => file.path === selected) ? selected : current[0]?.path;
+			const content = useRunArtifact(p.slug, p.runId, path, p.tree);
+			if (!patches.length) return null;
+			const diffLines = content.value ? String(content.value).split("\n") : null;
+			const patchStat = diffLines ? diffLines.filter(line => line.startsWith("diff --git ")).length + " 文件 · +" + diffLines.filter(line => /^\+[^+]/.test(line)).length + " −" + diffLines.filter(line => /^-[^-]/.test(line)).length : "";
+			return h("section", null, h("div", { className: "studio-row wrap" }, h("h2", { className: "studio-grow" }, "变更文件"), patchStat ? h("span", { className: "hint" }, patchStat) : null, path ? studioButton("查看文件", () => p.onFile(path), "ghost sm") : null),
+				stale > 0 ? h("p", { className: "hint" }, "另有 " + stale + " 个上一轮补丁文件仍保留在产物中，已不作为本轮验证依据。") : null,
+				current.length ? h("select", { className: "f-select", "aria-label": "选择补丁", value: path, onChange: e => setSelected(e.target.value) }, current.map(file => h("option", { key: file.path, value: file.path }, file.path)))
+					: h(EmptyState, { title: stale ? "本轮尚未生成补丁" : "尚未生成补丁" }, stale ? h("p", { className: "hint" }, "上一轮补丁可在文件页查看，但不代表本轮结果。") : null),
+				h(ResourceNotice, { resource: content }), path ? h(DiffContent, { path, text: content.value }) : null);
+		}
+		function RunsPanel(p) {
+			const key = p.slug + "/" + p.runId;
+			// v9 隔离规则：节点选择不跨访问记忆——每次进入默认当前阶段（执行中）/最后节点（已完成），
+			// 默认跟随推进；手动选择即暂停跟随（流程展开后底部显示"已偏离"，点击返回并恢复）。页签只保留 执行过程 / 全部产物。
+			const [stage, setStage] = React.useState(p.run?.current || "P1");
+			const [storedTab, setTab] = usePreference("i2p.tasktab." + key, "process");
+			const tab = storedTab === "files" ? "files" : "process";
+			const [trackOpen, setTrackOpen] = usePreference("i2p.track." + key, false);
+						const [followStage, setFollowStage] = React.useState(true);
+			const [path, setPath] = React.useState("");
+			const [returnTo, setReturnTo] = usePreference("i2p.file-return." + key, { tab: "process", stage, instance: "" });
+			const [comment, setComment] = React.useState("");
+			const [busy, setBusy] = React.useState(false), [contextOpen, setContextOpen] = React.useState(false);
+			const [instance, setInstance] = usePreference("i2p.instance." + key, "");
+			const [nodeTab, setNodeTab] = React.useState("");
+			const [rerunStage, setRerunStage] = React.useState(p.run?.current || "P1");
+			const busyRef = React.useRef(false), alive = React.useRef(true);
+			const events = useRunArtifact(p.slug, p.runId, "trace/events.jsonl", p.tree);
+			const ledger = useRunArtifact(p.slug, p.runId, "ledger/patch-ledger.jsonl", p.tree);
+			const coder = useRunArtifact(p.slug, p.runId, "06-implementation/coder-report.json", p.tree);
+			const description = useRunArtifact(p.slug, p.runId, "10-pr-description.md", p.tree);
+			const evaluation = useRunArtifact(p.slug, p.runId, "11-eval-report.json", p.tree);
+			const testOutput = useRunArtifact(p.slug, p.runId, "08-test-output.txt", p.tree);
+			React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+			React.useEffect(() => { if (followStage && p.run?.current) { setStage(p.run.current); setInstance(""); } }, [p.run?.current, followStage]);
+			React.useEffect(() => { setComment(""); }, [stage, p.run?.current, p.run?.stages?.[p.run?.current]?.attempts]);
+			const activeStage = STAGES.some(item => item.id === stage) ? stage : p.run?.current || "P1";
+			React.useEffect(() => { setNodeTab(""); }, [activeStage]);
+			const selectStage = id => { setStage(id); setInstance(""); setTab("process"); setFollowStage(false); };
+			const openFile = file => { setReturnTo({ tab, stage: activeStage, instance }); setPath(file); setTab("files"); };
+			const returnFromFile = () => { setStage(returnTo.stage); setInstance(returnTo.instance || ""); setTab(returnTo.tab === "files" ? "process" : returnTo.tab); };
+			const act = async (action, body = {}, method = "POST") => {
+				if (busyRef.current) return;
+				busyRef.current = true; setBusy(true);
+				try {
+					const result = method === "DELETE" ? await apiDelete("/projects/" + p.slug + "/runs/" + p.runId) : await apiPost("/projects/" + p.slug + "/runs/" + p.runId + "/" + action, body);
+					if (!result?.ok) throw new Error(result?.message || "操作失败");
+					if (!alive.current) return;
+					p.toast(result.message || "操作成功"); setComment(""); if (method === "DELETE") p.onDeleted(); else p.onChanged();
+				} catch (error) { if (alive.current) p.toast(error.message, "bad"); }
+				finally { busyRef.current = false; if (alive.current) setBusy(false); }
+			};
+			if (!p.run) return h(EmptyState, { title: p.error ? "任务读取失败" : "正在读取任务…" });
+			const run = p.run, tree = p.tree || [], state = run.stages?.[activeStage], current = run.stages?.[run.current];
+			const execConfig = run.executionConfig;
+			const files = stageFiles(activeStage, tree, run), reviews = tree.filter(file => file.path.startsWith("reviews/"));
+			const report = parseJson(coder.value), instances = Array.isArray(report?.tasks) ? report.tasks : Array.isArray(report?.patches) ? report.patches : [];
+			const currentInstance = activeStage === "P6" && executionItems(run, report).some(item => item.id === instance) ? instance : "";
+			const externalReady = !["session", "claude", "dsh"].includes(run.p6Mode) || run.externalExec?.status === "done" || !!run.externalProgress?.report || run.externalProgress?.patches > 0;
+			const reviewContext = tab === "process" && activeStage === run.current && !currentInstance;
+			const reviewReady = reviewContext && run.status === "awaiting_review" && current?.status === "awaiting_review" && (run.current !== "P6" || externalReady);
+			const backCurrent = () => { setStage(run.current); setInstance(""); setTab("process"); setFollowStage(true); };
+			const review = decision => {
+				if (!reviewContext) { p.toast("请先返回当前阶段的复核对象", "bad"); return; }
+				if (decision === "approve" && !reviewReady) { p.toast("等待当前阶段产物就绪", "bad"); return; }
+				if (decision === "reject" && !comment.trim()) { p.toast("打回需要填写复核意见", "bad"); return; }
+				act("review", { decision, comment, expectedStage: run.current, expectedStatus: run.status, expectedAttempt: current?.attempts || 0, expectedStartedAt: current?.startedAt || null });
+			};
+			const mainFlow = STAGES.filter(item => !item.bypass), done = mainFlow.filter(item => ["approved", "completed"].includes(run.stages?.[item.id]?.status)).length;
+			const records = parseLines(events.value).filter(event => event.stage === activeStage);
+			const eventsText = records.map(event => [fmtClock(event.at), event.kind, event.name, event.detail].filter(Boolean).join("  ")).join("\n");
+			const stageUntouched = (state?.status || "pending") === "pending" && !files.length && !records.length;
+			const stageTimes = {};
+			for (const ev of parseLines(events.value)) {
+				const ts = Date.parse(ev.at);
+				if (!Number.isFinite(ts)) continue;
+				const span = stageTimes[ev.stage] || (stageTimes[ev.stage] = { min: ts, max: ts });
+				span.min = Math.min(span.min, ts);
+				span.max = Math.max(span.max, ts);
 			}
-
-			const pick = function (path) {
-				fileRef.current = path;
-				setSelFile(path); setFileText(null);
-				apiGet("/projects/" + p.slug + "/runs/" + p.runId + "/artifact?path=" + encodeURIComponent(path))
-					.then(function (r) {
-						if (fileRef.current !== path) return; // 乱序守卫
-						if (r && r.ok) setFileText(r.text);
-						else p.toast((r && r.message) || "读取产物失败", "bad");
-					})
-					.catch(function (e) { p.toast("请求失败: " + e, "bad"); });
+			const fmtDuration = ms => {
+				const sec = Math.max(0, Math.round(ms / 1000));
+				if (sec < 60) return sec + " 秒";
+				const min = Math.floor(sec / 60);
+				return min < 60 ? min + " 分 " + (sec % 60) + " 秒" : Math.floor(min / 60) + " 小时 " + (min % 60) + " 分";
 			};
-
-			const openDir = function () {
-				apiPost("/projects/" + p.slug + "/runs/" + p.runId + "/open", {})
-					.then(function (r) {
-						if (r && r.ok) p.toast(r.message || "已打开产物目录");
-						else p.toast((r && r.message) || "打开失败", "bad");
-					})
-					.catch(function (e) { p.toast("请求失败: " + e, "bad"); });
+			const stageDurationText = id => stageTimes[id] ? "耗时 " + fmtDuration(stageTimes[id].max - stageTimes[id].min) : "";
+			// 阶段运行信息：模型取启动快照的阶段覆盖，未配置回落 defaultRoute；执行器按阶段语义展示（P7/P8 不走模型）
+			const runtimeModelOf = id => {
+				const override = execConfig?.stageConfig?.[id];
+				if (override?.provider && override?.model) return override.model;
+				return execConfig?.defaultRoute?.model || null;
 			};
-
-			const indentStyle = function (depth) { return depth ? { paddingLeft: 8 + 16 * depth } : null; };
-
-			const renderNode = function (node, depth, prefix, out) {
-				Object.keys(node.children).sort().forEach(function (k) {
-					const c = node.children[k];
-					const dirPath = prefix ? prefix + "/" + k : k;
-					const open = !collapsed[dirPath];
-					out.push(h("button", {
-						key: dirPath,
-						className: "dir",
-						style: indentStyle(depth),
-						"aria-expanded": String(open),
-						onClick: function () {
-							setCollapsed(function (prev) {
-								const next = { ...prev };
-								if (next[dirPath]) delete next[dirPath]; else next[dirPath] = true;
-								return next;
-							});
-						},
-					}, (open ? "▾ " : "▸ ") + k + "/"));
-					if (open) renderNode(c, depth + 1, dirPath, out);
-				});
-				node.files.sort(function (a, b) { return a.path.localeCompare(b.path); }).forEach(function (f) {
-					const on = selFile === f.path;
-					out.push(h("button", {
-						key: f.path,
-						className: "file" + (on ? " on" : ""),
-						style: indentStyle(depth),
-						onClick: function () { pick(f.path); },
-					},
-						h("span", null, f.path.split("/").pop()),
-						h("span", { className: "ts" }, fmtSize(f.size))));
-				});
-			};
-
-			const root = { name: "", children: {}, files: [] };
-			(p.tree || []).forEach(function (f) {
-				const segs = f.path.split("/");
-				let node = root;
-				for (let i = 0; i < segs.length - 1; i++) {
-					node = node.children[segs[i]] || (node.children[segs[i]] = { name: segs[i], children: {}, files: [] });
+			// 阶段运行方式：外部 Agent 执行显示委托方式（不显示模型），内置显示模型，P7/P8 无模型
+			const stageRunTextOf = id => {
+				if (id === "P7") return "补丁管线 · 无模型调用";
+				if (id === "P8") return "测试执行" + (execConfig?.testCommand ? " · " + execConfig.testCommand : "");
+				const override = execConfig?.stageConfig?.[id];
+				const modelText = override?.provider && override?.model
+					? "模型 " + override.model + "（阶段覆盖）"
+					: runtimeModelOf(id) ? "模型 " + runtimeModelOf(id) : "模型 宿主默认";
+				if (id === "P6") {
+					if (["session", "claude", "dsh"].includes(run.p6Mode)) return p6ModeLabel(run.p6Mode);
+					return "内置多智能体 · " + modelText;
 				}
-				node.files.push(f);
-			});
-			const treeItems = [];
-			renderNode(root, 0, "", treeItems);
+				return modelText;
+			};
+			const runtimeText = [
+				...(!stageUntouched ? ["第 " + ((state?.attempts || 0) + 1) + " 轮", stageTimes[activeStage] ? stageDurationText(activeStage) : null] : []),
+				stageRunTextOf(activeStage),
+			].filter(Boolean).join(" · ");
+			const p10File = tree.some(file => file.path === "09-failure-analysis.json");
+			const outputKey = "i2p.output." + key + "." + activeStage + "." + (state?.attempts || 0) + "." + (state?.startedAt || "");
+			const stageDef = STAGES.find(item => item.id === activeStage);
+			// v9 规则：未触及的节点（pending 且没有任何事件与产物）只显示一条等待空态，不渲染零内容区块。
+			const tabs = [["process", "执行过程"], ["files", "全部产物"]];
+			// 方案三：节点内容盘点置顶为子页签（带计数），没有内容的区块不出页签（留空规则）。
+			const allPatches = tree.filter(file => /\.(diff|patch)$/.test(file.path));
+			const p6StartedAt = Date.parse(run.stages?.P6?.startedAt || "");
+			const currentPatches = Number.isFinite(p6StartedAt) ? allPatches.filter(file => file.mtimeMs >= p6StartedAt) : [];
+			const nodeTabs = [];
+			if (activeStage === "P6") nodeTabs.push(["instances", "执行实例"]);
+			else if (activeStage === "P7") nodeTabs.push(["result", "补丁账本"]);
+			else if (activeStage === "P11") nodeTabs.push(["delivery", "交付"], ["summary", "全流程汇总"]);
+			else nodeTabs.push(["result", "阶段结果"]);
+			if (activeStage === "P8" && tree.some(file => file.path === "08-test-output.txt")) nodeTabs.push(["testout", "测试输出"]);
+			if (activeStage === "P6" && allPatches.length) nodeTabs.push(["patches", "变更文件 " + currentPatches.length]);
+			if (records.length) nodeTabs.push(["log", "执行日志 " + records.length]);
+			if (files.length) nodeTabs.push(["artifacts", "阶段产物 " + files.length]);
+			const nodeTabId = nodeTabs.some(item => item[0] === nodeTab) ? nodeTab : nodeTabs[0]?.[0];
+			
+			return h("div", { className: "studio-task" },
+				h("header", { className: "studio-task-head" },
+					h("div", { className: "studio-breadcrumb studio-row" }, h("button", { onClick: p.onBack }, "← 任务列表"), "/", h("span", null, p.project?.name || p.slug), "/", h("button", { className: "mono studio-path", title: "点击复制", onClick: () => copyStudio(run.id, p.toast) }, run.id)),
+					h("div", { className: "studio-row studio-task-title" }, h("h1", { className: "studio-grow studio-path" }, taskTitle(run)), h(StatusBadge, { status: run.status }),
+						["running", "awaiting_review"].includes(run.status) ? studioButton([Ic("stop", 14), "停止"], () => act("stop"), "", busy) : null,
+						h("details", { className: "studio-run-actions" }, h("summary", { "aria-label": "更多任务操作" }, "•••"),
+							h("div", { className: "studio-action-menu" }, studioButton("任务详情", () => setContextOpen(true), "ghost sm"), run.status !== "running" ? h(React.Fragment, null,
+								h("select", { className: "f-select", "aria-label": "重跑起始阶段", value: rerunStage, onChange: e => setRerunStage(e.target.value) }, STAGES.map(item => h("option", { key: item.id, value: item.id }, item.id + " " + STUDIO_STAGE_NAMES[item.id]))),
+								studioButton("重跑", () => { if (window.confirm("从 " + rerunStage + " 重跑，后续阶段状态将重置，相关委外旧产物会清理。继续？")) act("rerun", { stage: rerunStage }); }, "", busy)) : null,
+							studioButton("删除任务", () => { if (window.confirm("删除此任务及全部产物？此操作不可恢复。")) act("", {}, "DELETE"); }, "danger", busy),
+							h("small", { className: "hint" }, "停止后不再推进；当前内置阶段可能仍需执行完毕，外部执行器会收到终止请求。"))))),
+					tab !== "files" ? h("section", { className: "studio-topology", "aria-label": "流水线阶段" },
+					h("div", { className: "studio-row studio-workflow-summary" }, h("strong", null, run.current + " · " + STUDIO_STAGE_NAMES[run.current]),
+						h("span", { className: "studio-progress", "aria-hidden": true }, mainFlow.map(item => h("i", { key: item.id, className: ["approved", "completed"].includes(run.stages?.[item.id]?.status) ? "done" : item.id === run.current ? "current" : "" }))),
+						h("span", { className: "hint studio-stage-total" }, done + " / 10 阶段已完成"), h("span", { className: "studio-grow" }),
+						h("button", { className: "btn ghost sm", "aria-expanded": trackOpen, onClick: () => setTrackOpen(!trackOpen) }, trackOpen ? "收起流程" : "完整流程")),
+					trackOpen ? h(React.Fragment, null, h("nav", { className: "studio-track", "aria-label": "完整阶段流程" }, mainFlow.map(item => {
+						const status = run.stages?.[item.id]?.status || "pending";
+						const stale = item.id !== "P10" && status === "pending" && stageFiles(item.id, tree, run).length > 0;
+							return h("button", { key: item.id, className: "studio-stage " + status + (item.id === activeStage ? " on" : "") + (item.id === run.current ? " current" : ""), title: item.id + " " + STUDIO_STAGE_NAMES[item.id] + "，" + tag(status)[1] + (stageTimes[item.id] ? " · " + stageDurationText(item.id) : "") + " · " + stageRunTextOf(item.id), "aria-label": item.id + " " + STUDIO_STAGE_NAMES[item.id] + "，" + tag(status)[1], "aria-pressed": item.id === activeStage, onClick: () => selectStage(item.id) },
+							h("span", { className: "studio-stage-mark" }, ["approved", "completed"].includes(status) ? Ic("check", 13) : status === "failed" ? Ic("x", 13) : status === "awaiting_review" ? "!" : item.id === run.current ? "●" : ""),
+							h("strong", null, STUDIO_STAGE_NAMES[item.id]), h("span", { className: "studio-stage-code" }, item.id + (item.id === run.current ? " · 当前" : stale ? " · 待重验" : item.key ? " · 复核" : "")));
+					})), h("div", { className: "studio-row studio-track-footer wrap" }, followStage ? h("span", { className: "hint" }, "跟随当前阶段 ✓") : h("button", { onClick: backCurrent, title: "点击返回当前阶段并恢复跟随" }, "正在查看 " + activeStage + " · 返回当前 " + run.current + " →"), h("button", { onClick: () => selectStage("P10") }, "P10 失败分析 · " + (run.failureAnalysis ? "已生成" : p10File ? "历史记录" : "按需触发")))) : null,
+					run.failureAnalysis ? h("div", { className: "studio-return-lane studio-row wrap" }, h("span", { className: "studio-grow" }, [run.failureAnalysis.category, run.failureAnalysis.detail, run.failureAnalysis.action].filter(value => typeof value === "string").join(" · ")), studioButton("查看失败分析", () => selectStage("P10"), "ghost sm")) : null) : null,
+				h("nav", { className: "studio-tabs", "aria-label": "任务视图" }, tabs.map(([id, label]) => h("button", { key: id, className: tab === id ? "on" : "", "aria-current": tab === id ? "page" : undefined, onClick: () => { if (id === "files" && tab !== "files") { setPath(""); setReturnTo({ tab, stage: activeStage, instance }); } setTab(id); } }, label + (id === "files" ? " " + tree.length : ""))),
+					tab === "process" ? h("span", { className: "hint", style: { alignSelf: "center" } }, runtimeText) : null),
+				h("div", { className: "studio-workspace" },
+					tab === "files" ? h(ArtifactsPanel, { ...p, instances, initialPath: path, onReturn: returnFromFile }) :
+					h("div", { className: "studio-process" }, h("section", { className: "studio-process-main" },
+						h("div", { className: "studio-section-heading" }, h("div", { className: "studio-row wrap" }, h("h2", { className: "studio-grow" }, activeStage + " · " + STUDIO_STAGE_NAMES[activeStage]), h(StatusBadge, { status: state?.status }),
+														nodeTabs.length > 1 && !stageUntouched ? h("nav", { className: "studio-execution-tabs", "aria-label": "节点内容", style: { margin: "0 0 0 auto", alignSelf: "flex-end" } },
+								nodeTabs.map(([id, label]) => h("button", { key: id, className: nodeTabId === id ? "on" : "", "aria-pressed": nodeTabId === id, onClick: () => setNodeTab(id) }, label))) : null,
+							), state?.error ? h("p", { className: "callout err", style: { marginTop: 10 } }, state.error) : null),
+												stageUntouched ? h(EmptyState, { title: activeStage === "P10" ? "目前没有需要分析的失败" : activeStage === run.current ? "本阶段尚未开始执行" : "等待上游阶段完成" },
+							h("p", null, activeStage === "P10" ? "P10 在主线阶段失败时触发，帮助定位原因并选择恢复方式。" : (STUDIO_STAGE_NAMES[activeStage] || stageDef?.name || activeStage) + "尚未开始，结果生成后会显示在这里。"),
+							stageDef?.art ? h("p", { className: "hint" }, "预期产物：" + stageDef.art) : null) :
+						h(React.Fragment, null,
+							nodeTabId === "instances" ? h(ExecutionsPanel, { ...p, tree, coder, events, eventsText, outputKey, selection: currentInstance, onSelect: setInstance, onFile: openFile }) :
+							nodeTabId === "patches" ? h(PatchPreview, { ...p, tree, onFile: openFile }) :
+							nodeTabId === "testout" ? h(OutputPanel, { key: "testout", text: testOutput.value || "", resource: testOutput, label: "P8 · 测试输出", memoryKey: outputKey + ".testout", filename: p.runId + "-P8-output.txt", toast: p.toast, onFile: () => openFile("08-test-output.txt"), partial: tree.find(file => file.path === "08-test-output.txt")?.size > 200 * 1024 }) :
+							nodeTabId === "log" ? h(OutputPanel, { key: outputKey, text: eventsText, resource: events, label: activeStage + " · 阶段事件", memoryKey: outputKey, filename: p.runId + "-" + activeStage + ".log", toast: p.toast, onFile: () => openFile("trace/events.jsonl"), partial: tree.find(file => file.path === "trace/events.jsonl")?.size > 200 * 1024 }) :
+							nodeTabId === "artifacts" ? h("div", { className: "studio-artifacts" },
+								(() => {
+									const groups = new Map();
+									for (const file of files) {
+										const parts = file.path.split("/");
+										const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+										if (!groups.has(dir)) groups.set(dir, []);
+										groups.get(dir).push(file);
+									}
+									return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([dir, list]) =>
+										h("div", { className: "studio-artifacts-group", key: dir },
+											dir ? h("div", { className: "studio-artifacts-dir" }, Ic("folder", 14), dir) : null,
+											list.map(file => studioButton([Ic("file", 15), file.path.split("/").at(-1)], () => openFile(file.path), "ghost sm"))));
+								})()) :
+							nodeTabId === "delivery" ? h(DeliveryPanel, { run, tree, description, evaluation, toast: p.toast }) :
+							nodeTabId === "summary" ? h(DeliverySummaryPanel, { run, tree, slug: p.slug, runId: p.runId, onFile: openFile }) :
+							activeStage === "P7" ? h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: ledger }),
+							parseLines(ledger.value).length ? parseLines(ledger.value).map(row => h("div", { className: "studio-row wrap studio-check", key: row.lineNo }, h("span", { className: "studio-grow studio-path" }, "#" + row.lineNo + " " + (row.patch || "回滚 #" + row.rollbackOf)),
+								row.rollbackOf == null ? studioButton("回滚", () => { if (window.confirm("仅撤销账本 #" + row.lineNo + " 对应的补丁，并追加回滚记录？")) act("rollback", { lineNo: row.lineNo }); }, "sm danger", busy || ["running", "awaiting_review"].includes(run.status) || parseLines(ledger.value).some(item => item.rollbackOf === row.lineNo)) : null)) : h(EmptyState, { title: "尚无补丁应用记录" })) :
+								h(StageResult, { ...p, stage: activeStage, onFile: openFile }))))),
 
-			const viewHtml = fileText != null
-				? renderView(fileText, selFile)
-				: (selFile ? '<span class="c">读取中…</span>' : '<span class="c">点击左侧文件预览内容。</span>');
-			const fileMd = fileText != null && /\.md$/i.test(selFile || "");
-
-			return h("div", null,
-			h("p", { className: "run-hint", title: ".md 产物按 Markdown 排版渲染；目录树含 trace / reviews / ledger 全部过程证据。" },
-				"当前 Run：", h("b", { style: { fontFamily: "var(--mono)", fontSize: 13 } }, p.runId),
-				"（在「02 运行」切换；目录含 trace / reviews / ledger）"),
-				h("div", { className: "art-layout" },
-					h("div", { className: "card artifact-tree-card" },
-						p.tree && p.tree.length
-							? h("div", { className: "tree", "aria-label": "产物目录树" }, treeItems)
-							: h("p", { className: "empty-hint" }, "该 Run 暂无产物（可能尚未开始）。")),
-					h("div", { className: "card" },
-						h("div", { className: "detail-head" },
-							h("div", null,
-								h("h3", { style: { fontSize: 16 } }, selFile ? selFile.split("/").pop() : "产物预览"),
-								h("div", { className: "path" },
-									"~/.dsh/issue2pr/projects\\" + p.slug + "\\runs\\" + p.runId + (selFile ? "\\" + selFile.replace(/\//g, "\\") : ""))),
-							h("button", { type: "button", className: "btn sm", onClick: openDir }, Ic("folder", 13), " 打开所在目录")),
-							fileMd
-								? h("div", { className: "md-view", tabIndex: 0, style: { maxHeight: 520 } }, h(MarkdownText, { text: fileText }))
-								: h("pre", { className: "view", tabIndex: 0, style: { maxHeight: 520 }, dangerouslySetInnerHTML: { __html: viewHtml } }))));
+				run.status === "awaiting_review" ? h("footer", { className: "studio-review" }, reviewContext ? h("div", { className: "studio-row wrap" },
+					h("div", null, h("strong", null, run.current + " 等待复核"), h("div", { className: "hint" }, (() => {
+							const next = STAGES.slice(STAGES.findIndex(item => item.id === run.current) + 1).find(item => !item.bypass);
+							return (REVIEW_QUESTIONS[run.current] || "确认当前阶段结果") + (next ? "；通过后进入 " + next.id + " · " + STUDIO_STAGE_NAMES[next.id] : "；通过后任务完成");
+						})())),
+					h("input", { className: "f-input studio-grow", value: comment, "aria-label": "复核意见", placeholder: "复核意见（打回必填）", onChange: e => setComment(e.target.value) }),
+					studioButton("打回", () => review("reject"), "danger", busy), studioButton("通过 " + run.current + " 并继续", () => review("approve"), "pri", busy || !reviewReady), !reviewReady ? h("span", { className: "hint" }, "等待外部产物就绪") : null)
+					: h("div", { className: "studio-row wrap" }, h("span", { className: "studio-grow hint" }, "当前正在查看其他内容；" + run.current + " 的阶段汇总等待复核。"), studioButton("返回当前复核对象", backCurrent, "pri"))) : null,
+				contextOpen ? h(StudioDialog, { title: "任务详情", wide: true, onClose: () => setContextOpen(false) }, h("div", { className: "studio-stack" },
+					h("div", { className: "kv" }, kvRow("项目", p.project?.name || p.slug), kvRow("任务编号", run.id, true), kvRow("来源", run.trigger?.uri || "—", true), kvRow("创建时间", fmtTime(run.createdAt)), kvRow("复核方式", reviewModeLabel(run.reviewMode)), kvRow("代码执行器", p6ModeLabel(run.p6Mode))),
+					h("p", { className: "hint" }, run.executionConfig ? "使用启动配置 v" + run.executionConfig.revision + " · 默认模型 " + (run.executionConfig.defaultRoute?.model || "未记录") : "历史任务未记录配置快照，兼容读取旧项目配置。"),
+					run.executionConfig ? h("details", null, h("summary", null, "查看启动配置"), h("pre", { className: "studio-json" }, JSON.stringify(run.executionConfig, null, 2))) : null,
+					h("details", null, h("summary", null, "阶段职责与契约"), h(StageContractCard, { stageId: activeStage, defaults: p.defaults }), h(StageGuideCard, { stageId: activeStage, defaults: p.defaults })),
+						h("details", null, h("summary", null, "复核历史 · " + reviews.length), reviews.length ? reviews.slice(-20).reverse().map(file => studioButton(file.path.split("/").at(-1), () => { setContextOpen(false); openFile(file.path); }, "ghost sm")) : h("p", { className: "hint" }, "暂无复核记录")),
+					studioButton("调整新任务的阶段默认值", () => { setContextOpen(false); p.onConfig(activeStage); }, "ghost"))) : null);
 		}
 
-		/* ================================================================
-		 * 04 配置 · 每阶段参数（提示词 / 模型 / 思考深度 / 超时 / 委托外部智能体）
-		 * 数据流：默认值来自 GET /stage-defaults（node 半 STAGE_DEFS）；
-		 * 用户覆盖存 project.json 的 stageConfig 字段；P6 执行模式与项目页 p6Mode 同源。
-		 * ================================================================ */
-		function StageConfigPanel(props) {
-			const p = props;
-			const [edit, setEdit] = React.useState(null);
-			const [saving, setSaving] = React.useState(false);
-			// P6 委外智能体测试门禁（claude 模式保存前置条件；与项目页绑定卡同一套逻辑）
-			const [p6Gate, setP6Gate] = React.useState(null);
-
-			// defaults / 项目变化 → 重建编辑态（生效值 = 用户覆盖 ?? 默认）
-			React.useEffect(function () {
-				if (!p.defaults || !p.projects) return;
-				const pr = p.projects.find(function (x) { return x.slug === p.slug; }) || null;
-				const sc = (pr && pr.stageConfig) || {};
-				const next = {};
-				STAGES.forEach(function (s) {
-					const def = p.defaults.stages[s.id];
-					const user = sc[s.id] || {};
-					const prompts = {};
-					Object.keys((def && def.prompts) || {}).forEach(function (k) {
-						prompts[k] = (user.prompts && user.prompts[k] != null) ? user.prompts[k] : def.prompts[k];
-					});
-					// 专属参数：字符串编辑态（空串 = 跟默认；placeholder 展示默认值）
-					const params = {};
-					Object.keys((def && def.params) || {}).forEach(function (k) {
-						const uv = user.params && user.params[k];
-						params[k] = uv != null && uv !== "" ? String(uv) : "";
-					});
-					next[s.id] = {
-						prompts,
-						params,
-						provider: user.provider || "",
-						model: user.model || "",
-						reasoningEffort: user.reasoningEffort || "",
-						timeoutMin: user.timeoutMs ? String(Math.round(user.timeoutMs / 60000)) : "",
-						maxTokens: user.maxTokens ? String(user.maxTokens) : "",
-						delegate: {
-							mode: s.id === "P6" ? (pr ? (pr.p6Mode || "builtin") : "builtin") : ((user.delegate && user.delegate.mode) || "off"),
-							agent: (user.delegate && user.delegate.agent) || "",
-							brief: (user.delegate && user.delegate.brief) || "",
-						},
-					testCommand: (pr && pr.testCommand) || "",
-				};
-			});
-			setEdit(next);
-			setP6Gate(null); // 项目/默认值变化 → 绑定路径可能变，门禁结果作废待重测
-			// eslint-disable-next-line react-hooks/exhaustive-deps
-		}, [p.defaults, p.projects, p.slug]);
-
-			if (!p.defaults || !p.projects) return h(Skel);
-			if (!p.slug) {
-				return h("div", { className: "empty-hint" },
-					h("div", { className: "eh-ic", "aria-hidden": "true" }, Ic("box", 30)),
-					h("p", { className: "eh-t" },
-						"还没有可配置的项目。先在「项目」保存一个项目，即可为它的 11 个阶段分别配置参数。"));
-			}
-			if (!edit) return h(Skel);
-
-			const stageId = p.selStage || "P1";
-			const sDef = STAGES.find(function (x) { return x.id === stageId; });
-			const dDef = p.defaults.stages[stageId];
-			const caps = (dDef && dDef.caps) || {};
-			const e = edit[stageId];
-
-			const setSt = function (patch) {
-				setEdit(function (prev) {
-					const next = Object.assign({}, prev);
-					next[stageId] = Object.assign({}, prev[stageId], patch);
-					return next;
-				});
-			};
-			const setPrompt = function (key, val) {
-				setSt({ prompts: Object.assign({}, e.prompts, { [key || ""]: val }) });
-			};
-			const setParam = function (key, val) {
-				setSt({ params: Object.assign({}, e.params, { [key]: val }) });
-			};
-			const setDelegate = function (patch) {
-				setSt({ delegate: Object.assign({}, e.delegate, patch) });
-			};
-
-			const radioGroup = function (labelId, opts, value, onChange, name) {
-				return h("div", { className: "radio-group", role: "radiogroup", "aria-labelledby": labelId },
-					opts.map(function (o) {
-						const on = value === o.value;
-						return h("label", { key: o.value, className: "radio-chip" + (on ? " on" : "") },
-							h("input", { type: "radio", name: name + "-" + stageId, value: o.value, checked: on, onChange: function () { onChange(o.value); } }),
-							o.label,
-							h("span", { className: "hint" }, o.hint));
-					}));
-			};
-
-			// —— 收集保存：与默认相同的项不落盘，保持 project.json 干净 ——
-			const collect = function () {
-				const pr = p.projects.find(function (x) { return x.slug === p.slug; }) || {};
-				const stageConfig = {};
-				STAGES.forEach(function (s) {
-					const def = p.defaults.stages[s.id];
-					const st = edit[s.id];
-					const out = {};
-					const prompts = {};
-					let prDirty = false;
-					Object.keys((def && def.prompts) || {}).forEach(function (k) {
-						if (st.prompts[k] !== def.prompts[k]) { prompts[k] = st.prompts[k]; prDirty = true; }
-					});
-					if (prDirty) out.prompts = prompts;
-					if (st.provider.trim()) out.provider = st.provider.trim();
-					if (st.model.trim()) out.model = st.model.trim();
-					if (st.reasoningEffort) out.reasoningEffort = st.reasoningEffort;
-					const tmin = parseInt(st.timeoutMin, 10);
-					if (tmin > 0) out.timeoutMs = tmin * 60000;
-					const mt = parseInt(st.maxTokens, 10);
-					if (mt > 0) out.maxTokens = mt;
-					if (s.id !== "P6" && st.delegate.mode === "session") {
-						const d = { mode: "session" };
-						if (st.delegate.agent.trim()) d.agent = st.delegate.agent.trim();
-						if (st.delegate.brief.trim()) d.brief = st.delegate.brief.trim();
-						out.delegate = d;
-					}
-					// 专属参数：与默认相同的项不落盘（保持 project.json 干净）
-					const pdef = (def && def.params) || {};
-					const po = {};
-					let pDirty = false;
-					Object.keys(pdef).forEach(function (k) {
-						const raw = String(st.params[k] == null ? "" : st.params[k]).trim();
-						if (!raw) return;
-						if (pdef[k].type === "string") {
-							if (raw !== pdef[k].def) { po[k] = raw; pDirty = true; }
-						} else {
-							const n = parseInt(raw, 10);
-							if (n > 0 && n !== pdef[k].def) { po[k] = n; pDirty = true; }
-						}
-					});
-					if (pDirty) out.params = po;
-					if (Object.keys(out).length) stageConfig[s.id] = out;
-				});
-				return {
-					name: pr.name || "",
-					slug: pr.slug || "",
-					repos: pr.repos || [],
-					triggers: pr.triggers || [],
-					reviewMode: pr.reviewMode || "every",
-					p6Mode: edit.P6.delegate.mode, // P6 执行模式与项目页同源（builtin/session/claude）
-					testCommand: (edit.P8.testCommand || "").trim(),
-					stageConfig,
-				};
-			};
-
-			// P6 门禁是否对当前绑定有效（P6 + claude/dsh 模式需要；改路径或换认证预设 → key 失效需重测）
-			const p6GateOk = function () {
-				if (stageId !== "P6") return true;
-				if (e.delegate.mode === "dsh") return !!(p6Gate && p6Gate.status === "pass" && p6Gate.key === "dsh");
-				if (e.delegate.mode !== "claude") return true;
-				return !!(p6Gate && p6Gate.status === "pass"
-					&& p6Gate.key === agentGateKey((e.params.claudeBin || "").trim(), e.params.claudeAuthPreset || "none", (e.params.claudeBaseUrl || "").trim()));
-			};
-
-			const save = function () {
-				if (stageId === "P6" && (e.delegate.mode === "claude" || e.delegate.mode === "dsh") && !p6GateOk()) {
-					p.toast("P6 委外执行：请先通过「委外智能体」测试门禁再保存", "bad");
-					return;
-				}
-				setSaving(true);
-				apiPost("/projects", collect()).then(function (r) {
-					setSaving(false);
-					if (r && r.ok) { p.toast("阶段配置已保存（下一阶段起生效）"); p.onSaved(p.slug); }
-					else p.toast((r && r.message) || "保存失败", "bad");
-				}).catch(function (err) { setSaving(false); p.toast("请求失败: " + err, "bad"); });
-			};
-
-			// 阶段是否已自定义（左列蓝点）：提示词偏离默认 / 路由覆盖 / 超时或 maxTokens 覆盖 / 专属参数覆盖 / 委托开启
-			const isCustomized = function (sid) {
-				const def = p.defaults.stages[sid];
-				const st = edit[sid];
-				if (!def || !st) return false;
-				if (sid === "P6" && st.delegate.mode !== "builtin") return true;
-				if (sid !== "P6" && st.delegate.mode === "session") return true;
-				if (st.provider.trim() || st.model.trim() || st.reasoningEffort) return true;
-				if (parseInt(st.timeoutMin, 10) > 0 || parseInt(st.maxTokens, 10) > 0) return true;
-				const pdef = def.params || {};
-				const pCustom = Object.keys(pdef).some(function (k) {
-					const raw = String(st.params[k] == null ? "" : st.params[k]).trim();
-					if (!raw) return false;
-					if (pdef[k].type === "string") return raw !== pdef[k].def;
-					const n = parseInt(raw, 10);
-					return n > 0 && n !== pdef[k].def;
-				});
-				if (pCustom) return true;
-				return Object.keys((def.prompts) || {}).some(function (k) { return st.prompts[k] !== def.prompts[k]; });
-			};
-
-			const promptKeys = Object.keys((dDef && dDef.prompts) || {});
-			const paramDefs = (dDef && dDef.params) || {};
-			// P6 的 claudeBin 由上方「委外智能体」绑定卡维护（claude 模式时显示），通用参数网格不重复出
-			const paramKeys = Object.keys(paramDefs).filter(function (k) { return !(stageId === "P6" && k === "claudeBin"); });
-			const roleLabel = { planner: "派单 Planner", coder: "编码 Coder", reviewer: "门控 Reviewer", desc: "PR 说明", gate: "Gate 评测" };
-			const effortOpts = [
-				{ value: "", label: "跟随全局", hint: "默认" },
-				{ value: "low", label: "浅", hint: "low" },
-				{ value: "medium", label: "中", hint: "medium" },
-				{ value: "high", label: "深", hint: "high" },
-			];
-
-			// 导入外部智能体简介（.md/.txt 文件 → brief）
-			const importBrief = function (file) {
-				if (!file) return;
-				const rd = new FileReader();
-				rd.onload = function () {
-					setDelegate({ brief: String(rd.result || "") });
-					p.toast("已导入 " + file.name + " 到附加要求");
-				};
-				rd.onerror = function () { p.toast("文件读取失败", "bad"); };
-				rd.readAsText(file, "utf8");
-			};
-
-			// 右侧表单内容（配置页独立用 / 运行页「配置」tab 嵌入用共用）
-			const cardContent = h("div", null,
-						p.embedded ? null : h("div", { className: "detail-head" },
-							h("div", null,
-								h("h3", null, sDef.id + " · " + sDef.name),
-						h("div", { className: "path" },
-							sDef.desc + " · 产物 " + sDef.art + (dDef && dDef.delegateSpec ? " · 委托产出就绪判定：" + dDef.delegateSpec.output : "")))),
-						// —— 阶段契约（先看本阶段输入 → 输出约定，再调下面的参数） ——
-						h(StageContractCard, { stageId: stageId, defaults: p.defaults }),
-						// —— 提示词（P7 无；P6 三角色 / P11 双角色） ——
-						promptKeys.length ? h("div", { className: "field" },
-							h("span", { className: "f-label" }, "提示词（system）"),
-							promptKeys.map(function (k) {
-								const isDefault = e.prompts[k] === dDef.prompts[k];
-								return h("div", { key: k || "_" },
-									h("div", { className: "pr-head" },
-										promptKeys.length > 1 ? h("span", { className: "f-label" }, roleLabel[k] || k) : null,
-										h("span", { className: "mark" }, isDefault ? "默认" : "已自定义"),
-										!isDefault ? h("button", {
-											type: "button", className: "btn sm", title: "恢复内置默认提示词",
-											onClick: function () { setPrompt(k, dDef.prompts[k]); },
-										}, Ic("reset", 12), " 恢复默认") : null),
-									h("textarea", {
-										className: "pr-input", value: e.prompts[k], spellCheck: false,
-										"aria-label": "提示词" + (promptKeys.length > 1 ? " · " + (roleLabel[k] || k) : ""),
-										onChange: function (ev) { setPrompt(k, ev.target.value); },
-									}));
-							})) : null,
-						// —— 模型 · 思考深度 ——
-						caps.route ? h("div", { className: "field" },
-							h("span", { className: "f-label" }, "模型 · 思考深度（留空 = 跟随全局宿主默认模型）"),
-							h("div", { className: "field-row" },
-								h("div", { className: "field", style: { marginBottom: 0 } },
-									h("label", { className: "f-label", htmlFor: "cfg-prov" }, "Provider"),
-									h("input", {
-										className: "f-input mono", id: "cfg-prov", value: e.provider,
-										placeholder: "跟随全局（如 deepseek-official）",
-										onChange: function (ev) { setSt({ provider: ev.target.value }); },
-									})),
-								h("div", { className: "field", style: { marginBottom: 0 } },
-									h("label", { className: "f-label", htmlFor: "cfg-model" }, "模型 ID"),
-									h("input", {
-										className: "f-input mono", id: "cfg-model", value: e.model,
-										placeholder: "跟随全局（如 deepseek-v4-pro）",
-										onChange: function (ev) { setSt({ model: ev.target.value }); },
-									}))),
-							h("div", { style: { marginTop: 10 } },
-								h("span", { className: "f-label", id: "cfg-eff-label" }, "思考深度（reasoningEffort）"),
-								radioGroup("cfg-eff-label", effortOpts, e.reasoningEffort,
-									function (v) { setSt({ reasoningEffort: v }); }, "eff"))) : null,
-						// —— 执行参数（超时 / maxTokens；P8 = 测试超时 + 测试命令） ——
-						caps.exec ? h("div", { className: "field" },
-							h("span", { className: "f-label" }, "执行参数（留空 = 默认）"),
-							h("div", { className: "field-row" },
-								h("div", { className: "field", style: { marginBottom: 0 } },
-									h("label", { className: "f-label", htmlFor: "cfg-timeout" },
-										stageId === "P8" ? "测试超时（分钟）" : "LLM 调用超时（分钟）"),
-									h("input", {
-										className: "f-input mono", id: "cfg-timeout", type: "number", min: 1,
-										value: e.timeoutMin, placeholder: "默认 " + (stageId === "P8"
-											? Math.round(p.defaults.testTimeoutMs / 60000)
-											: Math.round(p.defaults.llmTimeoutMs / 60000)) + " 分钟",
-										onChange: function (ev) { setSt({ timeoutMin: ev.target.value }); },
-									})),
-								stageId !== "P8" ? h("div", { className: "field", style: { marginBottom: 0 } },
-									h("label", { className: "f-label", htmlFor: "cfg-maxtok" }, "maxTokens"),
-									h("input", {
-										className: "f-input mono", id: "cfg-maxtok", type: "number", min: 1024,
-										value: e.maxTokens, placeholder: "默认 " + p.defaults.maxTokens,
-										onChange: function (ev) { setSt({ maxTokens: ev.target.value }); },
-									})) : null),
-							caps.test ? h("div", { style: { marginTop: 10 } },
-								h("label", { className: "f-label", htmlFor: "cfg-test" }, "测试命令（留空 = 自动探测 npm test）"),
-								h("input", {
-									className: "f-input mono", id: "cfg-test", value: e.testCommand,
-									placeholder: "如 npm test / python -m pytest …",
-									onChange: function (ev) { setSt({ testCommand: ev.target.value }); },
-								})) : null) : null,
-						// —— 阶段专属参数（本阶段工具行为：扫描上限/深读数/claude 路径等；开源场景不藏在代码里） ——
-						paramKeys.length ? h("div", { className: "field" },
-							h("span", { className: "f-label" }, "阶段专属参数（本阶段工具行为 · 留空 = 默认值）"),
-							h("div", { className: "field-row" },
-								paramKeys.map(function (k) {
-									const meta = paramDefs[k];
-									return h("div", { key: k, className: "field", style: { marginBottom: 0 } },
-										h("label", { className: "f-label", htmlFor: "cfg-p-" + stageId + "-" + k },
-											meta.label + (meta.unit ? "（" + meta.unit + "）" : "")),
-										h("input", {
-											className: "f-input mono", id: "cfg-p-" + stageId + "-" + k,
-											type: meta.type === "string" ? "text" : "number", min: 1,
-											value: e.params[k],
-											placeholder: meta.type === "string"
-												? (meta.def ? "默认 " + meta.def : "自动探测")
-												: "默认 " + meta.def + (meta.unit ? " " + meta.unit : ""),
-											onChange: function (ev) { setParam(k, ev.target.value); },
-										}),
-										h("p", { className: "hint-line", style: { margin: "5px 0 0" } }, meta.hint));
-								}))) : null,
-						// —— 委托外部智能体 ——
-						caps.delegate ? (function () {
-							if (stageId === "P6") {
-								// P6：执行模式与项目页同源（builtin/session/claude/dsh）；claude/dsh 模式出绑定卡
-								return h("div", { className: "field" },
-									h("span", { className: "f-label", id: "cfg-p6-label" }, "执行模式 · 委托外部智能体"),
-									radioGroup("cfg-p6-label", [
-										{ value: "builtin", label: "插件内多智能体", hint: "Planner/Coder/Reviewer" },
-										{ value: "session", label: "交给外部会话", hint: "生成任务包，人工交接" },
-										{ value: "claude", label: "委托 Claude Code", hint: "claude CLI 自动执行" },
-										{ value: "dsh", label: "DSH 原生智能体", hint: "宿主内执行 · 零外部认证" },
-									], e.delegate.mode, function (v) { setDelegate({ mode: v }); }, "p6mode"),
-									e.delegate.mode === "claude" ? h(AgentBindCard, {
-										bin: e.params.claudeBin, gate: p6Gate,
-										authPreset: e.params.claudeAuthPreset || "none", authBaseUrl: e.params.claudeBaseUrl || "",
-										onBinChange: function (v) { setParam("claudeBin", v); },
-										onAuthPreset: function (v) { setParam("claudeAuthPreset", v); },
-										onAuthBaseUrl: function (v) { setParam("claudeBaseUrl", v); },
-										onGate: setP6Gate, toast: p.toast, slug: p.slug,
-									}) : e.delegate.mode === "dsh" ? h(DshAgentCard, {
-										gate: p6Gate, onGate: setP6Gate, toast: p.toast,
-									}) : null,
-									h("p", { className: "hint-line", style: { margin: "8px 0 0" } },
-										"与「项目」页 P6 执行模式为同一配置（p6Mode）；claude/dsh 模式任务包自动执行，产出补丁后回复核门。"));
-							}
-							const on = e.delegate.mode === "session";
-							return h("div", { className: "field" },
-								h("span", { className: "f-label" }, "委托外部智能体（ACP）"),
-								h("div", { className: "dlg-row" },
-									h("input", {
-										type: "checkbox", id: "cfg-dlg-on", checked: on,
-										onChange: function (ev) { setDelegate({ mode: ev.target.checked ? "session" : "off" }); },
-									}),
-									h("label", { htmlFor: "cfg-dlg-on", style: { flex: 1 } },
-										h("span", { className: "lbl" }, "本阶段不调用插件内 LLM，生成任务包交外部智能体执行"),
-										h("div", { className: "sub" },
-											"开启后产出 ", h("span", { style: { fontFamily: "var(--mono)" } }, "delegate/" + stageId + "-task.md"),
-											"（含上游输入、输出契约" + (dDef && dDef.delegateSpec ? "，产出 " + dDef.delegateSpec.output + " 落盘后复核门可放行" : "") + "）。"))),
-								on ? h("div", null,
-									h("div", { className: "field" },
-										h("label", { className: "f-label", htmlFor: "cfg-agent" }, "外部智能体（名称/型号，写入任务包抬头）"),
-										h("input", {
-											className: "f-input mono", id: "cfg-agent", value: e.delegate.agent,
-											placeholder: "如 claude-code / codex-cli / 自定义智能体名",
-											onChange: function (ev) { setDelegate({ agent: ev.target.value }); },
-										})),
-									h("div", { className: "field" },
-										h("label", { className: "f-label", htmlFor: "cfg-brief" }, "附加要求（随任务包下发给智能体）"),
-										h("textarea", {
-											className: "f-input", id: "cfg-brief", value: e.delegate.brief,
-											placeholder: "对该智能体的额外要求、产出格式、注意事项…（也可从下方导入）",
-											onChange: function (ev) { setDelegate({ brief: ev.target.value }); },
-										}),
-										h("label", { className: "imp-label", style: { marginTop: 6 } },
-											Ic("upload", 12), " 导入外部智能体简介（.md / .txt）",
-											h("input", {
-												type: "file", accept: ".md,.txt,.markdown",
-												onChange: function (ev) { importBrief(ev.target.files && ev.target.files[0]); ev.target.value = ""; },
-											})))) : null);
-						})() : null,
-						// —— P7：确定性执行，无参数 ——
-						!promptKeys.length && !caps.route && !caps.exec && !caps.delegate
-							? h("div", { className: "callout", style: { marginTop: 0 } },
-								h("h4", null, "本阶段无可配置参数"),
-								h("p", { style: { margin: 0, fontSize: 13.5 } },
-									"P7 是确定性 patch 应用管线（版本校验 → 逐条落盘 → 写 ledger），不调用大模型；",
-									"每条 patch 可在「运行」页 P7 详情中逐条回滚。"))
-							: null,
-						h("div", { className: "cfg-foot" },
-							h("button", {
-								type: "button", className: "btn pri",
-								disabled: saving || !p6GateOk(),
-								title: !p6GateOk() ? "P6 委托 Claude Code 需先通过委外智能体测试门禁" : "",
-								onClick: save,
-							},
-								Ic("check"), saving ? " 保存中…" : " 保存阶段配置"),
-							h("span", { className: "hint-line", style: { margin: 0 } },
-								"写入 …\\issue2pr\\projects\\" + p.slug + "\\project.json 的 stageConfig 字段")));
-
-			if (p.embedded) {
-				// 运行页「配置」tab：运行页已有阶段头与左列，这里只出表单体
-				return h("div", null,
-					h("p", { className: "run-hint", style: { margin: "0 0 10px" } },
-						"本阶段全量参数：", h("b", null, "提示词 / 模型 / 思考深度 / 超时 / 专属参数 / 委托"),
-						"；留空 = 用默认值。保存对进行中的 Run 从下一阶段起生效；阶段切换用左侧时间线。"),
-					cardContent);
-			}
-			return h("div", null,
-				h("p", { className: "run-hint" },
-					"按阶段覆盖 ", h("b", null, "提示词 / 模型 / 思考深度 / 超时 / 专属参数 / 委托外部智能体"),
-					"；留空 = 用默认值。保存写入 project.json，对进行中的 Run 从下一阶段起生效。「运行」页各阶段详情也可直接配置。"),
-				h("div", { className: "cfg-layout" },
-					h("div", { className: "steps", role: "list", "aria-label": "阶段列表" },
-						STAGES.map(function (s) {
-							const customized = isCustomized(s.id);
-							const dlg = edit[s.id] && edit[s.id].delegate.mode !== "off"
-								&& (s.id !== "P6" ? true : edit.P6.delegate.mode !== "builtin");
-							return h("button", {
-								key: s.id, role: "listitem",
-								className: "cfg-row" + (s.id === stageId ? " on" : ""),
-								onClick: function () { p.onSelectStage(s.id); },
-							},
-								h("span", { className: "sdot" }),
-								h("span", { className: "s-main" },
-									h("span", { className: "s-name" }, s.id + " · " + s.name,
-										customized ? h("span", { className: "cdot", title: "已自定义" }) : null),
-									h("span", { className: "s-desc" }, s.desc)),
-								h("span", { className: "s-side" },
-									dlg ? h("span", { className: "wtg" }, "委托") : null));
-						})),
-					h("div", { className: "card" }, cardContent)));
-		}
-
-		/* ================================================================
-		 * 05 说明
-		 * ================================================================ */
 		function GuidePanel() {
 			return h("div", { className: "guide" },
 				h("p", { className: "lede" },
@@ -2995,7 +1491,7 @@ body.i2p-dragging{user-select:none}
 						STAGES.map(function (s) {
 							return h("tr", { key: s.id },
 								h("td", null, h("code", null, s.id)),
-								h("td", null, s.name + (s.bypass ? h("span", { className: "tg t-warn", style: { marginLeft: 6 } }, "失败旁路") : null)),
+								h("td", null, s.name, s.bypass ? h("span", { className: "tg t-warn", style: { marginLeft: 6 } }, "失败旁路") : null),
 								h("td", null, h("code", null, s.art)),
 								h("td", null, s.key ? "是" : "—"));
 						}))),
@@ -3015,10 +1511,10 @@ body.i2p-dragging{user-select:none}
 					h("div", { className: "callout acc" },
 						h("h4", null, "按阶段调参"),
 						h("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 13.5 } },
-							h("li", null, "「运行」页每个阶段详情内有「配置」视图，直接调本阶段参数；「配置」页可集中管理全部阶段"),
+							h("li", null, "「设置 → 阶段提示词」集中管理各阶段与角色；任务详情可以查看启动配置"),
 							h("li", null, "可调：提示词 / 模型 / 思考深度 / 超时 / 阶段专属参数（扫描上限、深读数、claude 路径等）/ 委托外部智能体"),
 							h("li", null, "可把任一 LLM 阶段委托外部智能体（生成任务包，产出落盘后回复核门）"),
-							h("li", null, "留空一律回落内置默认；保存后对进行中的 Run 下一阶段起生效")))),
+							h("li", null, "留空继承默认；全局设置保存后只影响新任务，已有任务及重跑使用启动配置。无快照的历史任务兼容读取旧项目配置")))),
 				h("div", { className: "card" },
 					h("h4", null, "数据落盘位置"),
 					h("p", { style: { margin: 0 } },
@@ -3032,420 +1528,576 @@ body.i2p-dragging{user-select:none}
 		/* ================================================================
 		 * 主 Section：左侧导航 + 共享数据 + 3s 轮询
 		 * ================================================================ */
-		function Section() {
-			// 一级导航记忆：宿主标签切换销毁重建 webview 后回到上次页面（而不是掉回「项目」）
-			const [nav, setNav] = React.useState(function () {
-				const v = localStorage.getItem("i2p.nav");
-				return ["projects", "runs", "artifacts", "config", "guide"].indexOf(v) >= 0 ? v : "projects";
+
+
+		function settingField(label, value, onChange, options = {}) {
+			return h("label", { className: "studio-field" }, h("span", null, label),
+				options.choices ? h("select", { className: "f-select", value: value ?? "", disabled: options.disabled, onChange: e => onChange(e.target.value) },
+					options.choices.map(([key, title]) => h("option", { key, value: key }, title)))
+					: h(options.multiline ? "textarea" : "input", { className: "f-input" + (options.multiline ? " studio-prompt-editor" : ""),
+						value: value ?? "", type: options.type || "text", placeholder: options.placeholder,
+						readOnly: options.readOnly, disabled: options.disabled, min: options.min,
+						onChange: e => onChange(e.target.value), autoComplete: options.type === "password" ? "new-password" : undefined }),
+				options.hint ? h("small", { className: "hint" }, options.hint) : null);
+		}
+		const STUDIO_EXECUTORS = [["builtin", "内置多智能体"], ["session", "DSH 人工会话"],
+			["claude", "外部 Agent：Claude Code"], ["dsh", "DSH 原生智能体"]];
+		const settingsDrafts = new Map();
+		function updateStageConfig(project, stage, patch) {
+			return { ...project, stageConfig: { ...project.stageConfig,
+				[stage]: { ...project.stageConfig?.[stage], ...patch } } };
+		}
+		function executorSignature(project) {
+			const params = project.stageConfig?.P6?.params || {};
+			return JSON.stringify([project.p6Mode, params.claudeBin || "", params.claudeAuthPreset || "none", params.claudeBaseUrl || ""]);
+		}
+		function ProjectDialog(p) {
+			const existing = p.projects.find(project => project.slug === p.slug);
+			const [form, setForm] = React.useState(() => ({
+				name: existing?.name || "", slug: existing?.slug || "",
+				repo: typeof existing?.repos?.[0] === "string" ? existing.repos[0] : existing?.repos?.[0]?.uri || "",
+				extra: (existing?.repos || []).slice(1).map(repo => typeof repo === "string" ? repo : repo.uri).join("\n"),
+				triggers: existing?.triggers || []
+			}));
+			const [busy, setBusy] = React.useState(false), [error, setError] = React.useState("");
+			const lock = React.useRef(false);
+			const field = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+			const host = hostOfUri(form.repo);
+			const provider = /github/i.test(host) ? "GitHub" : /gitlab/i.test(host) ? "GitLab"
+				: /codearts|myhuaweicloud/i.test(host) ? "CodeArts" : isSshUri(form.repo) ? "SSH 仓库" : "Git 仓库";
+			const suggested = form.repo.replace(/\.git\/?$/, "").split(/[/:]/).filter(Boolean).at(-1) || "";
+			const submit = async e => {
+				e.preventDefault(); if (lock.current) return;
+				const name = form.name.trim() || suggested, slug = form.slug.trim() || suggested.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+				if (!name || !/^[a-z0-9-]+$/.test(slug) || !form.repo.trim()) { setError("请填写仓库地址、项目名称和有效目录名"); return; }
+				if (!existing && p.projects.some(project => project.slug === slug)) { setError("项目目录名已存在，请更换"); return; }
+				lock.current = true; setBusy(true); setError("");
+				try {
+					const check = await apiPost("/connections/test-repo", { uri: form.repo.trim() });
+					if (!check?.ok) throw new Error(check?.message || "仓库连接失败");
+					const result = await apiPost("/projects", { name, slug,
+						repos: [form.repo, ...form.extra.split("\n")].map(uri => uri.trim()).filter(Boolean).map(uri => ({ uri })),
+						triggers: form.triggers.filter(item => item.uri.trim()) });
+					if (!result?.ok) throw new Error(result?.message || "保存失败");
+					p.onSaved(slug); p.onClose();
+				} catch (error) { setError(error.message); } finally { setBusy(false); lock.current = false; }
+			};
+			return h(StudioDialog, { title: existing ? "管理项目" : "连接项目", onClose: () => { if (!busy) p.onClose(); } },
+				h("form", { className: "studio-stack", onSubmit: submit },
+					settingField("Git 仓库地址", form.repo, value => field("repo", value), { disabled: busy, placeholder: "粘贴 HTTPS 或 SSH 克隆地址" }),
+					h("div", { className: "studio-provider-note" }, Ic("git", 18), h("span", null, provider + (host ? " · " + host : " · 根据仓库地址自动识别"))),
+					settingField("项目名称", form.name, value => field("name", value), { disabled: busy, placeholder: "留空使用 " + (suggested || "仓库名称") }),
+					settingField("项目目录名", form.slug, value => field("slug", value), { disabled: busy, readOnly: !!existing,
+						placeholder: suggested.toLowerCase(), hint: "小写字母、数字和连字符；用于区分项目，创建后不修改。" }),
+					h("p", { className: "hint" }, "HTTPS 按域名匹配“连接与凭据”；SSH 使用 DSH 所在机器的密钥。公开仓库可匿名访问。"),
+					h("details", null, h("summary", null, "其他仓库与保存的来源"),
+						settingField("其他仓库（每行一个）", form.extra, value => field("extra", value), { multiline: true, disabled: busy }),
+						form.triggers.map((trigger, index) => h("div", { className: "studio-row wrap", key: index },
+							settingField("来源类型", trigger.kind, value => field("triggers", form.triggers.map((item, pos) => pos === index ? { ...item, kind: value } : item)),
+								{ disabled: busy, choices: [["issue", "Issue"], ["requirement", "需求文档"]] }),
+							settingField("来源路径", trigger.uri, value => field("triggers", form.triggers.map((item, pos) => pos === index ? { ...item, uri: value } : item)), { disabled: busy }),
+							studioButton("移除", () => field("triggers", form.triggers.filter((_, pos) => pos !== index)), "sm", busy))),
+						studioButton("添加来源", () => field("triggers", [...form.triggers, { kind: "issue", uri: "" }]), "sm", busy)),
+					error ? h("div", { className: "callout err", role: "alert" }, error) : null,
+					h("div", { className: "studio-row wrap" }, h("span", { className: "studio-grow hint" }, busy ? "正在检查仓库并保存…" : "保存前执行真实仓库连通性检查"),
+						existing ? studioButton("删除项目", async () => {
+							if (busy || !window.confirm("删除项目 " + existing.name + " 及其全部任务、产物和本地克隆？不可恢复。")) return;
+							setBusy(true);
+							try {
+								const result = await apiDelete("/projects/" + existing.slug + "?confirm=" + encodeURIComponent(existing.slug));
+								if (!result?.ok) throw new Error(result?.message || "删除失败");
+								settingsDrafts.delete(existing.slug); p.onDeletedProject();
+							} catch (error) { setError(error.message); } finally { setBusy(false); }
+						}, "danger sm", busy) : null,
+						h("button", { className: "btn pri", disabled: busy }, busy ? "检查中…" : existing ? "检查并保存" : "检查并连接"))));
+		}
+		function StudioConnections(p) {
+			const [draft, setDraft] = React.useState(null), [busy, setBusy] = React.useState(false);
+			const [results, setResults] = React.useState({}), [error, setError] = React.useState("");
+			const lock = React.useRef(false);
+			const execute = async (path, body, callback, method = "POST") => {
+				if (lock.current) return;
+				lock.current = true; setBusy(true); setError("");
+				try {
+					const result = method === "DELETE" ? await apiDelete(path) : await apiPost(path, body);
+					if (!result?.ok) throw new Error(result?.message || "操作失败");
+					callback(result);
+				} catch (error) { setError(error.message); }
+				finally { setBusy(false); lock.current = false; }
+			};
+			return h("article", { className: "card" },
+				h("div", { className: "studio-row" }, h("h2", { className: "studio-grow" }, "连接与凭据"),
+					studioButton("添加连接", () => { setDraft({ kind: "github", host: "github.com", username: "", token: "" }); setError(""); }, "sm")),
+				h("p", { className: "hint" }, "同一域名的连接可供多个项目使用。凭据单独保存，不随项目设置草稿保存。"),
+				h(ResourceNotice, { resource: p.resource }),
+				(p.resource.value || []).map(connection => h("div", { className: "studio-connection", key: connection.id },
+					h("div", { className: "studio-row" }, Ic("git", 20), h("div", { className: "studio-grow" },
+						h("h3", null, CONN_KIND_META[connection.kind]?.label || connection.kind),
+						h("span", { className: "hint" }, connection.host)),
+						h("span", { className: "tg" }, results[connection.id] || "已保存，尚未测试")),
+					h("p", { className: "hint" }, (connection.username || "未指定账号") + " · " + (connection.token || "未配置令牌")),
+					h("p", { className: "hint" }, connection.secretEncrypted ? "操作系统加密存储" : connection.secretWarning || "存储方式：" + connection.secretStorage),
+					h("div", { className: "studio-row wrap" },
+						studioButton("测试连接", () => execute("/connections/test", { id: connection.id },
+							result => setResults(prev => ({ ...prev, [connection.id]: "已验证 " + (result.account || "") }))), "sm", busy),
+						studioButton("更新凭据", () => { setDraft({ kind: connection.kind, host: connection.host, username: connection.username || "", token: "" }); setError(""); }, "sm", busy),
+						studioButton("移除", () => {
+							if (window.confirm("移除此域名的共享连接？相关项目后续访问可能需要重新认证。"))
+								execute("/connections/" + encodeURIComponent(connection.id), {}, p.resource.reload, "DELETE");
+						}, "sm danger", busy)))),
+				!p.resource.value?.length ? h(EmptyState, { title: "尚未配置共享连接" }) : null,
+				error && !draft ? h("p", { className: "callout err", role: "alert" }, error) : null,
+				draft ? h(StudioDialog, { title: "配置连接", onClose: () => { if (!busy) { setDraft(null); setError(""); } } },
+					h("form", { className: "studio-stack", onSubmit: e => { e.preventDefault();
+						if (!draft.token.trim()) { setError("请输入新的凭据，已存掩码不能作为凭据提交"); return; }
+						execute("/connections", draft, () => { setDraft(null); p.resource.reload(); p.toast("连接已保存"); });
+					} },
+						settingField("托管平台", draft.kind, kind => setDraft(prev => ({ ...prev, kind, host: CONN_KIND_META[kind]?.host || "" })),
+							{ disabled: busy, choices: Object.entries(CONN_KIND_META).map(([key, value]) => [key, value.label]) }),
+						settingField("托管域名", draft.host, host => setDraft(prev => ({ ...prev, host })), { disabled: busy }),
+						settingField("账号", draft.username, username => setDraft(prev => ({ ...prev, username })), { disabled: busy }),
+						settingField(CONN_KIND_META[draft.kind]?.tokenLabel || "访问令牌", draft.token, token => setDraft(prev => ({ ...prev, token })),
+							{ type: "password", disabled: busy, hint: "输入新凭据；保存后只显示掩码。" }),
+						error ? h("p", { className: "callout err", role: "alert" }, error) : null,
+						h("button", { className: "btn pri", disabled: busy }, busy ? "保存中…" : "保存连接"))) : null);
+		}
+		function StudioSettings(p) {
+			const [draft, setDraft] = React.useState(() => settingsDrafts.get("global")?.draft || structuredClone(p.settings));
+			const [baseline, setBaseline] = React.useState(() => settingsDrafts.get("global")?.baseline || structuredClone(p.settings));
+			const [role, setRole] = React.useState("");
+			const [busy, setBusy] = React.useState(false), [error, setError] = React.useState("");
+			const [probe, setProbe] = React.useState(null), [probeKey, setProbeKey] = React.useState("");
+			const [candidates, setCandidates] = React.useState([]);
+			const [relayToken, setRelayToken] = React.useState(""), [relayInfo, setRelayInfo] = React.useState(null);
+			const lock = React.useRef(false);
+			const signature = executorSignature(draft);
+			const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
+			React.useEffect(() => { settingsDrafts.set("global", { draft, baseline }); }, [draft, baseline]);
+			React.useEffect(() => {
+				const controller = new AbortController();
+				readOk("/relay-auth", controller.signal).then(setRelayInfo).catch(error => { if (error.name !== "AbortError") setError(error.message); });
+				return () => controller.abort();
+			}, []);
+			const field = (key, value) => setDraft(prev => ({ ...prev, [key]: value }));
+			const stage = p.stage || "P1", definition = p.defaults?.stages?.[stage] || {};
+			const config = draft.stageConfig?.[stage] || {}, params = draft.stageConfig?.P6?.params || {};
+			const setConfig = patch => setDraft(prev => updateStageConfig(prev, stage, patch));
+			const setParam = (name, value) => setDraft(prev => updateStageConfig(prev, "P6", { params: { ...prev.stageConfig?.P6?.params, [name]: value } }));
+			const roles = Object.keys(definition.prompts || {});
+			const activeRole = roles.includes(role) ? role : roles[0] || "";
+			const prompt = config.prompts?.[activeRole] ?? definition.prompts?.[activeRole] ?? "";
+			const roleLabels = { "": "阶段提示词", planner: "Planner", coder: "Coder", reviewer: "Reviewer", desc: "PR 说明", gate: "交付评测" };
+			const request = async operation => {
+				if (lock.current) return;
+				lock.current = true; setBusy(true); setError("");
+				try { await operation(); } catch (error) { setError(error.message); }
+				finally { lock.current = false; setBusy(false); }
+			};
+			const save = () => request(async () => {
+				if (["dsh", "claude"].includes(draft.p6Mode) && signature !== executorSignature(baseline)
+					&& !(probe?.ok && probeKey === signature)) throw new Error("执行器配置已改变，请先在“执行器与环境”运行探测并通过门禁");
+				for (const [id, override] of Object.entries(draft.stageConfig || {})) {
+					if (!!override.provider?.trim() !== !!override.model?.trim()) throw new Error(id + " 的服务商与模型必须同时填写，或同时留空");
+				}
+				const result = await apiPut("/settings", draft);
+				if (!result?.ok) throw new Error(result?.message || "设置保存失败");
+				setDraft(structuredClone(result.settings)); setBaseline(structuredClone(result.settings)); p.onSaved();
 			});
-			React.useEffect(function () {
-				try { localStorage.setItem("i2p.nav", nav); } catch (e) { /* 忽略 */ }
-			}, [nav]);
-			const [toast, setToast] = React.useState(null);
-			const [projects, setProjects] = React.useState(null);
-			// 选中记忆：进入时恢复上次选中的项目（无记忆则保持未选中）
-			const [selSlug, setSelSlug] = React.useState(function () { return localStorage.getItem("i2p.proj") || null; });
-			const [runs, setRuns] = React.useState(null);
-			const [selRunId, setSelRunId] = React.useState(null);
-			const [run, setRun] = React.useState(null);
-			const [tree, setTree] = React.useState(null);
-			const [cfgStage, setCfgStage] = React.useState("P1");
-			const [stageDefaults, setStageDefaults] = React.useState(null);
-			// Git 托管连接（全局）+ 环境预检（git/claude/LLM 路由）：项目页台面化数据源
-			const [connections, setConnections] = React.useState(null);
-			const [preflight, setPreflight] = React.useState(null);
-
-			// 视图位置同步进模块级 store（悬浮智能助手据此聚焦当前页面/项目/Run）
-			React.useEffect(function () {
-				viewStore.set({ nav: nav, slug: selSlug, runId: selRunId });
-			}, [nav, selSlug, selRunId]);
-
-			// 阶段默认值与能力表（配置页数据源；一次拉取）
-			React.useEffect(function () {
-				apiGet("/stage-defaults").then(function (r) {
-					if (r && r.ok) setStageDefaults(r.defaults);
-				}).catch(function () { /* 配置页会显示加载中 */ });
-			}, []);
-
-			// Git 托管连接（全局共享；增删改后由 loadConnections 刷新）
-			const loadConnections = React.useCallback(function () {
-				apiGet("/connections").then(function (r) {
-					if (r && r.ok) setConnections(r.connections || []);
-				}).catch(function () { /* 静默：徽章显示未配置 */ });
-			}, []);
-			React.useEffect(function () { loadConnections(); }, [loadConnections]);
-
-			// 环境预检（只读）：随选中项目刷新（覆盖清单/claudeBin 与项目配置相关），保存后也刷新
-			const loadPreflight = React.useCallback(function () {
-				const q = selSlug ? "?slug=" + encodeURIComponent(selSlug) : "";
-				apiGet("/preflight" + q).then(function (r) {
-					if (r && r.ok) setPreflight(r.preflight);
-				}).catch(function () { /* 静默：无横幅即视为健康 */ });
-			}, [selSlug]);
-			React.useEffect(function () { loadPreflight(); }, [loadPreflight]);
-
-			// 竞态守卫键：始终反映最新的 slug/runId，异步响应到达时比对，
-			// 不匹配则丢弃（防止旧项目的 runs/run/tree 响应覆盖新选择）
-			const ctxRef = React.useRef({ slug: null, runId: null });
-			ctxRef.current.slug = selSlug;
-			ctxRef.current.runId = selRunId;
-
-			// 选中项目统一入口：双写记忆——localStorage（快路径，同会话零延迟）
-			// + 服务端 ui-state 文件（兜底：宿主 webview 重启后 localStorage 不持久）
-			const touchedRef = React.useRef(false);
-			const selectSlug = React.useCallback(function (slug) {
-				touchedRef.current = true;
-				setSelSlug(slug);
-				if (slug) localStorage.setItem("i2p.proj", slug);
-				else localStorage.removeItem("i2p.proj");
-				apiPost("/ui-state", { lastProject: slug || null })
-					.catch(function () { /* 兜底写失败静默：localStorage 仍有效 */ });
-			}, []);
-
-			// 进入时记忆恢复的兜底：localStorage 无记忆（宿主重启清空 / 换 origin）→
-			// 拉服务端 ui-state 恢复上次选中；有记忆则反向同步到服务端，保证下次重启后兜底可用。
-			// 异步返回时用户已手动选过（touched）或已处于选中态则不覆盖。
-			React.useEffect(function () {
-				const local = localStorage.getItem("i2p.proj");
-				if (local) {
-					apiPost("/ui-state", { lastProject: local }).catch(function () { /* 同步失败静默 */ });
+			const probeExecutor = () => request(async () => {
+				setProbe(null); setProbeKey("");
+				if (["builtin", "session"].includes(draft.p6Mode)) {
+					const result = await readOk("/preflight");
+					setProbe({ ok: !!result.preflight?.git?.ok, gate: { steps: [
+						{ name: "Git 环境", ok: !!result.preflight?.git?.ok },
+						{ name: "模型来源：" + (result.preflight?.llm?.model || "未解析"), ok: !!result.preflight?.llm?.model }
+					], message: "环境探测不等于模型认证成功；人工会话由用户在 DSH 中执行。" } });
 					return;
 				}
-				apiGet("/ui-state").then(function (r) {
-					if (!r || !r.ok) return;
-					lastRunStore.adopt(r.state && r.state.lastRunBySlug); // lastRun 记忆兜底并入（仅补缺）
-					const lp = r.state && r.state.lastProject;
-					if (!lp || touchedRef.current || ctxRef.current.slug != null) return;
-					setSelSlug(lp);
-				}).catch(function () { /* 兜底不可用：保持未选中 */ });
-			}, []);
-
-			const toastFn = React.useCallback(function (msg, kind) {
-				setToast({ msg: msg, kind: kind || "ok" });
-			}, []);
-			React.useEffect(function () {
-				if (!toast) return;
-				// 失败类提示停留更久（长文案需要时间读完）
-				const t = setTimeout(function () { setToast(null); }, toast.kind === "bad" ? 5200 : 2600);
-				return function () { clearTimeout(t); };
-			}, [toast]);
-
-			// 项目列表（挂载 / 保存后）
-			const loadProjects = React.useCallback(function () {
-				apiGet("/projects").then(function (r) {
-					if (r && r.ok) setProjects(r.projects);
-					else toastFn((r && r.message) || "项目列表加载失败", "bad");
-				}).catch(function (e) { toastFn("请求失败: " + e, "bad"); });
-			}, [toastFn]);
-			React.useEffect(function () { loadProjects(); }, [loadProjects]);
-
-			// 记忆选中的项目若已不存在（被他处删除），回到未选中状态
-			React.useEffect(function () {
-				if (selSlug == null || projects == null) return;
-				if (!projects.some(function (x) { return x.slug === selSlug; })) selectSlug(null);
-			}, [selSlug, projects, selectSlug]);
-
-			// slug 变化 → 重置 run 选择并加载 runs 摘要；恢复优先上次选中的 Run
-			// （lastRun 记忆），无记忆/已删除才退回最新 Run
-			React.useEffect(function () {
-				setSelRunId(null); setRun(null); setTree(null);
-				if (!selSlug) { setRuns(null); return; }
-				const slug = selSlug;
-				setRuns(null);
-				apiGet("/projects/" + slug + "/runs").then(function (r) {
-					if (!r || !r.ok) return;
-					if (ctxRef.current.slug !== slug) return;
-					setRuns(r.runs || []);
-					setSelRunId(function (prev) {
-						if (prev) return prev;
-						const list = r.runs || [];
-						if (!list.length) return null;
-						const remembered = lastRunStore.get(slug);
-						return list.some(function (x) { return x.id === remembered; }) ? remembered : list[0].id;
-					});
-				});
-			}, [selSlug]);
-
-			// run 详细 + 产物树（切换 run 时；stale 守卫防旧响应覆盖新选择）
-			React.useEffect(function () {
-				if (!selSlug || !selRunId) { setRun(null); setTree(null); return; }
-				let stale = false;
-				apiGet("/projects/" + selSlug + "/runs/" + selRunId).then(function (r) {
-					if (stale) return;
-					if (r && r.id) setRun(r);
-					else if (r && r.ok === false) setRun(null);
-				});
-				apiGet("/projects/" + selSlug + "/runs/" + selRunId + "/tree").then(function (r) {
-					if (!stale) setTree(r && r.ok ? r.files : null);
-				});
-				return function () { stale = true; };
-			}, [selSlug, selRunId]);
-
-			// 3s 轮询 run 摘要 / 详细 / 产物树（卸载时清理；响应按最新 slug/runId 守卫）
-			React.useEffect(function () {
-				if (!selSlug) return;
-				const slug = selSlug, runId = selRunId;
-				const timer = setInterval(function () {
-					apiGet("/projects/" + slug + "/runs").then(function (r) {
-						if (r && r.ok && ctxRef.current.slug === slug) setRuns(r.runs || []);
-					});
-					if (runId) {
-						apiGet("/projects/" + slug + "/runs/" + runId).then(function (r) {
-							if (r && r.id && ctxRef.current.slug === slug && ctxRef.current.runId === runId) setRun(r);
-						});
-						apiGet("/projects/" + slug + "/runs/" + runId + "/tree").then(function (r) {
-							if (r && r.ok && ctxRef.current.slug === slug && ctxRef.current.runId === runId) setTree(r.files);
-						});
-					}
-				}, 3000);
-				return function () { clearInterval(timer); };
-			}, [selSlug, selRunId]);
-
-			// 动作后立即刷新（不等轮询；响应同样按最新 slug/runId 守卫）
-			const refreshNow = React.useCallback(function () {
-				const slug = selSlug, runId = selRunId;
-				if (slug) {
-					apiGet("/projects/" + slug + "/runs").then(function (r) {
-						if (r && r.ok && ctxRef.current.slug === slug) setRuns(r.runs || []);
-					});
-				}
-				if (slug && runId) {
-					apiGet("/projects/" + slug + "/runs/" + runId).then(function (r) {
-						if (r && r.id && ctxRef.current.slug === slug && ctxRef.current.runId === runId) setRun(r);
-					});
-					apiGet("/projects/" + slug + "/runs/" + runId + "/tree").then(function (r) {
-						if (r && r.ok && ctxRef.current.slug === slug && ctxRef.current.runId === runId) setTree(r.files);
-					});
-				}
-			}, [selSlug, selRunId]);
-
-			// 回到前台立即刷新（不等 3s 轮询）：宿主标签切回 / 窗口聚焦即恢复现场。
-			// 嵌入式 IAB 里 visibilitychange 与 focus 都可能不触发，两个都挂做双保险。
-			React.useEffect(function () {
-				const onVis = function () { if (document.visibilityState === "visible") refreshNow(); };
-				document.addEventListener("visibilitychange", onVis);
-				window.addEventListener("focus", refreshNow);
-				return function () {
-					document.removeEventListener("visibilitychange", onVis);
-					window.removeEventListener("focus", refreshNow);
-				};
-			}, [refreshNow]);
-
-			const onSaved = React.useCallback(function (slug) {
-				selectSlug(slug);
-				loadProjects();
-				loadPreflight(); // 阶段模型覆盖 / claudeBin 配置变化 → 预检行与横幅即时更新
-			}, [loadProjects, selectSlug, loadPreflight]);
-
-			const onRunDeleted = React.useCallback(function () {
-				setSelRunId(null); setRun(null); setTree(null);
-				const slug = selSlug;
-				lastRunStore.set(slug, null); // 删除后清掉该项目 lastRun 记忆（恢复时退回最新 Run）
-				if (!slug) return;
-				apiGet("/projects/" + slug + "/runs").then(function (r) {
-					if (r && r.ok && ctxRef.current.slug === slug) setRuns(r.runs || []);
-				});
-			}, [selSlug]);
-
-			const onProjectDeleted = React.useCallback(function () {
-				lastRunStore.set(selSlug, null); // 项目删除后清 lastRun 记忆
-				selectSlug(null); setRuns(null); setSelRunId(null); setRun(null); setTree(null);
-				loadProjects();
-			}, [loadProjects, selectSlug, selSlug]);
-
-			const onRunStarted = React.useCallback(function (slug, runId) {
-				selectSlug(slug);
-				setSelRunId(runId);
-				lastRunStore.set(slug, runId); // 新发起的 Run 即为现场：重挂载恢复时优先回到它
-				setNav("runs");
-				apiGet("/projects/" + slug + "/runs").then(function (r) {
-					if (r && r.ok && ctxRef.current.slug === slug) setRuns(r.runs || []);
-				});
-			}, [selectSlug]);
-
-			// 选中 Run 统一入口：写 lastRun 记忆（localStorage + 服务端兜底），重挂载恢复现场
-			const selectRun = React.useCallback(function (id) {
-				setSelRunId(id);
-				if (ctxRef.current.slug) lastRunStore.set(ctxRef.current.slug, id || null);
-			}, []);
-
-			// Run 状态跃迁显式提示：从执行态（running/awaiting_review）离开时 toast，
-			// 切标签/合上工作台期间的后台失败/完成/待复核不再静默（首帧加载不算跃迁；
-			// 按 {id,status} 记忆——切换到另一个 Run 不误报跃迁）
-			const runStatusRef = React.useRef(null);
-			React.useEffect(function () {
-				const cur = run && run.id === selRunId ? { id: run.id, status: run.status } : null;
-				const prev = runStatusRef.current;
-				runStatusRef.current = cur;
-				if (!cur || !prev || prev.id !== cur.id || prev.status === cur.status) return;
-				if (prev.status !== "running" && prev.status !== "awaiting_review") return;
-				const s = cur.status;
-				if (s === "awaiting_review") toastFn("Run " + run.id + " 待复核：" + run.current + " 阶段等您确认", "warn");
-				else if (s === "failed") {
-					const st = run.stages ? run.stages[run.current] : null;
-					toastFn("Run " + run.id + " 已失败（" + run.current + (st && st.error ? "：" + st.error : "") + "）", "bad");
-				}
-				else if (s === "completed") toastFn("Run " + run.id + " 已完成——全部阶段通过");
-				else if (s === "stopped") toastFn("Run " + run.id + " 已停止", "warn");
-				// eslint-disable-next-line react-hooks/exhaustive-deps
-			}, [run]);
-
-			// 恢复期（重挂载后 runs 列表/详情未到位）：渲染「恢复中」而非误导性的「未开始」
-			const restoring = !!selSlug && (runs == null
-				|| (!!selRunId && run == null && !!(runs || []).some(function (x) { return x.id === selRunId; })));
-
-			const awaitingCount = (runs || []).filter(function (r) { return r.status === "awaiting_review"; }).length;
-
-			const navDefs = [
-				{ id: "projects", label: "项目", icon: "folder", meta: projects != null ? String(projects.length) : "", alert: false },
-				{ id: "runs", label: "运行", icon: "play", meta: runs != null ? (awaitingCount > 0 ? awaitingCount + " 待复核" : String(runs.length)) : "", alert: awaitingCount > 0 },
-				{ id: "artifacts", label: "产物", icon: "box", meta: "", alert: false },
-				{ id: "config", label: "配置", icon: "sliders", meta: "", alert: false },
-				{ id: "guide", label: "说明", icon: "book", meta: "", alert: false },
-			];
-
-			const navKey = function (e, i) {
-				if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-				e.preventDefault();
-				const next = (i + (e.key === "ArrowRight" ? 1 : -1) + navDefs.length) % navDefs.length;
-				navDefs[next] && setNav(navDefs[next].id);
-			};
-
-			const navState = useNavState();
-
-			const navEls = navDefs.map(function (t, i) {
-				return h("li", { key: t.id },
-					h("button", {
-						className: "i2p-nav-cell" + (nav === t.id ? " on" : ""), role: "tab",
-						"aria-selected": nav === t.id ? "true" : "false",
-						style: { "--i": i }, title: t.label,
-						onClick: function () { setNav(t.id); },
-						onKeyDown: function (e) { navKey(e, i); },
-					}, Ic(t.icon, 15), h("span", { className: "lb" }, t.label),
-					t.meta ? h("span", { className: "cnt" + (t.alert ? " alert" : "") }, t.meta) : null));
+				const result = await apiPost("/agents/test", draft.p6Mode === "dsh" ? { executor: "dsh-agent" } : {
+					executor: "claude-code", bin: params.claudeBin || "",
+					auth: { preset: params.claudeAuthPreset || "none", baseUrl: params.claudeBaseUrl || "", token: relayToken } });
+				setProbe(result); setProbeKey(signature);
+				if (!result?.ok && !result?.gate) throw new Error(result?.message || "探测失败");
 			});
-
-			// 目录列拖宽：原生事件委托（React 合成事件在宿主注入环境下不可靠），
-			// pointer 拖动 + 双击手柄恢复默认宽（拖动的单指针替代路径）
-			React.useEffect(function () {
-				const gripOf = function (t) { return t && t.closest ? t.closest(".i2p-nav-grip") : null; };
-				const down = function (e) {
-					const grip = gripOf(e.target);
-					if (!grip || e.button !== 0) return;
-					const navEl = grip.parentElement;
-					if (!navEl) return;
-					e.preventDefault();
-					const rect = navEl.getBoundingClientRect();
-					document.body.classList.add("i2p-dragging");
-					navEl.classList.add("no-anim");
-					const move = function (ev) { navStore.setWidth(ev.clientX - rect.left, false); };
-					const up = function () {
-						window.removeEventListener("pointermove", move);
-						window.removeEventListener("pointerup", up);
-						document.body.classList.remove("i2p-dragging");
-						navEl.classList.remove("no-anim");
-						navStore.setWidth(navStore.width, true);
-					};
-					window.addEventListener("pointermove", move);
-					window.addEventListener("pointerup", up);
-				};
-				const dbl = function (e) {
-					if (gripOf(e.target)) navStore.setWidth(180, true); // 双击恢复默认=最小宽，与初始默认一致
-				};
-				document.addEventListener("pointerdown", down);
-				document.addEventListener("dblclick", dbl);
-				return function () {
-					document.removeEventListener("pointerdown", down);
-					document.removeEventListener("dblclick", dbl);
-				};
-			}, []);
-
-			const secSub = {
-				projects: "配置仓库与触发源——所有 Run 从这里发起。",
-				runs: "11 阶段流水线——逐段查看产物、逐段推进。",
-				artifacts: "Run 的完整产物目录——证据链都在这里。",
-				config: "逐阶段覆盖提示词、模型、思考深度、超时与委托外部智能体。",
-				guide: "工作原理与阶段速查。",
-			}[nav];
-
-				return h("div", { className: "i2p" },
-				h("div", { className: "i2p-body" },
-					h("nav", {
-						className: "i2p-nav" + (navState.open ? "" : " rail"), "aria-label": "工作台目录",
-						style: { "--i2p-nav-w": navState.width + "px" },
-					},
-						h("div", { className: "i2p-nav-title" },
-							h("button", {
-								type: "button", className: "i2p-nav-collapse",
-								onClick: function () { navStore.setOpen(!navState.open); },
-								"aria-expanded": navState.open ? "true" : "false",
-								"aria-label": navState.open ? "收起侧边栏" : "展开侧边栏",
-								title: navState.open ? "收起侧边栏" : "展开侧边栏",
-							}, Ic(navState.open ? "collapse" : "expand", 15)),
-							h("span", { className: "tt" }, "Issue2PR")),
-						h("ul", { className: "i2p-nav-list", role: "tablist" }, navEls),
-						h("p", { className: "i2p-nav-note" },
-							"状态每 3 秒自动刷新；产物目录可通过「打开目录」在文件管理器中查看。"),
-						h("div", {
-							className: "i2p-nav-grip", role: "separator", "aria-orientation": "vertical",
-							"aria-label": "拖动调整目录列宽度（双击恢复默认）", title: "拖动调整宽度 · 双击恢复默认",
-						})),
-					h("main", { className: "i2p-main" },
-						h("div", { className: "sec" },
-							h("h2", null, nav === "projects" ? "项目" : nav === "runs" ? "运行" : nav === "artifacts" ? "产物" : nav === "config" ? "配置" : "说明"),
-							h("p", { className: "sub" }, secSub)),
-						nav === "projects" ? h(ProjectsPanel, {
-							projects: projects,
-							slug: selSlug,
-							toast: toastFn,
-							onSelectProject: selectSlug,
-							onSaved: onSaved,
-							onRunStarted: onRunStarted,
-							onDeletedProject: onProjectDeleted,
-							connections: connections,
-							preflight: preflight,
-							reloadConnections: loadConnections,
-						}) : null,
-						nav === "runs" ? h(RunsPanel, {
-							slug: selSlug,
-							runId: selRunId,
-							runs: runs,
-							run: run,
-							tree: tree,
-							projects: projects,
-							defaults: stageDefaults,
-							toast: toastFn,
-							restoring: restoring,
-							onPickRun: selectRun,
-							onChanged: refreshNow,
-							onDeleted: onRunDeleted,
-							onSaved: onSaved,
-							onGoProjects: function () { setNav("projects"); },
-						}) : null,
-						nav === "artifacts" ? h(ArtifactsPanel, {
-							slug: selSlug,
-							runId: selRunId,
-							tree: tree,
-							toast: toastFn,
-						}) : null,
-						nav === "config" ? h(StageConfigPanel, {
-							defaults: stageDefaults,
-							projects: projects,
-							slug: selSlug,
-							selStage: cfgStage,
-							onSelectStage: setCfgStage,
-							toast: toastFn,
-							onSaved: onSaved,
-						}) : null,
-						nav === "guide" ? h(GuidePanel, null) : null)),
-				toast ? h("div", {
-					className: "i2p-toast" + (toast.kind === "bad" ? " t-bad" : toast.kind === "warn" ? " t-warn" : ""),
-					role: "status", "aria-live": "polite",
-				}, toast.msg) : null);
+			const promptView = h("div", { className: "studio-prompt-layout" },
+				h("nav", { className: "studio-prompt-nav", "aria-label": "选择提示词阶段" }, STAGES.map(item =>
+					h("button", { key: item.id, className: stage === item.id ? "on" : "", onClick: () => { p.onStage(item.id); setRole(""); } },
+						h("span", { className: "mono" }, item.id), " " + STUDIO_STAGE_NAMES[item.id]))),
+				h("div", { className: "studio-stack" },
+					h("div", { className: "studio-row" }, h("h3", { className: "studio-grow" }, stage + " · " + STUDIO_STAGE_NAMES[stage]),
+						roles.length ? studioButton("恢复默认", () => {
+							const prompts = { ...config.prompts }; delete prompts[activeRole]; setConfig({ prompts });
+						}, "sm", busy) : null),
+					roles.length ? h(React.Fragment, null,
+						h("div", { className: "studio-segmented" }, roles.map(item => h("button", { key: item,
+							className: activeRole === item ? "on" : "", onClick: () => setRole(item) }, roleLabels[item] || item))),
+						settingField("阶段提示词内容", prompt, value => setConfig({ prompts: { ...config.prompts, [activeRole]: value } }),
+							{ multiline: true, disabled: busy }),
+						h("p", { className: "hint" }, "默认继承宿主模型；执行器采用独立模型配置时，以实际执行记录为准。"))
+						: h("div", { className: "studio-soft-card" }, h("h3", null, "此阶段不调用大模型"), h("p", null,
+							stage === "P7" ? "补丁按校验与账本规则应用，无需提示词。" : "测试阶段运行项目测试命令，无需提示词。")),
+					h("details", null, h("summary", null, "模型、执行与高级参数"),
+						h("div", { className: "studio-form-grid" },
+							definition.caps?.route ? h(React.Fragment, null,
+								settingField("模型服务商", config.provider || "", value => setConfig({ provider: value }), { placeholder: "留空继承宿主" }),
+								settingField("模型名称", config.model || "", value => setConfig({ model: value }), { placeholder: "与服务商成对填写" }),
+								settingField("思考深度", config.reasoningEffort || "", value => setConfig({ reasoningEffort: value }),
+									{ choices: [["", "继承默认"], ["none", "none"], ["low", "low"], ["medium", "medium"], ["high", "high"], ["xhigh", "xhigh"]] })) : null,
+							settingField("超时（毫秒）", config.timeoutMs ?? "", value => setConfig({ timeoutMs: value === "" ? undefined : Number(value) }), { type: "number", min: 0 }),
+							definition.caps?.route ? settingField("输出 token 上限", config.maxTokens ?? "", value => setConfig({ maxTokens: value === "" ? undefined : Number(value) }), { type: "number", min: 0 }) : null,
+							stage !== "P6" && definition.caps?.delegate ? settingField("阶段执行方式", config.delegate?.mode || "off",
+								value => setConfig({ delegate: { ...config.delegate, mode: value } }), { choices: [["off", "插件执行"], ["session", "委托人工会话"]] }) : null,
+							config.delegate?.mode === "session" ? h(React.Fragment, null,
+								settingField("指定智能体", config.delegate.agent || "", value => setConfig({ delegate: { ...config.delegate, agent: value } })),
+								settingField("委托附加要求", config.delegate.brief || "", value => setConfig({ delegate: { ...config.delegate, brief: value } }))) : null,
+							Object.entries(definition.params || {}).map(([name, meta]) => h("div", { key: name },
+								settingField(meta.label || name, config.params?.[name] ?? "", value => {
+									const next = { ...config.params };
+									if (value === "") delete next[name]; else next[name] = meta.type === "string" ? value : Number(value);
+									setConfig({ params: next });
+								}, { type: meta.type === "string" ? "text" : "number", min: 1,
+									choices: meta.options ? [["", "默认：" + meta.def], ...meta.options.map(value => [value, value])] : undefined,
+									placeholder: String(meta.def ?? ""), hint: meta.hint })))))));
+			return h("div", { className: "studio-settings-layout" },
+				h("nav", { className: "studio-settings-nav", "aria-label": "设置分类" },
+					[["general", "常用设置"], ["prompts", "阶段提示词"], ["executors", "执行器与环境"], ["connections", "连接与凭据"]].map(([id, label]) =>
+						h("button", { key: id, className: p.tab === id ? "on" : "", onClick: () => p.onTab(id) }, label))),
+				h("div", { className: "studio-settings-main" },
+					p.settings.revision === 0 ? h("details", { className: "card" }, h("summary", null, "首次设置：从已有项目导入执行配置"),
+						h("p", { className: "hint" }, "尚未保存全局设置，新任务使用系统默认。可选择旧项目配置导入草稿，检查后保存为全局。"),
+						p.projects.map(project => studioButton(project.name, () => setDraft(prev => ({ ...prev, reviewMode: project.reviewMode, p6Mode: project.p6Mode, testCommand: project.testCommand || "", stageConfig: structuredClone(project.stageConfig || {}), maxReviewAttempts: project.maxReviewAttempts })), "sm", busy))) : null,
+					p.tab === "connections" ? h(StudioConnections, { resource: p.connections, toast: p.toast }) :
+					h("fieldset", { className: "card studio-settings-fields", disabled: busy },
+						h("h2", null, p.tab === "prompts" ? "阶段提示词" : p.tab === "executors" ? "执行器与环境" : "常用设置"),
+						h("p", { className: "hint" }, p.tab === "general" ? "决定如何执行任务，以及何时等待复核。"
+							: p.tab === "prompts" ? "按阶段和角色调整提示词，保留默认值与覆盖值的区别。" : "开始任务前检查执行器是否可用。"),
+						p.tab === "prompts" ? promptView : p.tab === "executors" ? h("div", { className: "studio-stack" },
+							settingField("执行器", draft.p6Mode, value => field("p6Mode", value), { choices: STUDIO_EXECUTORS, disabled: busy }),
+							draft.p6Mode === "claude" ? h(React.Fragment, null,
+								settingField("Claude Code 程序路径", params.claudeBin || "", value => setParam("claudeBin", value), { placeholder: "留空自动探测", disabled: busy }),
+								studioButton("扫描本机执行器", () => request(async () => {
+									const result = await readOk("/agents/discover"); setCandidates(result.agents || []);
+								}), "sm", busy),
+								candidates.map((item, index) => studioButton(item.path || item.bin || "候选 " + index, () => setParam("claudeBin", item.path || item.bin || ""), "sm", busy)),
+								settingField("认证来源", params.claudeAuthPreset || "none", value => setParam("claudeAuthPreset", value),
+									{ disabled: busy, choices: [["none", "运行环境已有登录"], ["glm", "GLM Coding Plan"], ["custom", "自定义中转"]] }),
+								params.claudeAuthPreset === "custom" ? settingField("中转地址", params.claudeBaseUrl || "", value => setParam("claudeBaseUrl", value), { disabled: busy }) : null,
+								params.claudeAuthPreset && params.claudeAuthPreset !== "none" ? h(React.Fragment, null,
+									settingField("中转令牌", relayToken, setRelayToken, { type: "password", disabled: busy, hint: "留空使用已保存令牌；令牌单独存储。" }),
+									studioButton("保存中转令牌", () => request(async () => {
+										const result = await apiPut("/relay-auth", { token: relayToken });
+										if (!result?.ok) throw new Error(result?.message || "令牌保存失败");
+										setRelayToken(""); setRelayInfo(result); p.toast("中转令牌已保存");
+									}), "sm", busy || !relayToken.trim()),
+									studioButton("清除已保存令牌", () => request(async () => {
+										if (!confirm("清除全局中转令牌？使用此令牌的执行器下次调用需要重新配置。")) return;
+										const result = await apiDelete("/relay-auth");
+										if (!result?.ok) throw new Error(result?.message || "清除失败");
+										setRelayInfo(result); setProbe(null); setProbeKey("");
+									}), "sm", busy || !relayInfo?.exists),
+									relayInfo ? h("p", { className: "hint" }, relayInfo.exists ? "已保存：" + relayInfo.masked : "尚未保存令牌", relayInfo.warning ? " · " + relayInfo.warning : "") : null) : null) : null,
+							h("div", { className: "studio-probe-steps" },
+								(probeKey === signature || ["builtin", "session"].includes(draft.p6Mode)) && probe
+									? h(React.Fragment, null, h("span", { className: "tg " + (probe.ok ? "t-good" : "t-err") }, probe.ok ? "探测通过" : "需要处理"),
+										(probe.gate?.steps || []).map((step, index) => h("div", { key: index }, (step.ok ? "✓ " : "× ") + step.name)),
+										h("p", null, probe.gate?.message || probe.message || probe.gate?.version || ""))
+									: h("p", { className: "hint" }, "尚未探测当前执行器配置")),
+							studioButton(busy ? "正在探测…" : "运行环境探测", probeExecutor, "pri", busy),
+							h("p", { className: "hint" }, "Claude Code / DSH 原生智能体的门禁会执行一次极小真实调用。更改绑定或认证后需要重新探测。"))
+							: h(React.Fragment, null, h("div", { className: "studio-form-grid" },
+								settingField("复核方式", draft.reviewMode, value => field("reviewMode", value),
+									{ disabled: busy, choices: [["key-only", "仅关键阶段复核"], ["every", "每个阶段都复核"], ["auto", "自动执行，完成后查看"]], hint: "关键门：P5、P6、P9、P11。" }),
+								settingField("代码执行器", draft.p6Mode, value => field("p6Mode", value), { disabled: busy, choices: STUDIO_EXECUTORS }),
+								settingField("模型来源", p.preflight?.llm?.model || "继承 DSH 当前默认模型", () => {}, { readOnly: true, hint: "阶段覆盖在“阶段提示词”中编辑。" }),
+								settingField("测试命令", draft.testCommand || "", value => field("testCommand", value), { disabled: busy, placeholder: "例如 npm test", hint: "留空由项目自动探测。" }),
+								settingField("最多打回次数", draft.maxReviewAttempts ?? "", value => field("maxReviewAttempts", value === "" ? undefined : Number(value)), { disabled: busy, type: "number", min: 1, placeholder: "默认 3 次", hint: "达到上限后任务失败，并进入 P10 失败分析。" })),
+								h("div", { className: "callout", style: { marginTop: 24 } },
+									"适用于所有项目的新任务。任务启动时保存配置和默认模型快照，后续执行及重跑保留启动配置。"))),
+					error ? h("p", { className: "callout err", role: "alert" }, error) : null,
+					p.tab !== "connections" ? h("div", { className: "studio-settings-save studio-row wrap" },
+						h("span", { className: "studio-grow hint" }, dirty ? "有未保存的修改 · 切换页面保留本次草稿" : "已与全局配置同步"),
+						studioButton("放弃修改", () => { setDraft(structuredClone(baseline)); setError(""); }, "", busy || !dirty),
+						studioButton("重新载入", () => request(async () => {
+							if (dirty && !confirm("重新载入将丢弃当前未保存的草稿，继续？")) return;
+							const result = await readOk("/settings");
+							setDraft(structuredClone(result.settings)); setBaseline(structuredClone(result.settings)); setProbe(null);
+						}), "", busy),
+						studioButton(busy ? "处理中…" : "保存设置", save, "pri", busy || !dirty)) : null));
 		}
 
+
+		function NewTaskDialog(p) {
+			const [slug, setSlug] = React.useState(p.slug || p.projects[0]?.slug || "");
+			const [kind, setKind] = React.useState("issue");
+			const [uri, setUri] = React.useState("");
+			const [error, setError] = React.useState("");
+			const [busy, setBusy] = React.useState(false);
+			const lock = React.useRef(false), active = React.useRef(true);
+			React.useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+			const project = p.projects.find(item => item.slug === slug);
+			const submit = async e => {
+				e.preventDefault(); if (lock.current) return;
+				if (!slug || !uri.trim()) { setError("请选择项目并填写来源"); return; }
+				lock.current = true; setBusy(true); setError("");
+				try {
+					const result = await apiPost("/projects/" + slug + "/runs", { kind, uri: uri.trim() });
+					if (!result?.ok || !result.runId) throw new Error(result?.message || "创建失败");
+					if (active.current) p.onCreated(slug, result.runId);
+				} catch (error) { if (active.current) setError(error.message); }
+				finally { lock.current = false; if (active.current) setBusy(false); }
+			};
+			return h(StudioDialog, { title: "新建任务", onClose: () => { if (!busy) p.onClose(); } },
+				h("form", { className: "studio-stack", onSubmit: submit },
+					h("label", { className: "field" }, "项目", h("select", { className: "f-select", value: slug, disabled: busy,
+						onChange: e => setSlug(e.target.value) }, p.projects.map(item => h("option", { key: item.slug, value: item.slug }, item.name)))),
+					h("label", { className: "field" }, "来源类型", h("select", { className: "f-select", value: kind, disabled: busy,
+						onChange: e => { setKind(e.target.value); setUri(""); } },
+						h("option", { value: "issue" }, "Issue"), h("option", { value: "requirement" }, "需求文档"))),
+					h("label", { className: "field" }, "来源链接或路径", h("input", { className: "f-input", value: uri, required: true, disabled: busy,
+						placeholder: "https://… 或 DSH 所在机器的文档路径", onChange: e => setUri(e.target.value) })),
+					h("p", { className: "hint" }, "任务将读取来源并立即启动。路径应属于运行 DSH 的机器；此表单不上传浏览器本地文件。"),
+					(project?.triggers || []).filter(item => item.kind === kind).map((item, index) =>
+						h("button", { key: index, type: "button", className: "btn sm studio-path", disabled: busy,
+							onClick: () => setUri(item.uri) }, item.uri)),
+					error ? h("p", { className: "callout err", role: "alert" }, error) : null,
+					h("button", { className: "btn pri", disabled: busy || !slug }, busy ? "正在创建…" : "创建并开始")));
+		}
+		async function loadTaskList(projects, signal) {
+			const rows = [], queue = projects.slice();
+			// 同时最多读取三个项目；保留部分失败而不是把失败项目显示为空列表。
+			const errors = [], failedSlugs = [];
+			await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => {
+				while (queue.length && !signal.aborted) {
+					const project = queue.shift();
+					try {
+						const result = await readOk("/projects/" + project.slug + "/runs", signal);
+						rows.push(...(result.runs || []).map(run => ({ ...run, slug: project.slug, projectName: project.name })));
+					} catch (error) { errors.push(project.name + "：" + error.message); failedSlugs.push(project.slug); }
+				}
+			}));
+			return { rows: rows.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt))), errors, failedSlugs };
+		}
+		function taskTitle(run) {
+			if (run.title || run.trigger?.title) return run.title || run.trigger.title;
+			const first = String(run.trigger?.text || "").split("\n").find(line => line.trim());
+			if (first) return first.replace(/^\s*#+\s*/, "").slice(0, 160);
+			const source = run.trigger?.uri?.split(/[\\/]/).pop();
+			return /^\d+$/.test(source || "") ? "Issue #" + source : source || run.id;
+		}
+		function taskReason(run) {
+			const current = run.stages?.[run.current];
+			if (run.currentError || current?.error) return run.currentError || current.error;
+			if (run.current === "P6" && ["running", "awaiting_review"].includes(run.status) && (run.externalStatus === "running" || run.externalExec?.status === "running")) return "外部执行器正在处理，等待执行结果";
+			if (run.status === "awaiting_review") return run.current + " " + (STUDIO_STAGE_NAMES[run.current] || "") + " · 等待复核";
+			if (run.status === "failed") return "任务未通过，打开详情查看失败记录";
+			if (run.status === "stopped") return "任务已停止，可从已到达阶段重新执行";
+			if (run.status === "completed") return "流程已结束，查看验证结论与交付说明";
+			return run.current + " " + (STUDIO_STAGE_NAMES[run.current] || "") + " · " + tag(run.status)[1];
+		}
+		function needsAttention(run) { return ["awaiting_review", "failed"].includes(run.status); }
+		function useProjectRuns(projects, revision) {
+			const previous = React.useRef([]);
+			return useResource("tasks:" + projects.map(project => project.slug).join(",") + ":" + revision, async signal => {
+				const result = await loadTaskList(projects, signal);
+				const rows = [...result.rows, ...previous.current.filter(row => result.failedSlugs.includes(row.slug))]
+					.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+				if (!signal.aborted) previous.current = rows;
+				return { ...result, rows };
+			}, 5000);
+		}
+		function repoProvider(uri) {
+			const host = hostOfUri(uri);
+			return { host, name: /github/i.test(host) ? "GitHub" : /gitlab/i.test(host) ? "GitLab" : /codearts|myhuaweicloud/i.test(host) ? "CodeArts" : "Git 仓库" };
+		}
+		function ProjectsPanel(p) {
+			const source = useProjectRuns(p.projects, p.revision);
+			return h("div", { className: "studio-page" },
+				h("div", { className: "studio-page-heading studio-row" }, h("div", { className: "studio-grow" }, h("h1", null, "项目"),
+					h("p", null, "连接你的 Git 仓库，集中查看任务与交付。")), studioButton([Ic("plus", 18), "连接项目"], p.onCreate, "pri")),
+				h(ResourceNotice, { resource: source }),
+				h("div", { className: "studio-grid" }, p.projects.map(project => {
+					const repo = typeof project.repos?.[0] === "string" ? project.repos[0] : project.repos?.[0]?.uri || "";
+					const provider = repoProvider(repo), runs = source.value?.rows.filter(run => run.slug === project.slug) || [];
+					const failed = source.value?.failedSlugs.includes(project.slug), attention = runs.filter(needsAttention).length;
+					return h("article", { className: "card studio-project-card", key: project.slug },
+						h("div", { className: "studio-row" }, h("span", { className: "studio-repo-logo" }, Ic("git", 23)),
+							h("div", { className: "studio-grow" }, h("h2", null, project.name), h("span", { className: "hint" }, provider.name)),
+							studioButton("管理", () => p.onEdit(project.slug), "ghost sm")),
+						h("div", { className: "studio-repo-address" }, h("div", { className: "mono" }, repo || "未配置仓库"), h("div", { className: "hint" }, provider.host)),
+						h("div", { className: "studio-project-foot studio-row wrap" },
+							h("span", { className: "hint studio-grow" }, failed ? "任务统计读取失败" : !source.value ? "正在读取任务…" : runs.length + " 项任务" + (attention ? " · " + attention + " 项待处理" : "")),
+							studioButton(["查看任务", Ic("right", 14)], () => p.onTasks(project.slug), "ghost sm")));
+				})),
+				!p.projects.length ? h(EmptyState, { title: "连接第一个代码仓库" }, h("p", null, "GitHub、GitLab、华为云 CodeArts，或使用其他 Git 仓库地址。"), studioButton("连接代码仓库", p.onCreate, "pri")) : null,
+				h("div", { className: "studio-row wrap studio-project-more" }, h("span", { className: "hint studio-grow" }, "HTTPS 与 SSH 地址均可使用；私有仓库按域名匹配连接。"),
+					studioButton("管理托管连接", p.onConnections, "ghost sm")));
+		}
+		function TaskList(p) {
+			const [filter, setFilter] = usePreference("i2p.task-filter", "all");
+			const [status, setStatus] = React.useState("all");
+			const [search, setSearch] = React.useState("");
+			const [page, setPage] = React.useState(0);
+			const effectiveFilter = p.projects.some(item => item.slug === filter) ? filter : "all";
+			const selected = effectiveFilter === "all" ? p.projects : p.projects.filter(item => item.slug === filter);
+			const source = useProjectRuns(selected, p.revision);
+			const allRows = source.value?.rows || [], attention = allRows.filter(needsAttention).length;
+			const rows = allRows.filter(run => (status === "all" || (status === "attention" ? needsAttention(run) : run.status === status))
+				&& [taskTitle(run), run.id, run.projectName, run.trigger?.uri].join(" ").toLowerCase().includes(search.toLowerCase()));
+			const pages = Math.max(1, Math.ceil(rows.length / 30)), currentPage = Math.min(page, pages - 1);
+			return h("div", { className: "studio-page" },
+				h("div", { className: "studio-page-heading studio-row" }, h("div", { className: "studio-grow" }, h("h1", null, "任务"),
+					h("p", null, "按项目查看进度，处理复核与失败。")), studioButton([Ic("plus", 18), "新建任务"], p.onCreate, "pri", !p.projects.length)),
+				h("div", { className: "studio-toolbar" },
+					h("label", { className: "studio-project-filter" }, "项目", h("select", { className: "f-select", "aria-label": "筛选项目", value: effectiveFilter,
+						onChange: e => { setFilter(e.target.value); setPage(0); } }, h("option", { value: "all" }, "全部项目"), p.projects.map(item => h("option", { key: item.slug, value: item.slug }, item.name)))),
+					h("input", { type: "search", className: "f-input studio-search", value: search, "aria-label": "搜索任务", placeholder: "搜索任务、编号或项目",
+						onChange: e => { setSearch(e.target.value); setPage(0); } }),
+					h("div", { className: "studio-segmented", "aria-label": "筛选任务状态" }, [["all", "全部"], ["attention", "待处理 " + attention], ["running", "执行中"], ["completed", "已完成"]].map(([id, label]) =>
+						h("button", { key: id, className: status === id ? "on" : "", "aria-pressed": status === id, onClick: () => { setStatus(id); setPage(0); } }, label)))),
+				h("div", { className: "studio-row studio-filter-result" }, h("span", { className: "studio-grow" }, (effectiveFilter === "all" ? "全部项目" : selected[0]?.name) + " · " + rows.length + " / " + allRows.length + " 项任务"),
+					status !== "all" || search ? studioButton("清除搜索与状态筛选", () => { setStatus("all"); setSearch(""); setPage(0); }, "ghost sm") : null,
+					studioButton("刷新", source.reload, "ghost sm")),
+				h(ResourceNotice, { resource: source }),
+				source.value?.errors.length ? h("div", { className: "callout err", role: "alert" }, "部分项目读取失败，保留其上次结果：" + source.value.errors.join("；"), studioButton("重试", source.reload, "sm")) : null,
+				source.value == null && !source.error ? h(Skel) : rows.length ? h("div", { className: "studio-task-list", "aria-label": "任务列表" },
+					rows.slice(currentPage * 30, (currentPage + 1) * 30).map(run => h("button", { className: "studio-run-row", key: run.slug + "/" + run.id, onClick: () => p.onOpen(run.slug, run.id) },
+						h("span", { className: "studio-run-icon " + run.status }, Ic(run.status === "completed" ? "check" : run.status === "failed" ? "x" : "git", 20)),
+						h("span", null, h("strong", null, taskTitle(run)), h("span", { className: "studio-run-description" }, run.projectName + " · " + run.id), h("span", { className: "studio-run-reason" }, taskReason(run))),
+						h(StatusBadge, { status: run.status }), h("span", { className: "studio-run-time hint", title: fmtTime(run.createdAt) }, fmtTime(run.createdAt).slice(5, 10)))))
+					: h(EmptyState, { title: "暂无匹配任务" }, h("p", null, "选择其他筛选条件，或新建一个任务。")),
+				pages > 1 ? h("div", { className: "studio-row studio-pagination" }, h("span", { className: "studio-grow hint" }, rows.length + " 个任务"),
+					studioButton("上一页", () => setPage(currentPage - 1), "sm", currentPage === 0), h("span", null, (currentPage + 1) + " / " + pages),
+					studioButton("下一页", () => setPage(currentPage + 1), "sm", currentPage + 1 === pages)) : null);
+		}
+
+		function Section() {
+			const [nav, setNav] = usePreference("i2p.studio-nav", "projects");
+			const [selSlug, setSelSlug] = React.useState(() => {
+				try { return localStorage.getItem("i2p.proj") || null; } catch { return null; }
+			});
+			const [selRunId, setSelRunId] = React.useState(() => lastRunStore.get(selSlug));
+			const [toast, setToast] = React.useState(null);
+			const [dialog, setDialog] = React.useState(null);
+			const [editing, setEditing] = React.useState(null);
+			const [settingsTab, setSettingsTab] = usePreference("i2p.settings-tab", "general");
+			const [cfgStage, setCfgStage] = React.useState("P1");
+			const [revision, setRevision] = React.useState(0);
+			const touched = React.useRef(false);
+			const toastFn = React.useCallback((msg, kind = "ok") => setToast({ msg, kind }), []);
+			React.useEffect(() => {
+				if (!toast) return;
+				const timer = setTimeout(() => setToast(null), toast.kind === "bad" ? 7000 : 3500);
+				return () => clearTimeout(timer);
+			}, [toast]);
+			const projectsResource = useResource("projects", async signal => (await readOk("/projects", signal)).projects);
+			const projects = projectsResource.value || [];
+			const connectionsResource = useResource("connections", async signal => (await readOk("/connections", signal)).connections);
+			const defaultsResource = useResource("defaults", async signal => (await readOk("/stage-defaults", signal)).defaults);
+			const preflightResource = useResource("preflight", async signal => (await readOk("/preflight", signal)).preflight);
+			const settingsResource = useResource("settings", async signal => (await readOk("/settings", signal)).settings);
+			const currentProject = projects.find(item => item.slug === selSlug);
+			const detailKey = nav === "run" && selSlug && selRunId ? selSlug + "/" + selRunId : null;
+			const detail = useResource(detailKey, async signal => {
+				const base = "/projects/" + selSlug + "/runs/" + selRunId;
+				const [run, tree] = await Promise.all([readOk(base, signal), readOk(base + "/tree", signal)]);
+				if (!run.id) throw new Error("任务不存在，请返回任务列表");
+				return { run, tree: tree.files };
+			}, 3000);
+			const selectProject = slug => {
+				touched.current = true; setSelSlug(slug);
+				setSelRunId(lastRunStore.get(slug));
+				try { if (slug) localStorage.setItem("i2p.proj", slug); else localStorage.removeItem("i2p.proj"); } catch { /* fallback below */ }
+				apiPost("/ui-state", { lastProject: slug || null }).catch(() => {});
+			};
+			React.useEffect(() => {
+				let active = true;
+				readOk("/ui-state").then(result => {
+					if (!active || touched.current) return;
+					lastRunStore.adopt(result.state?.lastRunBySlug);
+					if (!selSlug && result.state?.lastProject) {
+						setSelSlug(result.state.lastProject); setSelRunId(lastRunStore.get(result.state.lastProject));
+					}
+				}).catch(() => {});
+				return () => { active = false; };
+			}, []);
+			React.useEffect(() => {
+				if (projectsResource.value && selSlug && !projects.some(project => project.slug === selSlug)) {
+					selectProject(null); if (nav === "run") setNav("tasks");
+				}
+			}, [projectsResource.value, selSlug]);
+			React.useEffect(() => {
+				if (nav === "run" && (!selSlug || !selRunId)) setNav("tasks");
+			}, [nav, selSlug, selRunId]);
+			React.useEffect(() => {
+				viewStore.set({ nav: nav === "tasks" || nav === "run" ? "runs" : nav === "settings" ? "config" : nav,
+					slug: selSlug, runId: selRunId });
+			}, [nav, selSlug, selRunId]);
+			const refresh = () => { detail.reload(); setRevision(value => value + 1); };
+			React.useEffect(() => {
+				const focus = () => { if (document.visibilityState !== "hidden") refresh(); };
+				window.addEventListener("focus", focus);
+				document.addEventListener("visibilitychange", focus);
+				return () => { window.removeEventListener("focus", focus); document.removeEventListener("visibilitychange", focus); };
+			}, [detailKey]);
+			const openRun = (slug, runId) => {
+				selectProject(slug); setSelRunId(runId); lastRunStore.set(slug, runId);
+				setNav("run"); setDialog(null); setRevision(value => value + 1);
+			};
+			const onSaved = slug => { selectProject(slug); projectsResource.reload(); preflightResource.reload(); toastFn("配置已保存"); };
+			const formProps = {
+				projects, slug: dialog === "project" ? editing : selSlug, toast: toastFn,
+				onSelectProject: slug => { if (dialog === "project") setEditing(slug); else selectProject(slug); },
+				onSaved, onRunStarted: openRun, connections: connectionsResource.value,
+				preflight: preflightResource.value, reloadConnections: connectionsResource.reload,
+				onDeletedProject: () => { selectProject(null); projectsResource.reload(); setDialog(null); }
+			};
+			const activeNav = nav === "run" ? "tasks" : nav;
+			return h("div", { className: "i2p studio" },
+				h("header", { className: "studio-topbar" },
+					h("div", { className: "studio-brand" }, Ic("branch", 22), "Issue2PR"),
+					h("nav", { className: "studio-topnav", "aria-label": "Issue2PR 主导航" },
+						[["projects", "项目"], ["tasks", "任务"], ["settings", "设置"]].map(([id, label]) =>
+							h("button", { key: id, className: activeNav === id ? "on" : "", "aria-current": activeNav === id ? "page" : undefined,
+								onClick: () => setNav(id) }, label))),
+					h("div", { className: "studio-toptools studio-row" },
+						studioButton("帮助", () => setDialog("help"), "sm"),
+						studioButton("助手", () => { panelStore.set(true); aiStore.set(!aiStore.open); }, "sm"),
+						studioButton("关闭", () => panelStore.set(false), "sm"))),
+				h("main", { className: "studio-main" },
+					h(ResourceNotice, { resource: projectsResource }),
+					projectsResource.value == null ? (projectsResource.error ? null : h(Skel)) :
+					nav === "run" ? h(React.Fragment, null, h(ResourceNotice, { resource: detail }),
+						detail.value?.run ? h(RunsPanel, { key: detailKey, slug: selSlug, runId: selRunId, run: detail.value?.run,
+							tree: detail.value?.tree, project: currentProject, defaults: defaultsResource.value,
+							error: detail.error, toast: toastFn, onChanged: refresh, onBack: () => setNav("tasks"),
+							onDeleted: () => { lastRunStore.set(selSlug, null); setSelRunId(null); setNav("tasks"); refresh(); },
+							onConfig: stage => { setCfgStage(stage); setSettingsTab("prompts"); setNav("settings"); } }) : detail.error ?
+							h(EmptyState, { title: "暂时无法打开此任务" }, studioButton("返回任务列表", () => setNav("tasks"), "pri")) : h(Skel)) :
+					nav === "tasks" ? h(TaskList, { projects, revision, onCreate: () => setDialog("task"), onOpen: openRun }) :
+					nav === "settings" ? h("div", { className: "studio-page" },
+						h("div", { className: "studio-page-heading studio-row" }, h("div", { className: "studio-grow" },
+							h("span", { className: "hint mono" }, "TASK DEFAULTS"), h("h1", null, "新任务默认设置"),
+							h("p", { className: "hint" }, "适用于所有项目的新任务；已启动任务保留原配置。")),
+							selRunId ? studioButton("返回任务现场", () => setNav("run"), "sm") : null),
+						h(ResourceNotice, { resource: settingsResource }), h(ResourceNotice, { resource: defaultsResource }),
+						settingsResource.value && defaultsResource.value ? h(StudioSettings, { settings: settingsResource.value, projects,
+							defaults: defaultsResource.value, preflight: preflightResource.value, tab: settingsTab, onTab: setSettingsTab,
+							stage: cfgStage, onStage: setCfgStage, connections: connectionsResource, toast: toastFn,
+							onSaved: () => { settingsResource.reload(); preflightResource.reload(); toastFn("全局设置已保存，仅新任务使用"); } }) : settingsResource.error || defaultsResource.error ? null : h(Skel)) :
+					h(ProjectsPanel, { projects, revision,
+						onCreate: () => { setEditing(null); setDialog("project"); },
+						onEdit: slug => { setEditing(slug); setDialog("project"); },
+						onTasks: slug => { selectProject(slug); writePreference("i2p.task-filter", slug); setNav("tasks"); },
+						onConnections: () => { setSettingsTab("connections"); setNav("settings"); } })),
+				dialog === "project" ? h(ProjectDialog, { ...formProps, slug: editing, onClose: () => setDialog(null) }) : null,
+				dialog === "task" ? h(NewTaskDialog, { projects, slug: selSlug, onClose: () => setDialog(null), onCreated: openRun }) : null,
+				dialog === "help" ? h(StudioDialog, { title: "使用说明", wide: true, onClose: () => setDialog(null) }, h(GuidePanel)) : null,
+				toast ? h("div", { className: "i2p-toast" + (toast.kind === "bad" ? " t-bad" : ""), role: "status" }, toast.msg) : null);
+		}
+
+
 		/* ================================================================
-		 * 工作台开关（sidebar.footer.action 入口 ↔ conversation.input.dock 面板共享）
+		 * 工作台开关（sidebar.footer.action 入口与 shell.overlay 页面共享）
 		 * ================================================================ */
 		const panelStore = {
 			open: false,
@@ -3460,7 +2112,7 @@ body.i2p-dragging{user-select:none}
 		}
 
 		/* ================================================================
-		 * 悬浮智能助手（伴随工作台全部五个页面）：右上角悬浮球 + 右侧滑出对话栏。
+		 * 工作台助手：顶部入口打开可拖动、缩放的对话面板。
 		 * 后端 /assistant/ask 流式 JSONL（{"delta"}… {"done"|"error"}），
 		 * 上下文（页面位置/项目/Run/最近事件）由后端每次现读
 		 * ================================================================ */
@@ -3769,13 +2421,6 @@ body.i2p-dragging{user-select:none}
 			}, []);
 
 			return h("div", { className: "i2p-ai" },
-				h("button", {
-					type: "button", className: "i2p-ai-fab" + (open ? " on" : ""),
-					onClick: function () { aiStore.set(!open); },
-					"aria-expanded": open ? "true" : "false",
-					"aria-label": open ? "关闭智能助手" : "智能助手（问答与运行状态）",
-					title: open ? "关闭智能助手" : "智能助手 · 问运行状态、阶段含义、失败原因",
-				}, Ic("sparkle", 15)),
 				open ? h("aside", {
 					className: "i2p-ai-panel", role: "complementary", "aria-label": "智能助手",
 					style: { left: ai.rect.x + "px", top: ai.rect.y + "px", width: ai.rect.w + "px", height: ai.rect.h + "px" },
@@ -3834,25 +2479,7 @@ body.i2p-dragging{user-select:none}
 						}, Ic(busy ? "stop" : "send", 15)))) : null);
 		}
 
-		// 页头品牌标记：沿用侧栏三节点分支语言，以轻量文档线表达 Issue 输入。
-		function Issue2PrMark(props) {
-			return h("svg", Object.assign({
-				className: "brand-mark", viewBox: "0 0 24 24", fill: "none",
-				stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round",
-				strokeLinejoin: "round", "aria-hidden": "true", focusable: "false",
-			}, props),
-				h("circle", { cx: 5.5, cy: 5.25, r: 2.25 }),
-				h("circle", { cx: 5.5, cy: 18.75, r: 2.25 }),
-				h("circle", {
-					cx: 18, cy: 9.5, r: 2.5,
-					fill: "var(--acc-soft)", stroke: "var(--accent)",
-				}),
-				h("path", { d: "M5.5 7.5v9" }),
-				h("path", { d: "M18 12c0 4.5-5.1 3.9-7.6 5.6" }),
-				h("path", { d: "M9.25 5.25h5M9.25 8h3.5" }));
-		}
-
-		// 入口图标：Issue→PR 分支（描边、currentColor，随宿主主题）
+		// 宿主侧栏的 Issue2PR 入口图标。
 		function EntryGlyph(props) {
 			return h("svg", Object.assign({
 				viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5,
@@ -3882,31 +2509,36 @@ body.i2p-dragging{user-select:none}
 		// 未开启时渲染 null；sidebar 拖动/窗口缩放实时跟随
 		function WorkbenchPage() {
 			const open = usePanelOpen();
-			const closeRef = React.useRef(null);
 			const [rect, setRect] = React.useState(null);
 			React.useEffect(() => {
 				if (!open) return undefined;
-				const onKey = (e) => { if (e.key === "Escape") panelStore.set(false); };
+				const previous = document.activeElement;
+				const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".studio-dialog[open]")) panelStore.set(false); };
 				window.addEventListener("keydown", onKey);
-				if (closeRef.current) closeRef.current.focus();
-				return () => window.removeEventListener("keydown", onKey);
+				return () => { window.removeEventListener("keydown", onKey); if (previous?.isConnected) previous.focus(); };
 			}, [open]);
+			React.useEffect(() => {
+				if (open && rect) document.querySelector(".i2p-page .studio-toptools button:last-child")?.focus();
+			}, [open, !!rect]);
 			React.useLayoutEffect(() => {
 				if (!open) { setRect(null); return undefined; }
 				// conversation 槽位 anchor 的父级即主内容列（CenterColumn）。
 				// 用轻量轮询贴合而非 resize/ResizeObserver：嵌入式 webview（IAB）
 				// 里两者都可能不触发；300ms 轮询一次 getBoundingClientRect 且值
-				// 不变不 setState，顺带覆盖 sidebar 拖动、details 开关等一切变化
-				const anchor = document.querySelector('[data-slot="conversation"]');
-				const host = anchor && anchor.parentElement;
-				if (!host) return undefined;
+				// 不变不 setState，顺带覆盖 sidebar 拖动、details 开关等一切变化。
+				// 锚点缺失（宿主视图未挂载或结构变更）时每轮重查并回退视口居中，
+				// 入口不再静默空白；锚点恢复后自动重新贴合。
 				let last = "";
 				const tick = () => {
-					const r = host.getBoundingClientRect();
-					const key = r.left + "," + r.top + "," + r.width + "," + r.height;
+					const anchor = document.querySelector('[data-slot="conversation"]');
+					const host = anchor && anchor.parentElement;
+					const box = host ? host.getBoundingClientRect() : null;
+					const vw = window.innerWidth || 1280, vh = window.innerHeight || 720;
+					const r = box || { left: Math.round(vw * 0.08), top: 0, width: Math.round(vw * 0.84), height: vh };
+					const key = (box ? "" : "f:") + r.left + "," + r.top + "," + r.width + "," + r.height;
 					if (key !== last) {
 						last = key;
-						setRect({ left: r.left, top: r.top, width: r.width, height: r.height });
+						setRect({ left: r.left, top: r.top, width: r.width, height: r.height, fallback: !box });
 					}
 				};
 				tick();
@@ -3926,17 +2558,8 @@ body.i2p-dragging{user-select:none}
 					width: rect.width + "px", height: rect.height + "px",
 				},
 			},
-					h("div", { className: "i2p-head" },
-						h("span", { className: "brand" },
-							h(Issue2PrMark, { width: 24, height: 24 }),
-							h("span", { className: "brand-copy" },
-								h("b", null, "Issue2PR"),
-								h("span", null, "ISSUE → PR"),
-								h("span", { className: "om" }, "v0.4"))),
-					h("button", {
-						type: "button", className: "i2p-close", ref: closeRef,
-						onClick: () => panelStore.set(false), "aria-label": "关闭（Esc）",
-					}, Ic("x", 15))),
+					rect.fallback ? h("div", { className: "i2p-page-hint" },
+						"未能定位宿主主内容列，工作台暂以居中布局显示；宿主界面结构可能已更新。") : null,
 					h("div", { className: "i2p-page-body" }, h(Section)),
 					h(AssistantDock));
 		}

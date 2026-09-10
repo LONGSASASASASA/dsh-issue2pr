@@ -259,7 +259,7 @@ test("API：agents/test 认证中转 — 表单 token 优先，留空回落已�
   assert.equal(seen[seen.length - 1].token, "", "清除后回落空（= 继承环境）");
 });
 
-test("API：POST /projects 保存门禁 — 无 agentProbes 跳过（兼容）；注入后失败 400 / 通过 200", async () => {
+test("API：保存门禁迁至 PUT /settings；项目元数据保存不依赖历史执行器", async () => {
   // 既有测试路径：钩子存在但未注入 agentProbes → 门禁跳过，不依赖本机 claude
   __setTestHooks({ dataRoot: root, executors: {} });
   let h = handlerOf();
@@ -273,20 +273,23 @@ test("API：POST /projects 保存门禁 — 无 agentProbes 跳过（兼容）�
     agentProbes: { runVersion: (b, o, cb) => cb(new Error("spawn claude ENOENT")) },
   });
   h = handlerOf();
-  r = await call(h, "POST", "/issue2pr/api/projects", {
-    name: "门禁拦截", slug: "ag-block", repos: ["r"], triggers: [], reviewMode: "every", p6Mode: "claude",
+  r = await call(h, "POST", "/issue2pr/api/projects", { name: "改名", slug: "ag-compat", repos: ["r"] });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.project.p6Mode, "claude", "历史配置保留，元数据更新不需探测已停用执行器");
+  r = await call(h, "PUT", "/issue2pr/api/settings", {
+    reviewMode: "every", p6Mode: "claude", testCommand: "", stageConfig: {},
   });
   assert.equal(r.status, 400);
-  assert.match(r.body.message, /门禁/);
-  assert.match(r.body.message, /委外智能体/);
+  assert.match(r.body.message, /Claude Code/);
+  assert.match(r.body.message, /探测/);
   // 注入且通过 → 200
   __setTestHooks({
     dataRoot: root, executors: {},
     agentProbes: { runVersion: (b, o, cb) => cb(null, "1.0.66") },
   });
   h = handlerOf();
-  r = await call(h, "POST", "/issue2pr/api/projects", {
-    name: "门禁通过", slug: "ag-pass", repos: ["r"], triggers: [], reviewMode: "every", p6Mode: "claude",
+  r = await call(h, "PUT", "/issue2pr/api/settings", {
+    reviewMode: "every", p6Mode: "claude", testCommand: "", stageConfig: {},
   });
   assert.equal(r.status, 200);
   for (const slug of ["ag-disc", "ag-compat", "ag-block", "ag-pass"]) {

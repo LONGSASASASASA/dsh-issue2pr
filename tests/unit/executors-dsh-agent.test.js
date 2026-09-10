@@ -6,7 +6,7 @@ import executor from "../../lib/delegate/executors/dsh-agent.js";
 // 构造 fake 宿主：agents.create 返回可控 fake agent（事件由用例注入，whenIdle 即时静默；
 // hangAfterFollowup=true 时 followup 之后的 whenIdle 悬挂，直到 cancel 放行闸门——模拟超时取消）
 function fakeHost({ events = [], createError = null, hangAfterFollowup = false, cancelReleases = true } = {}) {
-    const disposals = [];
+    const disposals = [], creations = [];
     let followed = false;
     let releaseGate = () => {};
     let gate = Promise.resolve();
@@ -28,7 +28,8 @@ function fakeHost({ events = [], createError = null, hangAfterFollowup = false, 
     const scripted = [];
     const hostCtx = {
         get: (key) => {
-            if (key === "agents") return { create: async () => {
+            if (key === "agents") return { create: async (options) => {
+                creations.push(options);
                 if (createError) throw createError;
                 return { agent, dispose: async () => { disposals.push("dispose"); } };
             } };
@@ -38,7 +39,7 @@ function fakeHost({ events = [], createError = null, hangAfterFollowup = false, 
             return undefined;
         },
     };
-    return { hostCtx, agent, scripted, disposals };
+    return { hostCtx, agent, scripted, disposals, creations };
 }
 
 function completedEvents(text, toolNames = []) {
@@ -92,6 +93,16 @@ test("run：超时 → cancel 放行闸门后判 timeout（不悬挂整个 Run�
     const out = await executor.run({ rcx: { hostCtx: host.hostCtx }, repoDir: "r", runDir: "rd", prompt: "p", timeoutMs: 150 });
     assert.equal(out.failure.kind, "timeout");
     assert.match(out.failure.message, /超时/);
+});
+
+test("run：DSH 智能体采用任务快照，阶段模型覆盖优先于默认快照", async () => {
+    const host = fakeHost(); host.scripted.push(...completedEvents("done"));
+    const rcx = { hostCtx: host.hostCtx, run: { executionConfig: { defaultRoute: { provider: "saved", model: "snapshot" } } } };
+    await executor.run({ rcx, repoDir: "r", runDir: "snapshot-run", prompt: "p", timeoutMs: 1000 });
+    assert.deepEqual(host.creations[0].agentOptions, { provider: "saved", model: "snapshot" });
+    rcx.stageCfgOf = () => ({ provider: "stage", model: "override" });
+    await executor.run({ rcx, repoDir: "r", runDir: "override-run", prompt: "p", timeoutMs: 1000 });
+    assert.deepEqual(host.creations[1].agentOptions, { provider: "stage", model: "override" });
 });
 
 test("run：超时后 whenIdle 不响应 cancel 也会按时返回", async () => {

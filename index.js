@@ -10,6 +10,7 @@ import {
   defaultDataRoot, saveProject, loadProject, listProjects,
   createRun, runDirOf, readArtifact, listRunTree, rmTree, loadUiState, saveUiState,
   writeArtifact, recoverCorruptRun, timestamp,
+  loadSettings, saveSettings, executionProject,
 } from "./lib/core/store.js";
 import { initRun, saveRun, loadRun, advance, applyReview, isGate, STAGES, MAIN_FLOW } from "./lib/core/pipeline.js";
 import { verifyDelegateResult } from "./lib/delegate/delegateVerify.js";
@@ -63,14 +64,14 @@ function executorsOf() {
   return buildExecutors();
 }
 
-// —— rcx 组装（简报指定形态）；project 每次刷新，保证读取最新配置 ——
+// —— rcx 组装：项目元数据现读，执行配置固定为任务启动快照 ——
 // llm 的事件钩子绑定到 rcx 本身（读 run.current 得到当前阶段），LLM 调用自动进 trace/events.jsonl
 // stageCfgOf：按阶段取合并后的配置（阶段执行器读提示词/委托；llm 读路由覆盖），
-// 每次调用现读 project 与 run.current，配置修改在下一阶段即时生效
+// 无快照的历史任务仍读取旧项目配置；连接凭据独立管理，不进入任务快照。
 function buildRcx(ctx, root, runDir, run) {
   const rcx = {
     runDir, run, dataRoot: root, hostCtx: ctx, // dsh-agent 执行器经 ctx.get("agents") 消费宿主智能体服务
-    project: loadProject(root, run.project),
+    project: executionProject(loadProject(root, run.project), run),
     repoDir: runRepoDir(root, run.project, run.id), // per-Run worktree（drive 开工时确保存在，失败兜底基线 repo）
     trigger: run.trigger,
     llm: null,
@@ -80,7 +81,13 @@ function buildRcx(ctx, root, runDir, run) {
   };
   // 连接配置用 getter 现读盘：Run 进行中新增/修改连接，下一阶段即生效（与 project 同策略）
   Object.defineProperty(rcx, "connections", { get: () => loadConnections(root) });
-  rcx.stageCfgOf = (stageId) => stageCfgOf(rcx.project, stageId || (rcx.run && rcx.run.current));
+  rcx.stageCfgOf = (stageId) => {
+    const cfg = stageCfgOf(rcx.project, stageId || rcx.run?.current);
+    const route = rcx.run?.executionConfig?.defaultRoute;
+    return route && !cfg.provider && !cfg.model
+      ? { ...cfg, provider: route.provider, model: route.model, reasoningEffort: cfg.reasoningEffort || route.reasoningEffort || "" }
+      : cfg;
+  };
   rcx.llm = makeLlm(ctx, (ev) => logEvent(rcx, ev), () => routeOverridesOf(rcx));
   return rcx;
 }
@@ -250,7 +257,7 @@ function drive(ctx, root, runDir) {
       if (run.status !== "running") { maybeWatchDelegate(ctx, root, runDir, run); return; }
       const rcx = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, run));
       rcx.run = run; // 刷新为最新落盘状态（reviewComment 保留在 rcx 上）
-      rcx.project = loadProject(root, run.project) || rcx.project; // 配置页改动下一阶段生效
+      rcx.project = executionProject(loadProject(root, run.project), run) || rcx.project;
       await advance(rcx);
       if (run.status === "failed") {
         try {
@@ -333,7 +340,7 @@ function maybeWatchDelegate(ctx, root, runDir, run) {
   if (s.watch) return; // 已在监听
   const rcx = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, run));
   rcx.run = run;
-  rcx.project = loadProject(root, run.project) || rcx.project;
+  rcx.project = executionProject(loadProject(root, run.project), run) || rcx.project;
   if (!stageDelegated(rcx, run.current) || isGate(run, run.current)) return; // 人工门交人工
   s.watch = setInterval(async () => {
     const r = await delegateWatchTick(ctx, root, runDir);
@@ -354,7 +361,7 @@ export async function delegateWatchTick(ctx, root, runDir) {
   const s = sessionFor(runDir);
   const rcx = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, run));
   rcx.run = run;
-  rcx.project = loadProject(root, run.project) || rcx.project;
+  rcx.project = executionProject(loadProject(root, run.project), run) || rcx.project;
   if (!stageDelegated(rcx, id)) return "idle";
   if (isGate(run, id)) return "gate"; // 复核模式中途改为有人工门 → 交人工
   if (!delegateReady(runDir, id)) return "waiting"; // 还没拿到委外结果
@@ -428,6 +435,25 @@ async function handleApi(ctx, root, req, res) {
   try {
     if (m === "GET" && parts.join("/") === "issue2pr/api/ping") {
       return sendJson(res, 200, { ok: true, plugin: "dsh-issue2pr" });
+    }
+    if (parts.join("/") === "issue2pr/api/settings") {
+      if (m === "GET") return sendJson(res, 200, { ok: true, settings: loadSettings(root) });
+      if (m === "PUT") {
+        const body = await readBody(req);
+        if (body?.p6Mode === "claude" && (!__testHooks || __testHooks.agentProbes)) {
+          const bin = resolveClaudeBin(body.stageConfig?.P6?.params?.claudeBin || "");
+          const runner = __testHooks?.agentProbes?.runVersion || realRunVersion;
+          const error = await new Promise(resolve => runner(bin, {}, err => resolve(err)));
+          if (error) return sendJson(res, 400, { ok: false, message: "Claude Code 程序不可运行，请在执行器与环境中完成探测" });
+        }
+        if (body?.p6Mode === "dsh" && !__testHooks) {
+          const agents = typeof ctx.get === "function" ? ctx.get("agents") : null;
+          if (typeof agents?.create !== "function") return sendJson(res, 400, { ok: false, message: "宿主智能体服务不可用" });
+        }
+        try { return sendJson(res, 200, { ok: true, settings: saveSettings(root, body) }); }
+        catch (error) { return sendJson(res, error.code === "SETTINGS_CONFLICT" ? 409 : 400, { ok: false, message: error.message }); }
+      }
+      return sendJson(res, 405, { ok: false, message: "method not allowed" });
     }
     // —— 阶段默认值与能力表（配置页数据源：默认提示词 / 可配能力 / 默认超时） ——
     if (m === "GET" && parts.join("/") === "issue2pr/api/stage-defaults") {
@@ -563,7 +589,7 @@ async function handleApi(ctx, root, req, res) {
     // 时跳过 npm 来源（避免单测真跑 npm config get prefix）。
     if (parts[2] === "agents" && parts[3] === "discover" && !parts[4] && m === "GET") {
       const slugQ = url.searchParams.get("slug");
-      const project = (slugQ && /^[a-z0-9-]+$/.test(slugQ)) ? loadProject(root, slugQ) : null;
+      const project = (slugQ && /^[a-z0-9-]+$/.test(slugQ)) ? loadProject(root, slugQ) : loadSettings(root);
       const out = await discoverAgents({
         cfgBin: (project && project.stageConfig && project.stageConfig.P6 && project.stageConfig.P6.params && project.stageConfig.P6.params.claudeBin) || "",
         runWhich: __testHooks?.runWhich || realRunWhich,
@@ -634,7 +660,7 @@ async function handleApi(ctx, root, req, res) {
       const runWhich = __testHooks?.runWhich
         || ((args, opts, cb) => execFile(process.platform === "win32" ? "where" : "which", args, opts, cb));
       const slugQ = url.searchParams.get("slug");
-      const project = (slugQ && /^[a-z0-9-]+$/.test(slugQ)) ? loadProject(root, slugQ) : null;
+      const project = (slugQ && /^[a-z0-9-]+$/.test(slugQ)) ? loadProject(root, slugQ) : loadSettings(root);
       const claudeBin = resolveClaudeBin(project?.stageConfig?.P6?.params?.claudeBin || "");
       const [git, claude] = await Promise.all([
         new Promise((r) => runGit(["--version"], { timeout: 5000 }, (err, stdout) =>
@@ -727,25 +753,10 @@ async function handleApi(ctx, root, req, res) {
     if (!slug) {
       if (m === "GET") return sendJson(res, 200, { ok: true, projects: listProjects(root) });
       if (m === "POST") {
-        const body = await readBody(req);
-        // —— 委外智能体保存门禁（兜底）：p6Mode=claude 时 claude CLI 必须可运行（--version 快检） ——
-        // 认证级校验（403 IP 白名单等）由项目页「测试门禁」真实微任务完成；此处拦路径写错/未安装。
-        // 测试钩子环境未注入 agentProbes 时跳过（既有单测不依赖本机 claude）。
-        if (body && body.p6Mode === "claude" && (!__testHooks || __testHooks.agentProbes)) {
-          const bin = resolveClaudeBin((body.stageConfig && body.stageConfig.P6 && body.stageConfig.P6.params && body.stageConfig.P6.params.claudeBin) || "");
-          const runV = __testHooks?.agentProbes?.runVersion || realRunVersion;
-          const r = await new Promise((res2) => runV(bin, {}, (err) => res2({ err })));
-          if (r.err) {
-            return sendJson(res, 400, { ok: false, message: "委外智能体门禁未通过：claude CLI 无法运行（" + String((r.err && r.err.message) || r.err).slice(0, 200) + "）。请在「项目」页 P6 执行模式选「委托 Claude Code」，用委外智能体卡片选择可用安装或修正路径，通过测试门禁后再保存。" });
-          }
-        }
-        // —— p6Mode=dsh 保存兜底：宿主 agents 服务必须可用（模型路由实测由门禁卡片完成） ——
-        if (body && body.p6Mode === "dsh" && !__testHooks) {
-          const agents = typeof ctx?.get === "function" ? ctx.get("agents") : null;
-          if (!agents || typeof agents.create !== "function") {
-            return sendJson(res, 400, { ok: false, message: "当前 DSH 宿主未提供智能体服务（ctx.agents 不可用）：请完全重启 DSH 后重试，或改用「委托 Claude Code」模式。" });
-          }
-        }
+        const input = await readBody(req);
+        // 新界面只提交项目元数据。保留旧执行字段供历史任务读取，门禁归全局 /settings。
+        const previous = /^[a-z0-9-]+$/.test(input?.slug || "") ? loadProject(root, input.slug) : null;
+        const body = { reviewMode: "key-only", p6Mode: "builtin", triggers: [], ...previous, ...input };
         try { saveProject(root, body); }
         catch (e) { return sendJson(res, 400, { ok: false, message: (e && e.message) || String(e) }); }
         return sendJson(res, 200, { ok: true, project: body });
@@ -792,7 +803,9 @@ async function handleApi(ctx, root, req, res) {
         const runs = existsSync(runsDir)
           ? readdirSync(runsDir).map((id) => {
               const r = loadRun(join(runsDir, id));
-              return r ? { id: r.id, status: r.status, current: r.current, trigger: r.trigger, createdAt: r.createdAt } : null;
+              return r ? { id: r.id, status: r.status, current: r.current, trigger: r.trigger, createdAt: r.createdAt,
+                currentError: r.stages?.[r.current]?.error || "", externalStatus: r.externalExec?.status || null,
+              } : null;
             }).filter(Boolean).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
           : [];
         return sendJson(res, 200, { ok: true, runs });
@@ -808,11 +821,15 @@ async function handleApi(ctx, root, req, res) {
         let text;
         try { text = await readTriggerText({ trigger, connections: loadConnections(root) }); } // 读触发文本（连接凭据优先于环境变量）
         catch (e) { return sendJson(res, 400, { ok: false, message: (e && e.message) || String(e) }); }
+        let settings, defaultRoute;
+        try { settings = loadSettings(root); defaultRoute = routeInfo(ctx, {}).route; }
+        catch (error) { return sendJson(res, 400, { ok: false, message: error.message }); }
         let created;
         try { created = createRun(root, slug, trigger); } // 同秒同触发源重复发起 → Run 已存在 → 409
         catch (e) { return sendJson(res, 409, { ok: false, message: (e && e.message) || String(e) }); }
         const { runId, runDir } = created;
-        const run = initRun({ runId, slug, trigger: { ...trigger, text }, reviewMode: project.reviewMode, p6Mode: project.p6Mode });
+        const run = initRun({ runId, slug, trigger: { ...trigger, text }, reviewMode: settings.reviewMode, p6Mode: settings.p6Mode });
+        run.executionConfig = { ...structuredClone(settings), defaultRoute };
         run.status = "running"; // 发起即进入运行态（drive 只在 running 时推进）
         saveRun(runDir, run);
         sendJson(res, 200, { ok: true, runId });
@@ -863,7 +880,7 @@ async function handleApi(ctx, root, req, res) {
         const stage = String(body?.stage || "");
         const ids = STAGES.map((s) => s.id);
         if (!ids.includes(stage)) return sendJson(res, 400, { ok: false, message: "非法阶段: " + stage });
-        const project0 = loadProject(root, slug);
+        const project0 = executionProject(loadProject(root, slug), run);
         const shimRcx = project0 ? { run, project: project0, stageCfgOf: (id) => stageCfgOf(project0, id) } : null;
         for (const s of STAGES) {
           const idx = ids.indexOf(s.id);
@@ -900,12 +917,23 @@ async function handleApi(ctx, root, req, res) {
       }
 
       if (action === "review" && m === "POST") {
+        const body = await readBody(req);
         const run = loadRun(runDir);
         if (!run) return sendJson(res, 404, { ok: false, message: "run 不存在" });
+        // 新 UI 将用户实际看到的复核上下文带回；兼容未发送这些字段的旧客户端。
+        const stage = run.stages?.[run.current];
+        const expected = {
+          expectedStage: run.current,
+          expectedStatus: run.status,
+          expectedAttempt: stage?.attempts || 0,
+          expectedStartedAt: stage?.startedAt || null,
+        };
+        if (Object.keys(expected).some(key => Object.hasOwn(body || {}, key) && body[key] !== expected[key])) {
+          return sendJson(res, 409, { ok: false, message: "任务复核上下文已变化，请刷新并检查当前阶段后重新提交" });
+        }
         const s = sessionFor(runDir);
         const rcx = s.rcx || (s.rcx = buildRcx(ctx, root, runDir, run));
         rcx.run = run;
-        const body = await readBody(req);
         const [ok, msg] = await applyReview(rcx, { decision: body?.decision, comment: body?.comment });
         if (!ok) {
           // 达到复核上限时 applyReview 已将 Run 置为 failed；即使 API 立即返回错误，
@@ -958,11 +986,22 @@ async function handleApi(ctx, root, req, res) {
 
       if (action === "artifact" && m === "GET") {
         const rel = url.searchParams.get("path") || "";
+        const tail = url.searchParams.get("tail") === "1";
+        const full = url.searchParams.get("full") === "1";
         let text;
         try { text = readArtifact(runDir, rel); } // safeJoin 防 ..
         catch (e) { return sendJson(res, 400, { ok: false, message: (e && e.message) || String(e) }); }
         if (text == null) return sendJson(res, 404, { ok: false, message: "产物不存在: " + rel });
-        if (Buffer.byteLength(text, "utf8") > 200 * 1024) return sendJson(res, 400, { ok: false, message: "文件超过 200KB 上限" });
+        const bytes = Buffer.byteLength(text, "utf8");
+        if (bytes > 200 * 1024 && !tail && !full) return sendJson(res, 400, { ok: false, message: "文件超过 200KB 上限" });
+        if (full && bytes > 5 * 1024 * 1024) return sendJson(res, 400, { ok: false, message: "文件超过 5MB 全量读取上限" });
+        if (tail && bytes > 200 * 1024) {
+          // 尾部读取：超限文件仅返回末尾片段（首行可能被截断，丢弃），供 UI 查看最近执行过程
+          let sliced = text.slice(-120 * 1024);
+          const nl = sliced.indexOf("\n");
+          if (nl >= 0) sliced = sliced.slice(nl + 1);
+          return sendJson(res, 200, { ok: true, text: sliced, truncated: true });
+        }
         return sendJson(res, 200, { ok: true, text });
       }
 
