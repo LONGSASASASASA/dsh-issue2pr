@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Issue2PR · UI 一致性核查</title>
+  <style>
+    :root{--bg:#f4f5f2;--paper:#fff;--ink:#21342f;--muted:#66766e;--line:#dde5de;--soft:#f3f7f4;--accent:#267760;--accent-soft:#e8f3ed;--warn:#976521;--warn-soft:#fbf2df;--code:#edf1ee;--shadow:0 10px 35px #223b2f06;color-scheme:light}
+    *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:28px}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.75 "Segoe UI","Microsoft YaHei",sans-serif}button,input,select,textarea{font:inherit}button,a,input,select,textarea{outline-offset:4px}a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}button{cursor:pointer}button:disabled{cursor:default;opacity:.55}code{font:12px/1.7 Consolas,monospace;background:var(--code);padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}p{margin:0 0 12px}h1,h2,h3{line-height:1.4;margin:0;letter-spacing:-.025em}h1{font-size:40px}h2{font-size:25px}h3{font-size:18px}small,.muted{color:var(--muted)}.shell{max-width:1400px;margin:0 auto;display:grid;grid-template-columns:210px minmax(0,1fr);gap:46px;padding:42px 40px 70px}.rail{position:sticky;top:36px;align-self:start}.brand{font-size:16px;font-weight:750;letter-spacing:.025em}.brand span{display:inline-block;width:11px;height:11px;margin-right:8px;border-radius:3px;background:var(--accent)}.rail-caption{font-size:12px;color:var(--muted);margin:5px 0 30px}.rail nav{display:grid;gap:5px}.rail nav a{padding:9px 10px;border-radius:6px;color:var(--muted);font-size:14px}.rail nav a:hover{background:var(--accent-soft);color:var(--accent);text-decoration:none}.rail nav b{display:inline-block;width:30px;font:12px Consolas,monospace;color:var(--accent)}.rail-foot{border-top:1px solid var(--line);margin-top:30px;padding-top:18px;font-size:12px;color:var(--muted)}.rail-foot strong{display:block;color:var(--ink);margin-bottom:5px}.main{min-width:0}.eyebrow{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--accent);margin:0 0 12px}.lead{font-size:17px;color:var(--muted);max-width:770px;margin:16px 0 22px}.hero-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.pill{font-size:11px;line-height:1.5;padding:4px 8px;border-radius:5px;background:var(--soft);color:var(--muted);display:inline-block}.pill.green{background:var(--accent-soft);color:var(--accent)}.pill.amber{background:var(--warn-soft);color:var(--warn)}.hero{padding-bottom:30px;border-bottom:1px solid var(--line)}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-top:27px}.stat{border-left:2px solid var(--line);padding-left:14px}.stat b{font-size:27px;line-height:1.1;display:block;margin-bottom:7px;font-weight:650}.stat span{font-size:12px;color:var(--muted)}section{margin-top:40px}.section-title{display:flex;align-items:baseline;gap:13px;margin-bottom:16px}.section-title .num{font:12px Consolas,monospace;color:var(--accent)}.section-intro{color:var(--muted);font-size:14px;margin-bottom:18px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}.note{padding:16px 19px;border-left:3px solid var(--accent);background:var(--accent-soft);font-size:14px;margin:18px 0;border-radius:0 7px 7px 0}.note p:last-child{margin:0}.note.warning{border-color:var(--warn);background:var(--warn-soft)}.table-scroll{overflow:auto}table{border-collapse:collapse;width:100%;text-align:left;font-size:13px;line-height:1.8}th,td{padding:14px 18px;border-bottom:1px solid var(--line);vertical-align:top}th{background:var(--soft);font-size:12px;color:var(--muted);font-weight:600}tr:last-child td{border:0}td:first-child{font-weight:600;min-width:145px}td p:last-child{margin:0}.timeline{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding-top:10px}.timeline span{font-size:12px;background:var(--paper);padding:3px 8px;border:1px solid var(--line);border-radius:4px}.timeline i{font-style:normal;color:var(--muted)}.toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:20px 0 14px}.filters{display:flex;border:1px solid var(--line);background:var(--paper);padding:3px;border-radius:7px}.filters button{border:0;background:transparent;color:var(--muted);padding:5px 12px;font-size:12px;border-radius:4px}.filters button[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);font-weight:600}.search{flex:1;min-width:210px;border:1px solid var(--line);border-radius:7px;background:var(--paper);padding:8px 11px;color:var(--ink);font-size:13px}.result-count{font-size:12px;color:var(--muted);margin-bottom:12px}.issues{display:grid;gap:15px}.issue{padding:22px 24px}.issue-top{display:flex;gap:12px;align-items:flex-start}.issue-id{font:12px Consolas,monospace;color:var(--accent);margin-top:5px;min-width:26px}.issue-heading{flex:1}.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}.issue-body{display:grid;grid-template-columns:1fr 1fr;gap:25px;margin-top:18px}.issue-body h4{margin:0 0 7px;font-size:12px;color:var(--muted);font-weight:500}.issue-body p{font-size:14px;margin:0}.issue-footer{margin-top:16px;border-top:1px solid var(--line);padding-top:12px;font-size:12px;color:var(--muted)}.issue-footer strong{color:var(--ink)}details{margin-top:12px;font-size:12px;color:var(--muted)}summary{cursor:pointer;color:var(--accent)}.evidence{padding:12px 14px;margin-top:8px;background:var(--soft);border-radius:6px;overflow-wrap:anywhere}.evidence p:last-child{margin:0}.empty{padding:25px;text-align:center;color:var(--muted)}[hidden]{display:none!important}.boundaries{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:18px}.boundary{padding:19px 21px}.boundary h3{font-size:15px;margin-bottom:8px}.boundary p{font-size:13px;color:var(--muted);margin:0}.review-head{display:flex;justify-content:space-between;gap:20px;align-items:start}.actions{display:flex;flex-wrap:wrap;gap:8px}.btn{border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink);font-size:12px;padding:7px 12px}.btn.primary{background:var(--accent);color:white;border-color:var(--accent)}.review-block{padding:23px 25px;margin-top:15px}.review-block h3{margin-bottom:7px}.review-block>p{font-size:13px;color:var(--muted)}fieldset{border:0;border-top:1px solid var(--line);padding:16px 0 0;margin:17px 0 0;min-width:0}legend{font-size:14px;font-weight:600;padding:0 8px 0 0}.options{display:flex;flex-wrap:wrap;gap:9px 20px;margin-top:7px}.options label{font-size:13px;display:flex;align-items:center;gap:7px;cursor:pointer}.options input{accent-color:var(--accent)}.check-item{display:grid;grid-template-columns:minmax(0,1fr) 145px;gap:18px;padding:17px 0;border-top:1px solid var(--line);align-items:start}.check-item:first-of-type{margin-top:15px}.check-item strong{font-size:14px;font-weight:600}.check-item p{font-size:13px;color:var(--muted);margin:6px 0 0}.check-item select{width:100%;padding:7px;border-radius:5px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-size:12px}.check-item select[data-result=issue]{border-color:var(--warn);color:var(--warn)}.check-item select[data-result=pass]{border-color:var(--accent);color:var(--accent)}.feedback{display:block;margin-top:12px;font-size:13px}.feedback textarea{display:block;width:100%;min-height:92px;resize:vertical;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink);padding:10px;margin-top:7px;font-size:13px}.save-state{font-size:12px;color:var(--muted);margin:10px 0 0;min-height:21px}.report-footer{padding-top:22px;margin-top:35px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}.report-footer p{margin-bottom:6px}.print-answers{display:none}
+    .placement-help{font-size:13px;color:var(--muted);margin:8px 0 14px}.placement-options{display:grid;gap:14px}.placement-options label{align-items:flex-start}.placement-options input{margin-top:5px;flex-shrink:0}.placement-options strong,.placement-options small{display:block}.placement-options strong{font-weight:600}.placement-options small{font-size:12px;margin-top:4px}
+    @media(prefers-color-scheme:dark){:root{--bg:#151c19;--paper:#1d2722;--ink:#e1eae4;--muted:#a3b4a8;--line:#34463b;--soft:#243229;--accent:#82c7aa;--accent-soft:#233e30;--warn:#dfb86d;--warn-soft:#3a3220;--code:#2a372e;--shadow:none;color-scheme:dark}.btn.primary{background:#33755a;color:#fff;border-color:#33755a}}
+    @media(max-width:1050px){.shell{grid-template-columns:155px minmax(0,1fr);gap:25px;padding:30px 24px}.rail nav a{padding-left:0}.issue-body{gap:18px}.issue{padding:20px}}
+    @media(max-width:760px){.shell{display:block;padding:22px 18px 45px}.rail{position:static;margin-bottom:28px}.rail-caption,.rail-foot{display:none}.rail nav{display:flex;flex-wrap:wrap;gap:0 16px;margin-top:14px}.rail nav a{font-size:12px;padding:4px 0}.rail nav b{width:22px}h1{font-size:31px}h2{font-size:22px}.lead{font-size:15px}.summary{gap:8px}.stat b{font-size:24px}.stat span{font-size:11px}.issue-body,.boundaries{grid-template-columns:1fr}.issue-body{gap:14px}.issue{padding:18px}.review-head{display:block}.actions{margin-top:14px}.review-block{padding:19px}.check-item{grid-template-columns:1fr;gap:10px}.check-item select{max-width:220px}th,td{padding:12px}.coverage table{min-width:640px}.facts table{min-width:560px}.toolbar{gap:9px}.search{width:100%;flex-basis:100%}.filters button{padding:5px 10px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+    @media print{:root{--bg:#fff;--paper:#fff;--ink:#18261d;--muted:#526056;--line:#ccd5ce;--soft:#f4f6f4;--accent:#236447;--accent-soft:#f1f6f2;--warn:#755520;--warn-soft:#faf7ee;--code:#f2f4f2;color-scheme:light}body{font-size:10pt;background:white}.shell{display:block;max-width:none;padding:0}.rail,.toolbar,.result-count,.actions,.save-state{display:none}.hero{padding-bottom:16px}h1{font-size:28pt}h2{font-size:18pt}h3{font-size:13pt}.lead{font-size:11pt}.summary{margin-top:14px}section{margin-top:24px}.panel{box-shadow:none;overflow:visible}.issue{padding:14px 16px;break-inside:avoid;display:block!important}.issue-body p,.note,.check-item p{font-size:10pt}.issue-body{gap:18px}.issue-footer,.evidence{font-size:9pt}.table-scroll{overflow:visible}.coverage table,.facts table{min-width:0}th,td{padding:8px;font-size:9pt}thead{display:table-header-group}tr,.check-item,.boundary,fieldset{break-inside:avoid}.review-block{break-inside:auto}.print-answers{display:block;font-size:9pt;margin-top:12px}.feedback textarea{min-height:70px}.empty{display:none!important}a{color:inherit}.report-footer{font-size:9pt}@page{size:A4;margin:14mm}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside class="rail" aria-label="报告导航">
+    <div class="brand"><span></span>Issue2PR</div>
+    <p class="rail-caption">产品界面 · 一致性核查</p>
+    <nav>
+      <a href="#overview"><b>00</b>核查结论</a>
+      <a href="#logs"><b>01</b>两个日志的区别</a>
+      <a href="#coverage"><b>02</b>跨阶段对照</a>
+      <a href="#issues"><b>03</b>问题清单</a>
+      <a href="#review"><b>04</b>需要你确认什么</a>
+    </nav>
+    <div class="rail-foot"><strong>2026 / 09 / 14</strong>八项前端修复已落地。<br>保留修复前证据；实际宿主验收记录仍由你填写。</div>
+  </aside>
+  <main class="main">
+    <header class="hero" id="overview">
+      <p class="eyebrow">OBSERVABILITY / UI CONSISTENCY</p>
+      <h1>同类操作，保持一致。</h1>
+      <p class="lead">围绕“简洁、方便观测”，核对各阶段的日志、产物与详情入口。保留阶段职责差异，统一阅读工具和打开方式。</p>
+      <div class="hero-meta"><span class="pill green">已实现：文件统一用弹窗</span><span class="pill">范围：P1–P11</span><span class="pill amber">已实施 · 待宿主验收</span></div>
+      <div class="summary" aria-label="报告概览"><div class="stat"><b>8</b><span>有依据的问题与体验差异</span></div><div class="stat"><b>2</b><span>可选的交互偏好确认</span></div><div class="stat"><b>3</b><span>修复后的宿主验收组</span></div></div>
+    </header>
+
+    <section class="facts" aria-label="修复结果">
+      <div class="section-title"><h2>本次已修改什么</h2></div>
+      <p class="section-intro">以下八项已在当前工作区实施。后文的对照与问题卡保留修复前证据，行号是当时位置。两项交互采用推荐方案；不会把你未填写的意见自动记为同意。</p>
+      <div class="panel table-scroll"><table><thead><tr><th>问题</th><th>现在的行为</th></tr></thead><tbody>
+        <tr><td>01 / 打开方式</td><td>全部产物、阶段文件、补丁、证据、复核历史统一文件弹窗，点击即定位；取消展开整页，原阶段正文保持挂载。</td></tr>
+        <tr><td>02 / 文件工具</td><td>完整输入与事件源文件共用 ArtifactsDialog / ArtifactsPanel；保留文件树、复制、下载、目录、原文/排版、错误与重试。详情与文件单层替换，关闭文件回到来源。</td></tr>
+        <tr><td>03 / 大文件</td><td>阶段事件、P8 输出、P6 文本回退由 useLogArtifact 按文件大小读取尾部；读取失败入口保留，同轮刷新失败保留已读内容。切任务、重跑、删除和截短文件时清除旧快照。</td></tr>
+        <tr><td>04 / 搜索</td><td>搜索长日志时补读全量，阶段事件仍按当前阶段过滤；提示实际范围及失败。搜索与筛选结果每页 50 条，复制下载不受关键词筛选影响。Agent 搜索范围是时间线镜像，P8 搜索测试输出，原始日志仍通过文件入口查看。全量读取保留服务端 5MB 上限。</td></tr>
+        <tr><td>05 / 阅读操作</td><td>执行中和已结束均默认最近 5 条事件 / 5 行文本，新记录只更新窗口，不带动整页滚动。查看详情时冻结阅读现场并提示新增；专注查看历史每页 50 条、从末页起读。阶段事件弹窗默认五行，点击“查看历史”在同一弹窗内展开。</td></tr>
+        <tr><td>06 / 执行方式</td><td>非 P6 委托也按实际标记与启动快照显示“外部会话 · 过程未采集”，不冒充宿主模型执行。长日志尾部不用于推算整个阶段耗时。</td></tr>
+        <tr><td>07 / 计数</td><td>页签显示“补丁 N”；预览内单列该补丁涉及的源码文件数。</td></tr>
+        <tr><td>08 / 入口名称</td><td>标题旁“阶段事件”按钮打开当前阶段的平台日志弹窗；打开文件叫“打开源文件”，切模式叫“原文/排版”，ACCEPT 跳汇总叫“查看汇总”。</td></tr>
+      </tbody></table></div>
+      <div class="note"><p><strong>新增修复：事件详情中的“原始 JSON”</strong></p><p>原来打开的是已精简的时间线文本，字段不完整。现在新执行将 Agent 实际返回的每条消息单独保留，事件摘要通过确定的来源位置和校验值定位原文。同一消息有多个内容块时，共用这份完整 JSON；工具结果按同次执行的真实工具标识关联，原始内容不掺入平台摘要字段。</p><p>详情可以读完整正文、工具参数和结果；“原始 JSON”支持折叠、搜索全部字段、复制完整消息。关联结果单独切换，源文件仍在同一层弹窗打开。列表仍默认最近 5 条，列表搜索查摘要文件，JSON 搜索查当前消息全部字段。</p><p>历史数据只有在已有原始日志能唯一匹配时才显示 JSON。未保存、无法唯一关联或属于平台事件，会明确提示，不补造字段。DSH 仍在执行结束后提供记录；单条原始消息读取上限为 5MB。</p></div>
+      <p class="section-intro"><strong>最新验证：</strong>UI 85 项、全量 364 项测试通过；5 组采集器、只读接口和页面组件的隔离浏览器联调通过，另 7 组最近五条策略回归通过，覆盖字段保真、关联结果、搜索复制、弹窗返回、历史缺失及窄屏深色。记录见 <a href="docs/design/二期原型/落地实施计划.md">落地实施计划第⑨至⑪批</a>、<a href="docs/change-log.md">变更记录</a>。正式 DSH 登录态和真实任务连续执行仍需宿主验收；本次未运行真实 Agent 或修改历史产物。</p>
+    </section>
+
+    <section id="logs" class="facts">
+      <div class="section-title"><span class="num">01</span><h2>两个日志，记录两个层级</h2></div>
+      <p class="section-intro">不是同一份日志重复展示。问题在于名称和视觉层级不够明确，让两者看起来像同一功能。</p>
+      <div class="panel table-scroll"><table><thead><tr><th>当前入口</th><th>数据与内容</th><th>什么时候看</th></tr></thead><tbody>
+        <tr><td>Agent 执行记录</td><td>执行器的输入、工具活动、输出。P6 外部执行优先读取时间线镜像，保留原始日志入口。</td><td>观察 Agent 具体做了什么、正在做什么。</td></tr>
+        <tr><td>流水线日志</td><td><code>trace/events.jsonl</code> 按当前阶段筛选：启动、委托、产物到达、校验、复核、完成等平台事件。</td><td>排查阶段为什么暂停、失败或继续。</td></tr>
+      </tbody></table></div>
+      <div class="note"><p><strong>截图中的“6”是六条平台事件。</strong>已核对任务 <code>20260905-205334-37</code> 的 P6 记录，不代表只有六次 Agent 操作。</p><div class="timeline" aria-label="截图任务的六条平台事件"><span>阶段开始</span><i>→</i><span>委托 Claude Code</span><i>→</i><span>补丁产出</span><i>→</i><span>执行结束</span><i>→</i><span>产物校验通过</span><i>→</i><span>阶段完成</span></div></div>
+      <p class="section-intro"><strong>建议：</strong>将“流水线日志”更名为“阶段事件”，从页签栏移到阶段标题右侧、与“全部产物”相邻的按钮；点击后用弹窗查看当前阶段的平台记录，关闭回到原内容。Agent 执行记录继续放在主要页签中。这是入口调整建议，记录内容仍保留；也可选择继续保留日志页签。</p>
+    </section>
+
+    <section id="coverage" class="coverage">
+      <div class="section-title"><span class="num">02</span><h2>各阶段的展示对照</h2></div>
+      <p class="section-intro">下表保留修复前的展示对照，便于理解问题来源；当前行为以上方“本次已修改什么”为准。</p>
+      <div class="panel table-scroll"><table><thead><tr><th>阶段</th><th>主要内容</th><th>过程记录</th><th>文件入口现状</th></tr></thead><tbody>
+        <tr><td>P1–P5、P9、P10</td><td>阶段结果；P2 候选卡片、P5 任务计划等专用展示。</td><td>流水线日志：文本面板。</td><td>结果文件、阶段产物 → 整页；全部产物 → 弹窗。</td></tr>
+        <tr><td>P6 代码实现</td><td>Agent 执行记录、补丁预览。</td><td>外部时间线：事件表；平台事件：文本面板；旧日志另有文本回退。</td><td>输出文件、源文件 → 整页；输入与事件里的文件 → 精简弹窗。</td></tr>
+        <tr><td>P7 补丁应用</td><td>补丁账本及回滚操作。</td><td>流水线日志：文本面板。</td><td>阶段产物 → 整页；全部产物 → 弹窗。</td></tr>
+        <tr><td>P8 测试验证</td><td>测试结果、测试命令输出。</td><td>测试输出与平台事件：两个文本面板。</td><td>结果文件、输出源文件、阶段产物 → 整页。</td></tr>
+        <tr><td>P11 交付评测</td><td>交付与验收、全流程汇总。</td><td>流水线日志：文本面板。</td><td>文件证据 → 整页；ACCEPT 证据 → 汇总页签；全部产物 → 弹窗。</td></tr>
+      </tbody></table></div>
+      <div class="boundaries"><div class="panel boundary"><h3>这些差异可以保留</h3><p>P7 的账本、P8 的命令输出、P11 的验收结果承担不同职责。事件适合表格，测试输出适合文本；不需要强行变成完全相同的内容。</p></div><div class="panel boundary"><h3>这些差异涉及后端能力</h3><p>非 P6 外部委托目前主要生成任务包、等待并校验产物，没有同样的 Agent 工具日志采集。补齐逐工具观测需要后端扩展，不能仅增加空的前端时间线。</p></div></div>
+    </section>
+
+    <section id="issues">
+      <div class="section-title"><span class="num">03</span><h2>问题、影响与统一建议</h2></div>
+      <p class="section-intro">以下保留修复前问题、证据和方案。“先修 / 随后 / 体验优化”是原排序，并非当前待办状态；八项前端修改已完成，宿主检查项仍留在末尾。</p>
+      <div class="toolbar"><div class="filters" role="group" aria-label="按优先顺序筛选"><button type="button" data-filter="all" aria-pressed="true">全部</button><button type="button" data-filter="first" aria-pressed="false">先修</button><button type="button" data-filter="next" aria-pressed="false">随后</button><button type="button" data-filter="polish" aria-pressed="false">体验优化</button></div><input class="search" id="issue-search" type="search" aria-label="搜索问题" placeholder="搜索问题、阶段或文件，如 P8、源文件"></div>
+      <p class="result-count" id="result-count" aria-live="polite">显示 8 / 8 项</p>
+      <div class="issues">
+        <article class="panel issue" id="issue-01" data-priority="first">
+          <div class="issue-top"><span class="issue-id">01</span><div class="issue-heading"><h3>产物打开方式混用：弹窗与整页</h3><div class="tags"><span class="pill amber">先修</span><span class="pill green">代码 + 组件核验</span><span class="pill">所有阶段</span></div></div></div>
+          <div class="issue-body"><div><h4>当前表现与影响</h4><p>“全部产物”打开弹窗，阶段文件、结果、补丁、日志源文件、复核记录等仍切换整页；弹窗还提供“展开到整页”。用户无法预判点击后是否离开当前阶段。</p></div><div><h4>统一建议</h4><p>所有文件入口使用一个产物弹窗。点击具体文件时自动选中；保留完整文件树、关闭返回与阅读位置。取消整页分支；需要更大空间时扩大弹窗。</p></div></div>
+          <div class="issue-footer"><strong>你已明确要求。</strong>无需再次确认弹窗方案；修复后检查入口覆盖与关闭返回。</div>
+          <details><summary>查看依据与复现路径</summary><div class="evidence"><p><code>client.js:1755</code> 的 <code>openFile</code> 设置 <code>tab="files"</code>；<code>1884</code> 打开全部产物弹窗；<code>1936–1941</code> 保留展开整页。</p><p>已用隔离组件核验：全部产物挂载弹窗；P8 阶段文件挂载整页文件面板。实际宿主关闭后的滚动和焦点仍需验收。</p></div></details>
+        </article>
+        <article class="panel issue" id="issue-02" data-priority="first">
+          <div class="issue-top"><span class="issue-id">02</span><div class="issue-heading"><h3>同一个文件，从不同入口打开会少工具</h3><div class="tags"><span class="pill amber">先修</span><span class="pill green">代码核验</span><span class="pill">P6 / 全部产物 / 详情</span></div></div></div>
+          <div class="issue-body"><div><h4>当前表现与影响</h4><p>原始日志从产物打开有复制、下载、排版切换、读取错误与重试；从事件详情打开只有精简原文预览和复制。任务包“查看完整”又是另一套精简弹窗。</p></div><div><h4>统一建议</h4><p>文件内容与工具共用同一阅读器。事件或输入中的文件在当前弹窗内替换，保留返回来源入口；不叠加第二层弹窗。错误、尾部提示和复制下载范围一致。</p></div></div>
+          <div class="issue-footer"><strong>无需确认事实。</strong>与问题 01 一起修复，重点验收同文件、不同入口的工具一致性。</div>
+          <details><summary>查看依据</summary><div class="evidence"><p><code>client.js:1054</code> 的 <code>ArtifactsPanel</code> 提供完整阅读工具；<code>1423–1437</code> 的事件文件预览独立实现，未展示同样的工具或读取错误；<code>1694</code> 的输入弹窗直接渲染 <code>ArtifactContent</code>。</p></div></details>
+        </article>
+        <article class="panel issue" id="issue-03" data-priority="first">
+          <div class="issue-top"><span class="issue-id">03</span><div class="issue-heading"><h3>大文件在产物中能读，在日志入口却失败</h3><div class="tags"><span class="pill amber">先修</span><span class="pill green">代码 + 组件复现</span><span class="pill">各阶段事件 / P8 测试输出</span></div></div></div>
+          <div class="issue-body"><div><h4>当前表现与影响</h4><p>产物阅读器和 Agent 时间线超过 200KB 会读取尾部；流水线日志、P8 输出仍使用普通读取，服务端会拒绝。事件为空后，流水线日志页签还可能消失。</p></div><div><h4>统一建议</h4><p>共用大文件读取策略，明确“最近片段”、加载与失败状态。保留失败入口及重试，不能把读取失败显示成无记录；复制与下载明确实际包含的范围。</p></div></div>
+          <div class="issue-footer"><strong>无需你再次复现。</strong>已用 300KB 元数据和服务端同等限制的隔离组件复现；修复后用已有长任务做宿主验收。</div>
+          <details><summary>查看依据与验证边界</summary><div class="evidence"><p><code>client.js:1066、1579</code> 自动选择 <code>tail</code>；<code>1742、1747</code> 读取阶段事件和测试输出时未传该参数；<code>index.js:996</code> 对超过 200KB 的普通读取返回 400。</p><p>组件复现得到 P8 输出读取失败、阶段事件页签未显示；产物阅读器请求使用 <code>tail=1</code>。这不是已登录 DSH 的浏览器端到端验证。</p></div></details>
+        </article>
+        <article class="panel issue" id="issue-04" data-priority="next">
+          <div class="issue-top"><span class="issue-id">04</span><div class="issue-heading"><h3>同样是搜索日志，搜索范围不同</h3><div class="tags"><span class="pill">随后</span><span class="pill green">代码核验</span><span class="pill">P6 / 各阶段事件 / P8</span></div></div></div>
+          <div class="issue-body"><div><h4>当前表现与影响</h4><p>Agent 时间线搜索会请求全量；流水线日志和 P8 输出只搜索已读文本。长文件场景下，“没有匹配”可能只是内容没读到，现有操作未形成统一规则。</p></div><div><h4>统一建议</h4><p>统一“搜索已读内容 / 补读全量”的行为与提示。阶段事件全量读取后仍按当前阶段筛选；超限或读取失败时保留已读结果，明确搜索范围未完整。</p></div></div>
+          <div class="issue-footer"><strong>无需确认事实。</strong>可用已有日志中仅出现在早期的关键词，在修复后验证各入口。</div>
+          <details><summary>查看依据与容量边界</summary><div class="evidence"><p><code>client.js:1581–1583、1662</code> 为时间线接入全量读取；<code>1898–1899</code> 的 P8 输出和阶段事件未传入 <code>full/onFull</code>。<code>index.js:997</code> 的全量读取上限为 5MB，不能把超过上限描述为已搜索全部。</p></div></details>
+        </article>
+        <article class="panel issue" id="issue-05" data-priority="polish">
+          <div class="issue-top"><span class="issue-id">05</span><div class="issue-heading"><h3>日志滚动、跟随与放大操作不一致</h3><div class="tags"><span class="pill">体验优化</span><span class="pill green">代码核验</span><span class="pill">具体交互可选偏好</span></div></div></div>
+          <div class="issue-body"><div><h4>当前表现与影响</h4><p>Agent 表格随工作区滚动，支持新记录提示和“专注查看”；其他文本日志内部滚动，使用“放大 / 还原”和另一套跟随操作。切换阶段需要改变阅读习惯。</p></div><div><h4>统一建议</h4><p>统一操作名称、暂停跟随、返回最新和专注弹窗。推荐默认随工作区滚动，专注时独立滚动；保留事件表与命令文本各自适合的内容形式。</p></div></div>
+          <div class="issue-footer"><strong>这属于交互取舍，不是所有差异都算故障。</strong>报告末尾可记录你对默认滚动方式的偏好。</div>
+          <details><summary>查看依据</summary><div class="evidence"><p><code>client.js:301、313、340</code> 分别定义事件表、专注事件表与文本日志的滚动；<code>1323–1358</code> 与 <code>1477–1570</code> 是两套日志阅读逻辑。</p></div></details>
+        </article>
+        <article class="panel issue" id="issue-06" data-priority="next">
+          <div class="issue-top"><span class="issue-id">06</span><div class="issue-heading"><h3>非 P6 外部委托仍可能标成宿主模型执行</h3><div class="tags"><span class="pill">随后</span><span class="pill green">代码核验</span><span class="pill">P1–P5 / P9–P11</span></div></div></div>
+          <div class="issue-body"><div><h4>当前表现与影响</h4><p>标题的运行方式只对 P6 特判外部 Agent。其他支持委托的阶段，即使实际生成了外部任务包，仍可能显示配置模型或“模型 宿主默认”。</p></div><div><h4>统一建议</h4><p>所有阶段根据执行快照与实际状态显示运行方式。外部会话标明等待或已收到产物；没有采集 Agent 过程时明确说明，不显示虚构的实时记录。</p></div></div>
+          <div class="issue-footer"><strong>无需你确认代码缺陷。</strong>修复后可用已有非 P6 委托任务验收；没有样本则记为“无样本”，不要求专门启动真实 Agent。</div>
+          <details><summary>查看依据与能力边界</summary><div class="evidence"><p><code>client.js:1815–1827</code> 仅 P6 分支识别外部执行；<code>lib/stages/helpers.js:119–126</code> 的 <code>maybeDelegate</code> 为其他阶段生成任务包并等待产出。</p><p>目前真正调用执行器并采集原始日志、时间线的路径集中在 <code>lib/stages/p6-coder.js</code>。其他阶段缺少逐工具记录涉及后端能力，不属于“已有记录被前端藏起来”。</p></div></details>
+        </article>
+        <article class="panel issue" id="issue-07" data-priority="next">
+          <div class="issue-top"><span class="issue-id">07</span><div class="issue-heading"><h3>“变更文件”的数量实际是补丁文件数</h3><div class="tags"><span class="pill">随后</span><span class="pill green">代码 + 实际产物核验</span><span class="pill">P6</span></div></div></div>
+          <div class="issue-body"><div><h4>当前表现与影响</h4><p>页签按补丁产物计数，预览内部才按源码文件统计。截图任务显示“变更文件 1”，但一个补丁包含 <code>package.json</code> 和 <code>symbols.js</code> 两个文件的修改。</p></div><div><h4>统一建议</h4><p>最小修改是更名为“补丁 1”，预览内继续展示“涉及 2 个文件”。阶段产物、全部产物统一以产物文件为单位，避免与源码文件数混淆。</p></div></div>
+          <div class="issue-footer"><strong>无需重新验证截图任务。</strong>已有补丁头与计数逻辑支持结论；修复后核对文案即可。</div>
+          <details><summary>查看依据</summary><div class="evidence"><p><code>client.js:1846</code> 使用 <code>currentPatches.length</code>；<code>1706</code> 在补丁内部按 <code>diff --git</code> 计源码文件。任务 <code>20260905-205334-37</code> 的 <code>0004-T4.diff</code> 含两个文件头。</p></div></details>
+        </article>
+        <article class="panel issue" id="issue-08" data-priority="polish">
+          <div class="issue-top"><span class="issue-id">08</span><div class="issue-heading"><h3>同名按钮指向不同操作，部分指引仍是旧名称</h3><div class="tags"><span class="pill">体验优化</span><span class="pill green">代码核验</span><span class="pill">跨阶段 / P11 / P6</span></div></div></div>
+          <div class="issue-body"><div><h4>当前表现与影响</h4><p>“查看源文件”有时打开文件、有时切换原文；P11“查看证据”有时打开文件、有时切到汇总。“完整原始日志”可能只读取尾部；空态还指向旧的“执行日志”或“下方事件”。</p></div><div><h4>统一建议</h4><p>打开文件叫“打开源文件”，显示模式叫“原文 / 排版”；跨阶段汇总叫“查看汇总”。去掉无依据的“完整”，同步所有空态、返回文案与最终页签名称。</p></div></div>
+          <div class="issue-footer"><strong>无需逐条让你确认名称。</strong>修复后检查按钮行为是否与文字一致；ACCEPT 查看汇总的合理差异可以保留。</div>
+          <details><summary>查看依据</summary><div class="evidence"><p><code>client.js:1121、1356</code>：查看源文件的两种含义；<code>1255–1256</code>：查看证据的两种去向；<code>1469</code>：完整原始日志；<code>1308、1610、1687</code>：旧指引。</p></div></details>
+        </article>
+      </div>
+      <p class="panel empty" id="empty-results" hidden>没有匹配的问题。可清空搜索或切回“全部”。</p>
+    </section>
+
+    <section id="review">
+      <div class="review-head"><div><div class="section-title"><span class="num">04</span><h2>需要你检测或确认什么？</h2></div><p class="section-intro">代码已确认的问题无需你重复证明。下面区分“现在可选的偏好”和“修复后的实际宿主验收”。</p></div><div class="actions"><button class="btn" type="button" id="print-report">打印 / 保存 PDF</button><button class="btn primary" type="button" id="export-notes">下载核验记录</button></div></div>
+      <div class="note"><p><strong>已经确定：</strong>所有产物文件统一弹窗，阶段文件也在弹窗内定位；不再跳整页。这里不会再次询问这项决定。</p><p>本页选择仅记录你的意见，不代表实现已经完成，也不会修改项目配置或启动任务。</p></div>
+      <div class="panel review-block">
+        <h3>交互偏好 · 当前采用推荐方案</h3><p>已采用“阶段事件”按钮弹窗。随后按用户确认统一为默认最近五条、专注模式翻阅历史；普通预览不自动滚动工作区。原意见记录保留，下面的选择仅记录后续偏好，修改选择不会自动改动产品。</p>
+        <fieldset><legend>A. 现在的“流水线日志”继续放在页签栏，还是改用按钮打开？</legend>
+          <p class="placement-help" id="event-placement-help">这里指截图里的“流水线日志 6”。它记录<strong>阶段开始、委托 Agent、产物校验、阶段完成</strong>等平台动作，用来排查流程为什么停下或失败；Agent 具体的工具调用仍在“Agent 执行记录”中查看。下面只选择入口位置和打开方式，两种方案都保留这些日志，并建议更名为“阶段事件”。</p>
+          <div class="options placement-options">
+            <label><input type="radio" name="event-placement" value="次级入口" data-summary="阶段标题右侧的“阶段事件”按钮，点击弹窗查看" aria-describedby="event-placement-help" data-save><span><strong>改为阶段标题右侧的“阶段事件”按钮（推荐）</strong><small>按钮放在“全部产物”旁边；点击后弹窗显示当前阶段的平台记录，关闭后回到原内容。页签栏不再单独放“流水线日志”。</small></span></label>
+            <label><input type="radio" name="event-placement" value="保留页签" data-summary="保留“阶段事件”页签，点击切换下方正文" aria-describedby="event-placement-help" data-save><span><strong>继续保留“阶段事件”页签</strong><small>仍与“Agent 执行记录”“补丁”“阶段产物”等并排；点击后，下方正文切换为日志，保持目前的查看方式。</small></span></label>
+          </div>
+        </fieldset>
+        <fieldset><legend>B. 普通日志默认怎么滚动？</legend><div class="options"><label><input type="radio" name="log-scroll" value="随工作区滚动" data-save>随工作区滚动，专注时独立滚动（推荐）</label><label><input type="radio" name="log-scroll" value="固定高度独立滚动" data-save>统一固定高度，日志内部滚动</label></div></fieldset>
+      </div>
+      <div class="panel review-block">
+        <h3>修复后 · 三组实际界面验收</h3><p>前端修复已实施，下列真实宿主验收默认仍为“未检查”。建议在已登录 DSH 中使用现有任务核验；缺少长日志或委托样本时选“无样本”。</p>
+        <div class="check-item"><div><strong>01 / 文件入口与返回现场</strong><p>依次检查全部产物、不同阶段产物、P6 补丁与源文件、P8 输出源文件、P11 文件证据、任务详情里的复核历史。应始终使用同一个文件弹窗；点击具体文件时正确定位。关闭或返回后保留阶段、页签、实例、筛选及阅读位置。事件详情 → 文件预览不叠加弹窗。</p></div><label><span class="muted">验收结果</span><select id="check-files" data-save aria-label="文件入口与返回现场验收结果"><option value="pending">未检查</option><option value="pass">符合预期</option><option value="issue">仍有问题</option><option value="no-sample">无样本</option></select></label></div>
+        <div class="check-item"><div><strong>02 / 跨阶段日志与真实执行方式</strong><p>用已有超过 200KB 的日志，核对 Agent 记录、阶段事件、P8 输出都可读取并说明范围。用早期关键词验证搜索；上翻应暂停跟随，返回最新可继续观测。若有非 P6 外部委托任务，核对标题显示真实执行方式。缺少某种样本可在备注中标明。</p></div><label><span class="muted">验收结果</span><select id="check-logs" data-save aria-label="跨阶段日志与执行方式验收结果"><option value="pending">未检查</option><option value="pass">符合预期</option><option value="issue">仍有问题</option><option value="no-sample">无样本</option></select></label></div>
+        <div class="check-item"><div><strong>03 / 宿主布局、主题与键盘操作</strong><p>在你常用的宽度、窄窗口和深色主题下检查弹窗内容、滚动及关闭按钮。用 Esc 关闭，Tab 焦点留在弹窗内，关闭后回到入口。检查宿主顶部、输入区或侧栏是否遮挡内容。这些需要真实宿主体验，隔离组件验证不能替代。</p></div><label><span class="muted">验收结果</span><select id="check-host" data-save aria-label="宿主布局主题与键盘验收结果"><option value="pending">未检查</option><option value="pass">符合预期</option><option value="issue">仍有问题</option><option value="no-sample">无样本</option></select></label></div>
+        <label class="feedback" for="review-notes">备注 / 问题复现路径<textarea id="review-notes" data-save placeholder="例如：P8 → 测试输出 → 打开源文件，关闭后回到了其他页签。可附窗口宽度、主题与任务编号。"></textarea></label>
+        <p class="save-state" id="save-state" role="status">选择与备注仅尝试保存在当前浏览器，不上传。建议下载核验记录留存。</p>
+        <p class="print-answers" id="print-answers"></p>
+      </div>
+      <noscript><div class="note warning">浏览器未启用 JavaScript：报告正文可正常阅读；筛选、记录保存与导出不可用。可使用浏览器打印，并另行记录你的意见。</div></noscript>
+    </section>
+    <footer class="report-footer"><p><strong>依据与边界：</strong>核查及修复日期 2026-09-14，问题卡保留修复前 <code>client.js</code>、<code>index.js</code> 与截图任务证据，原行号会随修改变化。修复结果见上方结果表及实施计划。</p><p>本报告不宣称所有阶段已做真实端到端验证。本次修改包含前端、Agent 消息采集、只读接口及测试，未改写历史任务或产物，未启动真实 Agent；宿主验收表不会自动填为通过。</p></footer>
+  </main>
+</div>
+<script>
+(() => {
+  'use strict';
+  const cards = [...document.querySelectorAll('.issue')];
+  const search = document.getElementById('issue-search');
+  let activeFilter = 'all';
+  function filterIssues() {
+    const query = search.value.trim().toLocaleLowerCase();
+    let count = 0;
+    cards.forEach(card => {
+      const show = (activeFilter === 'all' || card.dataset.priority === activeFilter) && (!query || card.textContent.toLocaleLowerCase().includes(query));
+      card.hidden = !show;
+      if (show) count++;
+    });
+    document.getElementById('result-count').textContent = `显示 ${count} / ${cards.length} 项`;
+    document.getElementById('empty-results').hidden = count !== 0;
+  }
+  document.querySelectorAll('[data-filter]').forEach(button => button.addEventListener('click', () => {
+    activeFilter = button.dataset.filter;
+    document.querySelectorAll('[data-filter]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+    filterIssues();
+  }));
+  search.addEventListener('input', filterIssues);
+  const storageKey = 'issue2pr-ui-consistency-review-20260914-v1';
+  const fields = [...document.querySelectorAll('[data-save]')];
+  const status = document.getElementById('save-state');
+  const choice = name => {
+    const selected = document.querySelector(`input[name="${name}"]:checked`);
+    return selected?.dataset.summary || selected?.value || '未选择';
+  };
+  const checkName = { pending: '未检查', pass: '符合预期', issue: '仍有问题', 'no-sample': '无样本' };
+  const checkLabel = { 'check-files': '文件入口与返回现场', 'check-logs': '跨阶段日志与真实执行方式', 'check-host': '宿主布局、主题与键盘操作' };
+  function refreshRecord() {
+    document.querySelectorAll('select[data-save]').forEach(select => select.dataset.result = select.value);
+    document.getElementById('print-answers').textContent = `记录摘要：阶段事件位置 — ${choice('event-placement')}；日志滚动 — ${choice('log-scroll')}；` + Object.entries(checkLabel).map(([id, label]) => `${label} — ${checkName[document.getElementById(id).value]}`).join('；');
+  }
+  function collect() {
+    const state = {};
+    fields.forEach(field => {
+      if (field.type === 'radio') { if (field.checked) state[field.name] = field.value; }
+      else state[field.id] = field.value;
+    });
+    return state;
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+    if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+      fields.forEach(field => {
+        if (field.type === 'radio') field.checked = saved[field.name] === field.value;
+        else if (typeof saved[field.id] === 'string' && (field.tagName !== 'SELECT' || [...field.options].some(option => option.value === saved[field.id]))) field.value = saved[field.id];
+      });
+      status.textContent = '已恢复本浏览器保存的记录。记录不会自动同步到项目或其他浏览器。';
+    }
+  } catch { status.textContent = '当前浏览器无法读取本地记录；仍可填写并下载，避免关闭后丢失。'; }
+  fields.forEach(field => field.addEventListener(field.tagName === 'TEXTAREA' ? 'input' : 'change', () => {
+    refreshRecord();
+    try { localStorage.setItem(storageKey, JSON.stringify(collect())); status.textContent = '已保存在本浏览器，仅作为核验记录；不代表实施完成或授权。'; }
+    catch { status.textContent = '本地保存不可用，请下载核验记录留存。'; }
+  }));
+  refreshRecord();
+  document.getElementById('print-report').addEventListener('click', () => window.print());
+  document.getElementById('export-notes').addEventListener('click', () => {
+    const lines = ['# Issue2PR UI 一致性核验记录', '', '报告基准：2026-09-14；本记录不代表代码已修复或全部验收通过。', `导出时间：${new Date().toLocaleString('zh-CN')}`, '', '## 已明确的要求', '', '- 产物文件统一弹窗，阶段文件定位到同一弹窗，不跳整页。', '', '## 可选偏好', '', `- 阶段事件入口：${choice('event-placement')}`, `- 日志默认滚动：${choice('log-scroll')}`, '', '## 修复后的宿主验收', '', ...Object.entries(checkLabel).map(([id, label]) => `- ${label}：${checkName[document.getElementById(id).value]}`), '', '## 备注', '', document.getElementById('review-notes').value.trim() || '未填写', ''];
+    const url = URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/markdown;charset=utf-8' }));
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'UI一致性核验记录.md'; document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+})();
+</script>
+</body>
+</html>

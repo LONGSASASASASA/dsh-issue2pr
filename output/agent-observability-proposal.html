@@ -1,0 +1,116 @@
+<div id="agent-observability-proposal" aria-label="Agent 活动观测方案示意">
+  <style>
+    #agent-observability-proposal .obs-stack { display: grid; gap: 16px; }
+    #agent-observability-proposal .obs-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+    #agent-observability-proposal .obs-spread { justify-content: space-between; }
+    #agent-observability-proposal .obs-title { font-weight: 500; }
+    #agent-observability-proposal .obs-detail { display: grid; gap: 8px; padding-top: 12px; }
+    #agent-observability-proposal .obs-signal { display: inline-flex; align-items: center; gap: 8px; }
+    #agent-observability-proposal .obs-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+    #agent-observability-proposal [data-signal="stale"] .obs-dot { background: var(--orange); }
+    #agent-observability-proposal [data-signal="offline"] .obs-dot { background: var(--muted-foreground); }
+    #agent-observability-proposal .obs-command { overflow-wrap: anywhere; }
+    #agent-observability-proposal td { overflow-wrap: anywhere; }
+  </style>
+  <div class="obs-stack">
+    <div class="viz-controls">
+      <label class="form-label" for="obs-scenario">方案示意 · 切换场景
+        <select class="form-select" id="obs-scenario">
+          <option value="thinking">推理期间无新记录</option>
+          <option value="installing">推理与后台安装并行</option>
+          <option value="installed">后台安装完成</option>
+          <option value="silent">长时间未收到活动</option>
+          <option value="offline">页面连接中断</option>
+        </select>
+      </label>
+      <span class="text-small text-muted">演示数据 · 非实时任务状态</span>
+    </div>
+    <hr>
+    <div class="obs-header obs-spread">
+      <span class="obs-title">P6 · 代码实现</span>
+      <span class="tabular-nums" id="obs-elapsed">已运行 04:24</span>
+    </div>
+    <div class="obs-header">
+      <span class="viz-badge" id="obs-stage">运行中</span>
+      <span class="text-small text-muted">外部 Agent · Claude Code</span>
+    </div>
+    <div class="card" aria-label="当前活动">
+      <div class="obs-stack">
+        <div class="obs-header obs-spread" id="obs-activity" data-signal="fresh">
+          <span class="obs-signal"><span class="obs-dot" aria-hidden="true"></span><span class="obs-title" id="obs-main">正在推理</span></span>
+          <span class="text-small tabular-nums" id="obs-heartbeat">最近信号 · 2 秒前</span>
+        </div>
+        <span id="obs-secondary">已收到新的推理计数，尚无新的可见动作</span>
+        <div class="text-small" id="obs-background" hidden>
+          <span id="obs-background-text"></span>
+        </div>
+        <details>
+          <summary>活动依据</summary>
+          <div class="obs-detail text-small">
+            <span id="obs-source">信号：执行器推理计数发生更新</span>
+            <span id="obs-process">执行器进程：存活 · 3 秒前核对</span>
+            <span id="obs-sync">页面同步：正常 · 2 秒前成功</span>
+          </div>
+        </details>
+      </div>
+    </div>
+    <details id="obs-task-details" hidden>
+      <summary id="obs-task-summary">后台任务 · 安装依赖</summary>
+      <div class="obs-detail">
+        <code class="obs-command">npm install --no-audit --no-fund</code>
+        <span id="obs-task-state" class="tabular-nums"></span>
+        <span id="obs-task-output"></span>
+      </div>
+    </details>
+    <div class="obs-header obs-spread">
+      <span class="obs-title">Agent 执行记录</span>
+      <span class="text-small text-muted" id="obs-latest">最近动作 · 16:44:02</span>
+    </div>
+    <table class="table table-sm" aria-label="关键事件示意">
+      <thead><tr><th scope="col">时间</th><th scope="col">事件</th><th scope="col">内容</th></tr></thead>
+      <tbody id="obs-events">
+        <tr><td class="tabular-nums">16:44:02</td><td>读取完成</td><td>代码分析与根因报告</td></tr>
+      </tbody>
+    </table>
+    <div class="obs-header obs-spread text-small text-muted">
+      <span>保留关键事件，推理心跳合并到活动摘要</span>
+      <span id="obs-record-sync">记录自动刷新</span>
+    </div>
+    <span class="sr-only" id="obs-announcement" aria-live="polite"></span>
+  </div>
+  <script>
+    (() => {
+      const root = document.getElementById('agent-observability-proposal');
+      const get = id => root.querySelector('#' + id);
+      const states = {
+        thinking: {elapsed:'已运行 04:24',stage:'运行中',signal:'fresh',main:'正在推理',heartbeat:'最近信号 · 2 秒前',secondary:'已收到新的推理计数，尚无新的可见动作',source:'信号：执行器推理计数发生更新',latest:'最近动作 · 16:44:02',events:[['16:44:02','读取完成','代码分析与根因报告']]},
+        installing: {elapsed:'已运行 05:12',stage:'运行中',signal:'fresh',main:'正在推理',heartbeat:'最近信号 · 2 秒前',secondary:'推理与后台任务同时进行',source:'信号：推理计数更新；后台安装任务已启动',background:'后台任务 1 · 安装依赖 · 已运行 00:29',taskState:'运行中 · 16:46:58 启动',output:'尚未收到安装输出；暂无完成结果',latest:'最近动作 · 16:47:01',events:[['16:46:58','后台任务开始','安装依赖'],['16:47:01','读取完成','duration.test.js']]},
+        installed: {elapsed:'已运行 06:19',stage:'运行中',signal:'fresh',main:'正在推理',heartbeat:'最近信号 · 1 秒前',secondary:'后台依赖安装已完成，Agent 仍在执行',source:'信号：推理计数更新；安装完成通知与退出码 0',background:'最近后台任务 · 安装依赖已完成',taskState:'已完成 · 16:46:58 → 16:48:22 · 耗时 01:24',output:'实际输出：added 1804 packages in 1m · 退出码 0',latest:'最近动作 · 16:48:22',events:[['16:46:58','后台任务开始','安装依赖'],['16:47:01','读取完成','duration.test.js'],['16:48:22','后台任务完成','依赖安装成功 · 退出码 0']]},
+        silent: {elapsed:'已运行 08:02',stage:'运行中',signal:'stale',main:'暂未收到新活动',heartbeat:'最近信号 · 2 分 06 秒前',secondary:'进程仍存活，无法确认当前正在执行的动作',source:'信号：超过提示阈值未收到新消息；进程状态核对成功',background:'最近后台任务 · 安装依赖已完成',taskState:'已完成 · 耗时 01:24',output:'实际输出：added 1804 packages in 1m · 退出码 0',latest:'最近动作 · 16:48:22',events:[['16:48:22','后台任务完成','依赖安装成功 · 退出码 0']]},
+        offline: {elapsed:'上次确认已运行 06:19',stage:'状态待同步',signal:'offline',main:'连接中断，正在重试',heartbeat:'活动状态暂未确认',secondary:'保留最后一次确认的记录',source:'信号：页面最近一次状态读取失败',latest:'最后已读动作 · 16:48:22',events:[['16:48:22','后台任务完成','依赖安装成功 · 退出码 0']]}
+      };
+      function render() {
+        const state = states[get('obs-scenario').value];
+        for (const key of ['elapsed','stage','main','heartbeat','secondary','source','latest']) get('obs-' + key).textContent = state[key];
+        get('obs-activity').dataset.signal = state.signal;
+        get('obs-process').textContent = state.signal === 'offline' ? '执行器进程：当前状态未确认' : '执行器进程：存活 · 3 秒前核对';
+        get('obs-sync').textContent = state.signal === 'offline' ? '页面同步：读取失败，正在重试' : '页面同步：正常 · 2 秒前成功';
+        get('obs-record-sync').textContent = state.signal === 'offline' ? '记录同步中断' : '记录自动刷新';
+        get('obs-background').hidden = !state.background;
+        get('obs-background-text').textContent = state.background || '';
+        get('obs-task-details').hidden = !state.background;
+        get('obs-task-summary').textContent = '查看后台任务详情';
+        get('obs-task-state').textContent = state.taskState || '';
+        get('obs-task-output').textContent = state.output || '';
+        get('obs-events').replaceChildren(...state.events.map(values => {
+          const row = document.createElement('tr');
+          values.forEach((value, index) => { const cell = document.createElement('td'); cell.textContent = value; if (index === 0) cell.className = 'tabular-nums'; row.append(cell); });
+          return row;
+        }));
+        get('obs-announcement').textContent = state.main + '，' + state.elapsed;
+      }
+      get('obs-scenario').addEventListener('change', render);
+      render();
+    })();
+  </script>
+</div>

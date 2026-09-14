@@ -221,3 +221,21 @@ test("委外 P11：eval 任一门控为 fail 时不得自动放行", async () =>
   assert.equal(result, "verify-fail");
   assert.equal(loadRun(runDir).status, "awaiting_review");
 });
+
+test("委外 P11：eval 顶层为 null 时不得当作有效报告自动放行", async () => {
+  const { runDir, repoDir } = freshP11Case();
+  await seedP11Evidence(repoDir, runDir);
+  writeFileSync(join(runDir, "10-pr-description.md"), "# PR\n说明");
+  writeFileSync(join(runDir, "11-eval-report.json"), "null");
+
+  const result = await delegateWatchTick(fakeCtx(), root, runDir);
+  const run = loadRun(runDir);
+
+  assert.equal(result, "verify-fail");
+  assert.equal(run.status, "awaiting_review");
+  assert.equal(run.stages.P11.status, "awaiting_review");
+  assert.equal(run.delegateVerifyFails, 1);
+  assert.equal(existsSync(join(runDir, "reviews")), false, "无有效验收对象不得生成通过记录");
+  const events = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+  assert.ok(events.some((event) => event.stage === "P11" && /验收对象/.test(event.detail)));
+});

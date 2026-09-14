@@ -14,11 +14,14 @@ import {
 } from "./lib/core/store.js";
 import { initRun, saveRun, loadRun, advance, applyReview, isGate, STAGES, MAIN_FLOW } from "./lib/core/pipeline.js";
 import { verifyDelegateResult } from "./lib/delegate/delegateVerify.js";
+import { readAgentEvent, validateAgentEventQuery } from "./lib/delegate/agentEventReader.js";
 import { makeLlm, routeInfo } from "./lib/infra/llm.js";
 import { buildExecutors } from "./lib/stages/index.js";
 import { rollbackLedger } from "./lib/stages/p7-patch.js";
 import { stopExternals } from "./lib/delegate/executors/index.js";
-import { resolveClaudeBin } from "./lib/delegate/executors/claude-code.js";
+import { resolveClaudeBin, externalProcessState } from "./lib/delegate/executors/claude-code.js";
+import { readAgentActivity } from "./lib/delegate/agentActivity.js";
+import { readTestActivity } from "./lib/stages/testActivity.js";
 import { testDshGate } from "./lib/delegate/executors/dsh-agent.js";
 import { loadRelayToken, saveRelayToken, relayAuthExists, relayAuthInfo } from "./lib/infra/relayAuth.js";
 import { discoverAgents, testAgentGate, realRunWhich, realRunNpmPrefix, realRunVersion } from "./lib/delegate/agents.js";
@@ -851,6 +854,12 @@ async function handleApi(ctx, root, req, res) {
         const run = loadRun(runDir);
         if (!run) return sendJson(res, 404, { ok: false, message: "run 不存在" });
         if (run.p6Mode === "session" || run.p6Mode === "claude" || run.p6Mode === "dsh") run.externalProgress = externalProgress(runDir);
+        if (run.p6Mode === "claude") {
+          run.agentActivity = await readAgentActivity(runDir, run);
+          run.agentActivity.process = externalProcessState(runDir);
+        }
+        if (run.stages?.P8?.startedAt) run.testActivity = await readTestActivity(runDir, run);
+        run.observedAt = new Date().toISOString();
         return sendJson(res, 200, run); // 直接吐 run.json（session/claude 模式附带外部执行进度）
       }
 
@@ -864,6 +873,7 @@ async function handleApi(ctx, root, req, res) {
         run.status = "stopped";
         if (run.stages[run.current] && run.stages[run.current].status === "running") {
           run.stages[run.current].status = "stopped";
+          run.stages[run.current].stoppedAt = new Date().toISOString();
         }
         saveRun(runDir, run);
         stopExternals(runDir); // 委外在跑时一并终止（杀 CLI 进程树/取消宿主智能体），避免孤儿继续写仓库
@@ -982,6 +992,19 @@ async function handleApi(ctx, root, req, res) {
       if (action === "tree" && m === "GET") {
         if (!existsSync(runDir)) return sendJson(res, 404, { ok: false, message: "run 不存在" });
         return sendJson(res, 200, { ok: true, files: listRunTree(runDir) });
+      }
+
+      if (action === "agent-event" && m === "GET") {
+        if (!existsSync(runDir)) return sendJson(res, 404, { ok: false, message: "run 不存在" });
+        const query = { id: url.searchParams.get("id"), legacyLine: url.searchParams.get("legacyLine") };
+        try {
+          if ([...url.searchParams.keys()].some(key => !["id", "legacyLine"].includes(key))
+              || url.searchParams.getAll("id").length > 1 || url.searchParams.getAll("legacyLine").length > 1) {
+            throw new Error("仅允许查询一个事件 ID 或一条历史时间线记录");
+          }
+          validateAgentEventQuery(query);
+        } catch (e) { return sendJson(res, 400, { ok: false, message: e.message }); }
+        return sendJson(res, 200, await readAgentEvent(runDir, query));
       }
 
       if (action === "artifact" && m === "GET") {

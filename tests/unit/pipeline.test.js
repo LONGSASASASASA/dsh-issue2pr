@@ -16,8 +16,18 @@ function freshRun(reviewMode) {
   saveRun(runDir, run);
   return { runDir, run };
 }
+function writeDelivery(runDir, overrides = {}) {
+  writeFileSync(join(runDir, "10-pr-description.md"), "# 修复说明\n已实现任务要求，补丁、测试与审查证据一致。\n");
+  writeFileSync(join(runDir, "11-eval-report.json"), JSON.stringify({
+    ROOT: "pass", PATCH: "pass", TEST: "pass", DIFF: "pass", DESC: "pass", ACCEPT: "pass", ...overrides,
+  }));
+}
 const okExecutors = Object.fromEntries(MAIN_FLOW.concat(["P10"]).map((id) => [id,
-  async (rcx) => { rcx.log({ span: id, ms: 1 }); return { artifact: id + ".json" }; }]));
+  async (rcx) => {
+    rcx.log({ span: id, ms: 1 });
+    if (id === "P11") writeDelivery(rcx.runDir);
+    return { artifact: id === "P11" ? "10-pr-description.md" : id + ".json" };
+  }]));
 
 test("STAGES 11 项，key 门恰为 P5/P6/P9/P11", () => {
   assert.equal(STAGES.length, 11);
@@ -67,6 +77,58 @@ test("auto 模式：跑完全程 completed", async () => {
   const rcx = { runDir, run, executors: okExecutors, log() {} };
   for (let i = 0; i < 10; i++) await advance(rcx);
   assert.equal(run.status, "completed");
+  assert.equal(run.stages.P11.status, "approved");
+  assert.equal(loadRun(runDir).status, "completed");
+});
+
+for (const [name, produce, error] of [
+  ["门禁 fail", (runDir) => writeDelivery(runDir, { PATCH: "fail", ACCEPT: "fail" }), /PATCH/],
+  ["评测报告缺失", (runDir) => writeFileSync(join(runDir, "10-pr-description.md"), "# 修复说明"), /11-eval-report/],
+  ["评测报告格式错误", (runDir) => {
+    writeDelivery(runDir);
+    writeFileSync(join(runDir, "11-eval-report.json"), "{broken");
+  }, /JSON/],
+  ["PR 说明为空", (runDir) => {
+    writeDelivery(runDir);
+    writeFileSync(join(runDir, "10-pr-description.md"), " \n");
+  }, /10-pr-description/],
+]) {
+  test("P11：auto 模式执行器正常返回但" + name + "，仍拒绝完成并记录失败", async () => {
+    const { runDir, run } = freshRun("auto");
+    const executors = { ...okExecutors, P11: async () => {
+      produce(runDir);
+      return { artifact: "10-pr-description.md", summary: "报告已生成" };
+    } };
+    await advance({ runDir, run, executors, log() {} });
+
+    assert.equal(run.current, "P11");
+    assert.equal(run.status, "failed");
+    assert.equal(run.stages.P11.status, "failed");
+    assert.match(run.stages.P11.error, error);
+    assert.equal(loadRun(runDir).status, "failed");
+    const events = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    assert.ok(events.some((event) => event.stage === "P11" && !event.ok && error.test(event.detail)));
+    assert.ok(!events.some((event) => event.stage === "P11" && /完成/.test(event.name)));
+  });
+}
+
+test("P11：阶段已 approved 也不能绕过最终交付验收进入 completed", async () => {
+  const { runDir, run } = freshRun("auto");
+  for (const id of MAIN_FLOW) run.stages[id].status = "approved";
+  run.current = "P11";
+  run.status = "running";
+  saveRun(runDir, run);
+  writeDelivery(runDir, { ACCEPT: "fail" });
+  let executed = false;
+  await advance({ runDir, run, executors: { P11: async () => { executed = true; } }, log() {} });
+
+  assert.equal(executed, false);
+  assert.equal(run.status, "failed");
+  assert.equal(run.stages.P11.status, "failed");
+  assert.match(run.stages.P11.error, /ACCEPT/);
+  assert.equal(loadRun(runDir).stages.P11.status, "failed");
+  const events = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+  assert.ok(events.some((event) => event.stage === "P11" && !event.ok && /ACCEPT/.test(event.detail)));
 });
 
 test("reject 必须带意见；打回后阶段回 pending 且 attempts+1，意见入 reviews/", async () => {
@@ -363,6 +425,7 @@ test("P11：内置人工 approve 前重新核对工作区证据", async () => {
   run.stages.P11 = { status: "awaiting_review", attempts: 0 };
   run.status = "awaiting_review";
   saveRun(runDir, run);
+  writeDelivery(runDir);
   writeFileSync(join(repoDir, "a.txt"), "unexpected\n");
 
   const [ok, message] = await applyReview({ runDir, run, repoDir }, {
@@ -372,4 +435,37 @@ test("P11：内置人工 approve 前重新核对工作区证据", async () => {
   assert.equal(ok, false);
   assert.match(message, /P11.*证据校验未通过/);
   assert.equal(run.stages.P11.status, "awaiting_review");
+});
+
+test("P11：真实补丁证据通过但交付门禁 fail，人工 approve 被拒；修正后方可通过", async () => {
+  const { runDir, run } = freshRun("key-only");
+  const repoDir = mkdtempSync(join(root, "repo-p11-gate-"));
+  const diff = realPatchFixture(repoDir);
+  mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), diff);
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"), JSON.stringify({
+    patches: [{ patch: "06-implementation/patches/0001.diff" }],
+  }));
+  await p7({ runDir, repoDir, llm: null });
+  for (const id of MAIN_FLOW) run.stages[id].status = "approved";
+  run.current = "P11";
+  run.status = "awaiting_review";
+  run.stages.P11.status = "awaiting_review";
+  saveRun(runDir, run);
+  writeDelivery(runDir, { ACCEPT: "fail" });
+
+  const rcx = { runDir, run, repoDir, executors: okExecutors, log() {} };
+  const [ok, message] = await applyReview(rcx, { decision: "approve", comment: "确认" });
+  assert.equal(ok, false);
+  assert.match(message, /P11 交付验收未通过/);
+  assert.match(message, /ACCEPT/);
+  assert.equal(run.status, "awaiting_review");
+  assert.equal(run.stages.P11.status, "awaiting_review");
+  assert.equal(existsSync(join(runDir, "reviews")), false, "未通过门禁不得写入人工通过记录");
+
+  writeDelivery(runDir);
+  assert.equal((await applyReview(rcx, { decision: "approve", comment: "证据已补齐" }))[0], true);
+  assert.equal(run.stages.P11.status, "approved");
+  await advance(rcx);
+  assert.equal(run.status, "completed");
 });

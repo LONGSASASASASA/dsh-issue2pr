@@ -109,7 +109,7 @@ test("executor.run：时间线文件 —— stream-json 帧写入时格式化为
       "任务包 init + 帧序列 + 退出行");
     assert.match(timeline[3], /tool\|Read src\/index\.js/);
     assert.match(timeline[6], /result|全部完成 · 3 轮/);
-    for (const l of timeline) assert.match(l, /^d{2}:d{2}:d{2}|/, "每行 时间|kind|内容");
+    for (const l of timeline) assert.match(l, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\|/, "每行 完整时间|kind|内容（二期 E2 写入含日期）");
 });
 
 test("executor.run：无中转 → 不产生 settings 临时文件（用户 settings 全量生效）", async () => {
@@ -130,4 +130,57 @@ test("authHintOf：relay 感知——403 在中转下指向 token，非中转下
     assert.match(authHintOf("403 forbidden", true), /中转/);
     assert.match(authHintOf("403 ip access denied by API-Key restrictions", false), /IP 白名单|IP 访问限制/);
     assert.equal(authHintOf("一切正常", false), "");
+});
+
+test("executor.run：分片 stdout 的完整 JSON 落盘，跨 UTF-8 字节与无换行尾帧均可回读", async () => {
+    const root = mkdtempSync(join(tmpdir(), "i2p-raw-stream-")), logPath = join(root, "external-exec.log");
+    const frames = [
+        { type: "assistant", session_id: "raw-session", extra: { preserved: true }, message: { id: "m", content: [
+            { type: "tool_use", id: "tool-a", name: "Read", input: { file_path: "中文😀.js", all: "z".repeat(1000) } },
+            { type: "text", text: "接着检查" },
+        ] } },
+        { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tool-a", content: "文件完整结果", is_error: false }] } },
+        { type: "result", result: "完成", num_turns: 1, usage: { input_tokens: 20 } },
+    ];
+    const stdout = frames.map(JSON.stringify).join("\n"), bytes = Buffer.from(stdout);
+    const rcx = { spawnExternal: async ({ onStdoutChunk }) => {
+        for (let i = 0; i < bytes.length; i += 2) onStdoutChunk(bytes.subarray(i, i + 2));
+        return { code: 0, stdout, stderr: "" };
+    } };
+    const out = await executor.run({ rcx, bin: "claude", repoDir: root, runDir: root, prompt: "p", timeoutMs: 1000, logPath });
+    assert.equal(out.failure, null);
+    const saved = readFileSync(join(root, "external-exec.messages.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    assert.deepEqual(saved, frames, "原生未知字段、完整工具参数和工具结果全部保留");
+    assert.ok(readFileSync(logPath, "utf8").includes(stdout), "原始 stdout 字节保真");
+    const timeline = readFileSync(join(root, "external-exec.timeline.log"), "utf8");
+    assert.match(timeline, /Read 中文😀\.js/);
+    assert.ok(!timeline.includes("|raw|"), "合法 JSON 不因 stdout 分片变成坏行");
+    const events = readFileSync(join(root, "external-exec.events.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    assert.equal(events.filter((e) => e.source).length, 4);
+    assert.deepEqual(events.filter((e) => e.toolUseId).map((e) => [e.toolUseId, e.relation]), [["tool-a", "call"], ["tool-a", "result"]]);
+    assert.deepEqual(events[1].source, events[2].source);
+});
+
+test("executor.run：异常退出前的完整尾帧仍留存，不把 stderr 包装成 Agent JSON", async () => {
+    const root = mkdtempSync(join(tmpdir(), "i2p-raw-failed-")), logPath = join(root, "external-exec.log");
+    const frame = { type: "assistant", message: { content: [{ type: "text", text: "故障前的完整消息" }] } };
+    const rcx = { spawnExternal: async ({ onStdoutChunk }) => {
+        onStdoutChunk(JSON.stringify(frame));
+        return { code: -2, timeout: true, stdout: JSON.stringify(frame), stderr: "network timeout" };
+    } };
+    const out = await executor.run({ rcx, bin: "claude", repoDir: root, runDir: root, prompt: "p", timeoutMs: 1000, logPath });
+    assert.equal(out.failure.kind, "timeout");
+    assert.deepEqual(readFileSync(join(root, "external-exec.messages.jsonl"), "utf8").trim().split("\n").map(JSON.parse), [frame]);
+    assert.match(readFileSync(logPath, "utf8"), /network timeout/);
+    const events = readFileSync(join(root, "external-exec.events.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    assert.equal(events.at(-1).source, null); assert.match(events.at(-1).text, /超时/);
+});
+
+test("executor.run：观测目录写失败不改变正常执行结果，也不会等待失败日志流而悬挂", { timeout: 2000 }, async () => {
+    const root = mkdtempSync(join(tmpdir(), "i2p-unwritable-log-"));
+    const rcx = { spawnExternal: async () => ({ code: 0, stdout: '{"type":"result","result":"done"}', stderr: "" }) };
+    const out = await executor.run({ rcx, bin: "claude", repoDir: root, runDir: root, prompt: "p", timeoutMs: 1000,
+        logPath: join(root, "missing-directory", "external-exec.log") });
+    assert.equal(out.failure, null);
+    assert.equal(out.resultText, "done");
 });

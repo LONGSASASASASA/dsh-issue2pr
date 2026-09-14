@@ -1,7 +1,7 @@
 // client.js — Issue2PR 工作台（项目 / 任务 / 全局设置）
 // 设计语言：沿用 v9 明暗配色，主题选择跟随 DSH 宿主，
 // 数据（id/路径/产物/耗时）用 JetBrains Mono，图标全 SVG 描边（无 emoji），
-// 页面结构与交互以 docs/ui-prototype/v9.html 为基准。数据源 /issue2pr/api/*。
+// 页面结构沿用 v9；任务头部、阶段导航和执行记录按二期紧凑原型演进。数据源 /issue2pr/api/*。
 // 零 npm 依赖：React 与官方 UI 原语（MarkdownText 等）均来自宿主模块表（require），样式注入单个 <style> 标签。
 window.__ModuleLoader__.load({
 	id: "dsh-issue2pr",
@@ -11,6 +11,8 @@ window.__ModuleLoader__.load({
 		const React = require("react");
 		const { MarkdownText } = require("@deepseek-ai/dsh-client-ui-primitives");
 		const h = React.createElement;
+		// 宿主 Markdown 的代码块与脚注需要完整文案；保持引用稳定以复用渲染缓存。
+		const MARKDOWN_LABELS = { code: { copyLabel: "复制", copiedLabel: "已复制" }, footnotes: "脚注" };
 		const zh = { nav: "Issue2PR" };
 		const en = { nav: "Issue2PR" };
 		const API = "/issue2pr/api";
@@ -51,6 +53,11 @@ window.__ModuleLoader__.load({
 			stopped:         ["t-off",  "已停止"],
 			pending:         ["t-off",  "未开始"],
 			completed:       ["t-good", "已完成"],
+			flow_ended:      ["t-off", "流程已结束"],
+			acceptance_passed: ["t-good", "验收通过"],
+			acceptance_failed: ["t-err", "验收未通过"],
+			acceptance_pending: ["t-off", "验收待确认"],
+			acceptance_loading: ["t-off", "读取验收…"],
 		};
 		function tag(status) { return TAG[status] || TAG.pending; }
 
@@ -188,46 +195,60 @@ window.__ModuleLoader__.load({
 .studio .studio-run-reason{display:block;margin-top:4px;color:var(--secondary);font-size:13px;overflow-wrap:anywhere}
 .studio .studio-run-icon{color:var(--accent)}
 .studio .studio-run-icon.failed{color:var(--red)}
+.studio .studio-run-icon.flow_ended{color:var(--secondary)}
 .studio .studio-run-icon.awaiting_review{color:var(--amber)}
 .studio .studio-pagination{padding:12px 0;font-size:12px}
 .studio .studio-empty{padding:55px 22px;text-align:center;max-width:570px;margin:0 auto;color:var(--secondary);display:grid;justify-items:center;gap:14px}
 .studio .studio-empty h3{font-size:16px;color:var(--ink)}
 .studio .studio-dialog{width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 48px);border:1px solid var(--line);border-radius:14px;padding:0;background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
-.studio .studio-dialog.wide{width:min(850px,calc(100vw - 32px))}
+.studio .studio-dialog.wide{width:min(960px,calc(100vw - 32px))}
 .studio .studio-dialog::backdrop{background:#14232e55;backdrop-filter:blur(3px)}
 .studio .studio-dialog-head{padding:20px 24px 12px}
 .studio .studio-dialog-body{padding:8px 24px 24px;overflow-wrap:anywhere}
 .studio .studio-dialog-body>p{color:var(--secondary);margin-bottom:17px}
 .studio .studio-task{display:flex;flex-direction:column;flex:1;min-height:0;background:var(--surface)}
-.studio .studio-task-head{padding:8px 26px 5px;flex:none}
+.studio .studio-task-head{padding:18px 26px 16px;flex:none;border-bottom:1px solid var(--line)}
 .studio .studio-breadcrumb{font-size:12px;color:var(--muted);margin-bottom:4px;line-height:18px;flex-wrap:wrap}
 .studio .studio-breadcrumb button{padding:0;color:var(--secondary)}
 .studio .studio-breadcrumb .mono{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .studio .studio-task-title{gap:12px}
-.studio .studio-task-title h1{font-size:16px;line-height:24px;font-weight:600}
+.studio .studio-task-title{flex-wrap:wrap}
+.studio .studio-task-title h1{font-size:21px;line-height:30px;font-weight:650}
+.studio .studio-task-name{flex:1;min-width:220px}
+.studio .studio-task-caption{margin-top:5px;color:var(--secondary);font-size:13px;line-height:21px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .studio .studio-topology{padding:0 26px;border-bottom:1px solid var(--line);flex:none}
 .studio .studio-workflow-summary{min-height:44px;gap:12px}
 .studio .studio-workflow-summary strong{font-size:13px}
-.studio .studio-progress{display:flex;gap:3px;width:110px;flex:none}
-.studio .studio-progress i{height:4px;flex:1;border-radius:2px;background:var(--border)}
-.studio .studio-progress i.done{background:var(--accent)}
-.studio .studio-progress i.current{background:var(--blue)}
-.studio .studio-progress i.failed{background:var(--red)}
-.studio .studio-track{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:4px;padding-top:8px}
-.studio .studio-stage{border:1px solid transparent;border-radius:7px;padding:8px 2px;display:flex;align-items:center;flex-direction:column;position:relative;min-width:0}
+.studio .studio-track{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:2px;padding-top:6px}
+.studio .studio-track.compact{padding:0 0 8px;overflow-x:auto;grid-template-columns:repeat(10,minmax(86px,1fr));scrollbar-width:thin}
+.studio .studio-track.compact .studio-stage{flex-direction:row;justify-content:center;gap:5px;padding:7px 4px;white-space:nowrap}
+.studio .studio-track.compact .studio-stage:before{display:none}
+.studio .studio-track.compact .studio-stage-mark{width:16px;height:20px;margin:0;border:0;border-radius:0;background:transparent}
+.studio .studio-track.compact .studio-stage .studio-stage-mark{background:transparent}
+.studio .studio-track.compact .studio-stage-code{display:none}
+.studio .studio-track.compact .studio-stage.on{border-color:var(--border);background:var(--accent-soft);color:var(--accent)}
+.studio .studio-track.compact .studio-stage.acceptance_failed.on{background:var(--red-soft);color:var(--red)}
+.studio .studio-track.compact .studio-stage.acceptance_pending.on,.studio .studio-track.compact .studio-stage.acceptance_loading.on{background:var(--soft);color:var(--secondary)}
+.studio .studio-workflow-location{font-size:12px;color:var(--secondary)}
+.studio .studio-workflow-summary{flex-wrap:wrap;gap:8px}
+.studio .studio-flow-toggle{white-space:nowrap;font-size:12px;color:var(--accent);padding:5px 0}
+.studio .studio-stage{border:1px solid transparent;border-radius:7px;padding:5px 2px;display:flex;align-items:center;flex-direction:column;position:relative;min-width:0}
 /* 二期 S4：节点连线加粗并按阶段状态着色（原先 1px var(--line) 对比约 1.2:1 近不可见） */
-.studio .studio-stage:before{content:"";position:absolute;top:20px;right:50%;width:100%;height:2px;background:var(--border);border-radius:1px}
-.studio .studio-stage.approved:before,.studio .studio-stage.completed:before{background:var(--accent)}
+/* 二期 E1：间距与连线缩短——连线两端各内缩 14px（避开 27px 圆点边缘），不再从圆心画到圆心 */
+.studio .studio-stage:before{content:"";position:absolute;top:17px;right:calc(50% + 14px);width:calc(100% - 28px);height:2px;background:var(--border);border-radius:1px}
+.studio .studio-stage.approved:before,.studio .studio-stage.completed:before,.studio .studio-stage.acceptance_passed:before{background:var(--accent)}
 .studio .studio-stage.current:before{background:var(--blue)}
-.studio .studio-stage.failed:before{background:var(--red)}
+.studio .studio-stage.failed:before,.studio .studio-stage.acceptance_failed:before{background:var(--red)}
 .studio .studio-stage.awaiting_review:before{background:var(--amber)}
 .studio .studio-stage:first-child:before{display:none}
 .studio .studio-stage:hover{background:var(--soft)}
 .studio .studio-stage.on{background:var(--soft);border-color:var(--border)}
 .studio .studio-stage-mark{width:27px;height:27px;display:grid;place-items:center;border:1px solid var(--border);background:var(--surface);border-radius:50%;position:relative;z-index:1;margin-bottom:7px;font-size:11px}
-.studio .studio-stage.approved .studio-stage-mark,.studio .studio-stage.completed .studio-stage-mark{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.studio .studio-stage.approved .studio-stage-mark,.studio .studio-stage.completed .studio-stage-mark,.studio .studio-stage.acceptance_passed .studio-stage-mark{background:var(--accent-soft);color:var(--accent);border-color:transparent}
 .studio .studio-stage.current .studio-stage-mark{background:var(--blue-soft);color:var(--blue);border-color:transparent}
-.studio .studio-stage.failed .studio-stage-mark{background:var(--red-soft);color:var(--red)}
+.studio .studio-stage.failed .studio-stage-mark,.studio .studio-stage.acceptance_failed .studio-stage-mark{background:var(--red-soft);color:var(--red);border-color:transparent}
+.studio .studio-stage.acceptance_passed.current .studio-stage-mark{background:var(--accent-soft);color:var(--accent)}
+.studio .studio-stage.acceptance_pending .studio-stage-mark,.studio .studio-stage.acceptance_loading .studio-stage-mark{background:var(--soft);color:var(--secondary)}
 .studio .studio-stage.awaiting_review .studio-stage-mark{background:var(--amber-soft);color:var(--amber)}
 .studio .studio-stage strong{font-size:13px;font-weight:400;line-height:1.5}
 .studio .studio-stage-code{font-size:12px;color:var(--muted);margin-top:3px}
@@ -236,7 +257,24 @@ window.__ModuleLoader__.load({
 .studio .studio-tabs{display:flex;gap:24px;padding:0 26px;height:43px;border-bottom:1px solid var(--line);flex:none}
 .studio .studio-tabs button{padding:0 1px}
 .studio .studio-tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
-.studio .studio-runtime-meta{padding:8px 26px 0;font-size:12px;flex:none}
+.studio .studio-stage-bar{padding:12px 26px 0;flex:none;border-bottom:1px solid var(--line)}
+.studio .studio-stage-bar .studio-section-heading{margin:0 0 8px}
+.studio .studio-stage-bar h2{font-size:17px;font-weight:650}
+.studio .studio-runtime-meta{font-size:12px;flex:1;min-width:120px;overflow-wrap:anywhere}
+.studio .studio-activity{margin:0 0 14px;padding:12px 16px;background:var(--soft);border:1px solid var(--line);border-radius:8px;display:grid;gap:8px;min-width:0}
+.studio .studio-activity-dot{width:7px;height:7px;display:inline-block;border-radius:50%;background:var(--accent);margin-right:8px}
+.studio .studio-activity.warn .studio-activity-dot{background:var(--amber)}
+.studio .studio-activity.bad .studio-activity-dot{background:var(--red)}
+.studio .studio-activity.quiet .studio-activity-dot{background:var(--muted)}
+.studio .studio-activity-task{padding-top:8px;border-top:1px solid var(--line);min-width:0}
+.studio .studio-activity summary{cursor:pointer;overflow-wrap:anywhere}
+.studio .studio-activity pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;margin:8px 0 0}
+.studio .studio-activity time{font-variant-numeric:tabular-nums}
+.studio .studio-stage-tabs{display:flex;align-items:stretch;gap:20px;min-width:0;overflow-x:auto}
+.studio .studio-stage-tabs .studio-execution-tabs{margin:0;border:0;flex-shrink:0}
+.studio .studio-stage-tabs .studio-execution-tabs button{padding:8px 3px;margin-right:10px;white-space:nowrap;background:none}
+.studio .studio-stage-tabs .studio-tabs{padding:0;height:38px;border:0;margin-left:auto;gap:14px;white-space:nowrap}
+.studio .studio-stage-tabs .studio-tabs button{font-size:12px}
 .studio .studio-workspace{overflow:auto;min-height:0;flex:1;scrollbar-gutter:stable}
 .studio .studio-process{padding:16px 26px;display:grid;grid-template-columns:minmax(0,1fr);gap:24px;align-items:start}
 .studio .studio-process-main{min-width:0}
@@ -267,13 +305,56 @@ window.__ModuleLoader__.load({
 .studio .studio-execution-tabs{display:flex;gap:10px;border-bottom:1px solid var(--line);margin:8px 0 14px}
 .studio .studio-execution-tabs button{padding:6px 10px;font-size:13px;color:var(--secondary)}
 .studio .studio-execution-tabs button.on{box-shadow:inset 0 -2px var(--accent);background:var(--soft);color:var(--ink)}
+/* 二期 A2/A3：外部执行事件表——四列单行、行高 34px、区域内横滚不撑破页面 */
+.studio .studio-events{border:1px solid var(--line);border-radius:10px;min-width:0}
+.studio .studio-events-toolbar .f-select{width:180px;min-height:34px;padding:4px 9px;font-size:12px}
+.studio .studio-events-toolbar .f-input{width:auto;flex:1;min-width:180px;min-height:34px;padding:4px 9px;font-size:12px}
+.studio .studio-events-scroll{overflow:visible}
+.studio .studio-events-grid{min-width:0}
+.studio .studio-events-head,.studio .studio-event-row{display:grid;grid-template-columns:76px 92px 150px minmax(220px,1fr);gap:12px;align-items:center;padding:0 12px}
+.studio .studio-events-head{height:30px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);background:var(--soft);position:sticky;top:0;z-index:1}
+.studio .studio-event-row{height:34px;width:100%;border:0;border-bottom:1px solid var(--line);text-align:left;font-size:12px;background:transparent}
+.studio .studio-event-row:hover,.studio .studio-event-row.on{background:var(--soft)}
+.studio .studio-event-row>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.studio .studio-event-full{padding:10px 12px;border-bottom:1px solid var(--line);background:var(--soft);white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 var(--mono)}
+.studio .studio-timeline{min-width:0}
+.studio .studio-timeline-status{position:sticky;bottom:0;padding:7px 10px;background:var(--surface);border:1px solid var(--line);border-radius:7px;z-index:2;font-size:12px}
+.studio .studio-timeline.focused{display:flex;flex-direction:column;height:min(64dvh,640px);gap:10px}
+.studio .studio-timeline.focused .studio-events{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.studio .studio-timeline.focused .studio-events-scroll{overflow:auto;min-height:0;flex:1}
+.studio .studio-timeline-status .hint{flex:1;min-width:140px}
+.studio .studio-input-summary{display:flex;align-items:baseline;gap:10px;min-width:0}
+.studio .studio-input-summary .studio-message-body{flex:1;min-width:0;margin:0}
+.studio .studio-output-files{margin-top:8px}
+.studio .studio-output-files summary{margin-top:8px}
+.studio .studio-instance-meta{margin-left:auto}
+/* 二期 A1：单轮结构消息块（输入/输出）；A4：详情弹窗分区与命中高亮 */
+.studio .studio-message{border:1px solid var(--line);border-radius:10px;padding:10px 13px}
+.studio .studio-message-body{margin:4px 0 0;color:var(--secondary);line-height:1.7;overflow-wrap:anywhere}
+.studio .studio-turn{position:relative;padding-left:30px;min-width:0}
+.studio .studio-turn:before{content:"";position:absolute;left:8px;top:14px;bottom:0;width:1px;background:var(--border)}
+.studio .studio-turn-head{position:relative;display:flex;align-items:center;flex-wrap:wrap;gap:10px;min-height:30px;margin-bottom:10px}
+.studio .studio-turn-head:before{content:"";position:absolute;left:-29px;top:7px;width:15px;height:15px;border:2px solid var(--accent);border-radius:50%;background:var(--surface);box-sizing:border-box}
+.studio .studio-turn-head h3{font-weight:650;font-size:14px}
+.studio .studio-turn-time{margin-left:auto;font-size:12px;color:var(--muted)}
+.studio .studio-turn-body{display:grid;gap:14px;min-width:0}
+.studio .studio-turn-body>.studio-message:first-child{background:var(--soft)}
+.studio .studio-detail-section h3{font-size:13px;font-weight:600;margin:0}
+.studio .studio-detail-body{margin:6px 0 0;padding:10px 12px;background:var(--soft);border-radius:8px;font:12px/1.7 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto}
+.studio .studio-detail-body .hit{background:var(--warn-bg);color:var(--warn);border-radius:3px}
 .studio .studio-terminal-shell{background:var(--terminal);color:var(--term-text);border-radius:9px;overflow:hidden}
 .studio .studio-terminal-head{min-height:36px;padding:3px 12px;border-bottom:1px solid #ffffff14;font-size:12px}
 .studio .studio-terminal-tools{padding:7px 14px;border-bottom:1px solid #ffffff14;font-size:12px;gap:10px}
 .studio .studio-terminal-tools input{background:#ffffff08;color:var(--term-text);border:1px solid #ffffff25;border-radius:5px;min-width:0;width:210px;padding:2px 8px;font:12px/18px var(--mono)}
 .studio .studio-terminal-tools input::placeholder{color:#a6bbc5}
 .studio .studio-terminal-tools button{color:#c5d8e2;white-space:nowrap}
-.studio .studio-terminal{font:13px/1.9 var(--mono);max-height:min(56vh,560px);min-height:180px;overflow:auto;padding:13px 16px;white-space:pre}
+.studio .studio-terminal{font:13px/1.9 var(--mono);min-height:0;overflow-x:auto;padding:13px 16px;white-space:pre}
+.studio .studio-terminal-shell.focused{display:flex;flex-direction:column}
+.studio .studio-terminal-shell.focused:not(.browsing){height:auto}
+.studio .studio-terminal-shell.focused.browsing{height:min(64dvh,640px)}
+.studio .studio-terminal-shell:not(.browsing) .studio-terminal>div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.studio .studio-terminal-shell.focused .studio-terminal{min-height:0;flex:1;overflow:auto}
+.studio .studio-terminal-shell.focused .studio-terminal-head,.studio .studio-terminal-shell.focused .studio-terminal-tools,.studio .studio-terminal-shell.focused .studio-terminal-foot{flex-shrink:0}
 .studio .studio-terminal.wrapped{white-space:pre-wrap;overflow-wrap:anywhere}
 .studio .studio-terminal summary{font:inherit;color:inherit;white-space:inherit}
 .studio .studio-terminal pre{font:inherit;white-space:inherit;padding-left:16px;margin:0 0 7px}
@@ -288,6 +369,11 @@ window.__ModuleLoader__.load({
 .studio .studio-report{padding:20px 26px;display:grid;gap:24px}
 .studio .studio-report-split{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(240px,1fr);gap:24px;align-items:start}
 .studio .studio-check{padding:14px 0;border-bottom:1px solid var(--line)}
+/* 二期 B：P2 候选文件卡片——文件、职责、置信度与证据相邻呈现（替代通用 kv 表标签与值分离） */
+.studio .studio-candidate{border:1px solid var(--line);border-radius:7px;padding:10px 13px}
+.studio .studio-candidate-head{gap:9px}
+.studio .studio-candidate-head strong{font-size:13px;font-weight:600;overflow-wrap:anywhere}
+.studio .studio-candidate-evidence{margin:6px 0 0;font-size:13px;color:var(--secondary);line-height:1.7;overflow-wrap:anywhere}
 .studio .studio-check p{margin:5px 0;font-size:13px;color:var(--secondary)}
 .studio .studio-diff{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-top:14px}
 .studio .studio-diff-head{padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--line);font-size:13px}
@@ -299,6 +385,7 @@ window.__ModuleLoader__.load({
 .studio .studio-diff-line small{display:inline-block;width:48px;flex:none;color:var(--muted);text-align:right;padding-right:15px;user-select:none}
 .studio .studio-delivery-prose{max-width:760px}
 .studio .studio-files{display:grid;grid-template-columns:300px minmax(0,1fr);height:100%;min-height:0;overflow:hidden}
+.studio .studio-dialog .studio-files{height:min(70dvh,620px)}
 .studio .studio-tree{padding:16px;border-right:1px solid var(--line);background:var(--bg);display:flex;flex-direction:column;min-height:0}
 .studio .studio-tree>.f-input{flex:none;margin-top:10px;min-height:34px;padding:5px 10px;font-size:13px}
 .studio .tree{min-height:0;flex:1;overflow:auto;margin-top:10px}
@@ -360,7 +447,16 @@ window.__ModuleLoader__.load({
  .studio .studio-stage:nth-child(6):before{display:none}
  .studio .studio-project-filter{width:100%}
  .studio .studio-project-filter .f-select{width:auto;flex:1}
- .studio .studio-progress{display:none}
+ .studio .studio-task-head{padding:14px 18px}
+ .studio .studio-task-title h1{font-size:18px;line-height:26px}
+ .studio .studio-topology{padding:0 18px}
+ .studio .studio-stage-bar{padding:10px 18px 0}
+ .studio .studio-process{padding:16px 18px}
+ .studio .studio-stage-tabs{flex-wrap:wrap;gap:0}
+ .studio .studio-stage-tabs .studio-execution-tabs{flex:1;overflow-x:auto}
+ .studio .studio-turn{padding-left:24px}
+ .studio .studio-turn-head:before{left:-23px}
+ .studio .studio-events-head,.studio .studio-event-row{grid-template-columns:64px 70px 84px minmax(0,1fr);gap:8px;padding:0 8px}
  .studio .studio-files{grid-template-columns:250px minmax(0,1fr)}
 }
 
@@ -869,7 +965,7 @@ window.__ModuleLoader__.load({
 		}
 		function StudioDialog({ title, onClose, children, wide = false }) {
 			const ref = React.useRef(null);
-			React.useEffect(() => {
+			React.useLayoutEffect(() => {
 				const previous = document.activeElement, dialog = ref.current;
 				dialog.showModal();
 				return () => { dialog.close(); if (previous?.isConnected) previous.focus(); };
@@ -879,11 +975,11 @@ window.__ModuleLoader__.load({
 				h("div", { className: "studio-row studio-dialog-head" }, h("h2", { className: "studio-grow" }, title),
 					studioButton("关闭", onClose, "ghost sm")), h("div", { className: "studio-dialog-body" }, children));
 		}
-		function useRunArtifact(slug, runId, path, tree, mode = "") {
+		function useRunArtifact(slug, runId, path, tree, mode = "", identity = "") {
 			const file = (tree || []).find(entry => entry.path === path);
 			const param = mode === "tail" ? "&tail=1" : mode === "full" ? "&full=1" : "";
 			return useResource(slug && runId && path && file
-				? [slug, runId, path, file.mtimeMs, file.size, mode].join("|") : null,
+				? [slug, runId, path, file.mtimeMs, file.size, mode, identity].join("|") : null,
 				async signal => (await readOk("/projects/" + slug + "/runs/" + runId
 					+ "/artifact?path=" + encodeURIComponent(path) + param, signal)).text);
 		}
@@ -906,7 +1002,7 @@ window.__ModuleLoader__.load({
 		function ArtifactContent({ text, path, raw = false, numbered: wantNumbers = false }) {
 			if (text == null) return h("p", { className: "hint" }, "读取中…");
 			if (!text) return h("p", { className: "hint" }, "空文件");
-			return !raw && /\.md$/i.test(path) ? h("div", { className: "md-view" }, h(MarkdownText, { text }))
+			return !raw && /\.md$/i.test(path) ? h("div", { className: "md-view" }, h(MarkdownText, { text, labels: MARKDOWN_LABELS }))
 				: h("pre", { className: "view", tabIndex: 0,
 					// raw=用户显式「查看源文件」保真无行号；分页切片（wantNumbers）注入行号便于段内定位
 					dangerouslySetInnerHTML: { __html: raw ? (wantNumbers ? numbered(esc(text)) : esc(text)) : renderView(text, path) } });
@@ -921,13 +1017,15 @@ window.__ModuleLoader__.load({
 			if (/^(trace\/|reviews\/|run\.json$)/.test(path)) return { stage: "task", label: "任务级记录" };
 			const delegated = path.match(/^delegate\/(P\d+)(?:-|\/)/);
 			const stage = STAGES.find(item => item.id === delegated?.[1])?.id || STAGES.find(item => path === item.art || (item.art.endsWith("/") && path.startsWith(item.art)))?.id
-				|| (path === "08-test-output.txt" ? "P8" : path === "11-eval-report.json" ? "P11" : null)
+				|| (["08-test-output.txt", "08-test-activity.json"].includes(path) ? "P8" : path === "11-eval-report.json" ? "P11" : null)
 				|| STAGES.find(item => run?.stages?.[item.id]?.artifact === path)?.id;
 			const owners = instances.filter(item => item && executionPatchPath(item.patch) === path);
 			return { stage: stage || "other", label: stage ? stage + " " + STUDIO_STAGE_NAMES[stage] : "其他文件 · 归属未确认",
 				instance: owners.length === 1 && typeof owners[0].node === "string" ? owners[0].node : null };
 		}
 		function artifactLabel(path) {
+			if (/external-exec\.messages\.jsonl$/.test(path)) return "Agent 完整原始消息";
+			if (/external-exec\.events\.jsonl$/.test(path)) return "Agent 事件摘要与原始消息索引";
 			if (/events\.jsonl$/.test(path)) return "全过程事件";
 			if (/spans\.jsonl$/.test(path)) return "阶段耗时记录";
 			if (/^reviews\//.test(path)) return "人工复核记录";
@@ -937,6 +1035,7 @@ window.__ModuleLoader__.load({
 			if (/coder-report\.json$/.test(path)) return "实例结果汇总";
 			if (/test-report\.json$/.test(path)) return "任务测试结论";
 			if (/test-output\.txt$/.test(path)) return "测试命令输出";
+			if (path === "08-test-activity.json") return "测试执行状态";
 			if (/review-report\.json$/.test(path)) return "任务审查结论";
 			if (/eval-report\.json$/.test(path)) return "交付评测";
 			return /\.md$/.test(path) ? "Markdown 文档" : /\.jsonl?$/.test(path) ? "结构化记录" : "文本文件";
@@ -976,12 +1075,12 @@ window.__ModuleLoader__.load({
 			const memoryKey = "i2p.file." + p.slug + "." + p.runId;
 			const [selected, setSelected] = React.useState(() => p.initialPath || readPreference(memoryKey, ""));
 			const [search, setSearch] = React.useState("");
-			const [raw, setRaw] = React.useState(false);
+			const [raw, setRaw] = React.useState(!!p.initialRaw);
 			const [page, setPage] = React.useState(0);
 			const [collapsed, setCollapsed] = usePreference(memoryKey + ".collapsed", {});
 			const reader = React.useRef(null), treeRef = React.useRef(null);
 			const files = p.tree || [];
-			const path = files.some(file => file.path === selected) ? selected : files[0]?.path || "";
+			const path = files.some(file => file.path === selected) || (p.initialPath && selected === p.initialPath) ? selected : files[0]?.path || "";
 			const file = files.find(item => item.path === path), owner = artifactOwner(path, p.run, p.instances);
 			// N1：超过服务端 200KB 整读上限的文件自动降级尾部读取，预览不再 400 空白
 			const content = useRunArtifact(p.slug, p.runId, path, p.tree, file?.size > 200 * 1024 ? "tail" : "");
@@ -1030,7 +1129,7 @@ window.__ModuleLoader__.load({
 				h("section", { className: "studio-file-content" },
 					h("div", { className: "studio-file-head" }, h("div", { className: "studio-row wrap" },
 						h("h3", { className: "studio-grow studio-path" }, path.split("/").at(-1) || "文件预览"),
-						p.onReturn ? studioButton("返回现场", p.onReturn, "ghost sm") : null,
+						p.onReturn ? studioButton(p.returnLabel || "返回现场", p.onReturn, "ghost sm") : null,
 						studioButton("复制", () => copyStudio(content.value, p.toast), "ghost sm", content.value == null),
 						studioButton(partial ? "下载已读内容" : "下载", () => downloadStudio(path, content.value), "ghost sm", content.value == null),
 						studioButton("打开目录", async () => { try {
@@ -1039,15 +1138,22 @@ window.__ModuleLoader__.load({
 						h("div", { className: "hint studio-path" }, (p.project?.name || p.slug) + " · " + owner.label + (owner.instance ? " · " + owner.instance : "") + " · 当前存储文件"),
 						h("div", { className: "mono hint studio-path" }, path),
 						h("div", { className: "studio-row" }, h("span", { className: "hint studio-grow" }, fmtSize(file?.size) + (content.value != null ? " · " + (partial ? "尾部 " : "") + content.value.split("\n").length + " 行" : "")),
-						studioButton(raw ? "查看排版" : "查看源文件", () => setRaw(!raw), "ghost sm")),
+						h("nav", { className: "studio-segmented", "aria-label": "文件显示方式" }, [[false, "排版"], [true, "原文"]].map(([value, label]) =>
+							h("button", { key: label, type: "button", className: raw === value ? "on" : "", "aria-pressed": raw === value, onClick: () => setRaw(value) }, label)))),
 					owner.stage !== "task" && owner.stage !== "other" ? h("p", { className: "hint" }, evidenceState(p.run, owner.stage, file)) : null,
 						partial ? h("p", { className: "callout warn" }, "文件超过预览上限，仅显示尾部最近内容；复制/下载为该部分，完整内容请打开目录查看原文件。") : null,
 					h(ResourceNotice, { resource: content }), pages > 1 ? h("div", { className: "studio-row" }, studioButton("上一段", () => setPage(safePage - 1), "sm", safePage === 0),
 						h("span", { className: "hint" }, (safePage + 1) + " / " + pages), studioButton("下一段", () => setPage(safePage + 1), "sm", safePage + 1 === pages)) : null),
 					h("div", { className: "studio-file-reader", ref: reader, onScroll: e => writePreference(memoryKey + ".scroll." + path, e.currentTarget.scrollTop) },
-						path ? !raw && /\.(diff|patch)$/i.test(path) ? h(DiffContent, { text: content.value?.slice(safePage * 60000, (safePage + 1) * 60000), path })
+						path && !file ? h(EmptyState, { title: "文件当前不存在" }, h("p", null, "此文件尚未生成或已移除，可从左侧选择其他产物。")) : path ? !raw && /\.(diff|patch)$/i.test(path) ? h(DiffContent, { text: content.value?.slice(safePage * 60000, (safePage + 1) * 60000), path })
 							: h(ArtifactContent, { text: content.value == null ? null : content.value.slice(safePage * 60000, (safePage + 1) * 60000), path, raw: raw || pages > 1, numbered: pages > 1 && !raw })
 							: h(EmptyState, { title: "暂未生成文件" }))));
+		}
+
+		// 所有产物入口共用同一弹窗与阅读器；来自详情/专注日志时替换该弹窗并保留返回入口。
+		function ArtifactsDialog(p) {
+			return h(StudioDialog, { title: "全部产物 · " + (p.tree || []).length + " 个文件", wide: true, onClose: p.onClose },
+				h(ArtifactsPanel, p));
 		}
 
 		const STUDIO_STAGE_NAMES = {
@@ -1062,6 +1168,7 @@ window.__ModuleLoader__.load({
 			if (!state?.startedAt || !Number.isFinite(file.mtimeMs)
 				|| file.mtimeMs < Date.parse(state.startedAt)) return "本轮有效性未确认";
 			if (!["approved", "completed"].includes(state.status)) return "尚未通过本轮复核";
+			if (stage === "P11") return "本轮评测已执行，验收结论以评测报告为准";
 			return "本轮阶段已通过";
 		}
 		function gateLabel(value) { return value === "pass" ? "通过" : value === "fail" ? "未通过" : value == null ? "未记录" : "格式异常"; }
@@ -1074,11 +1181,51 @@ window.__ModuleLoader__.load({
 			const fail = keys.filter(key => report[key] === "fail").length;
 			return pass || fail ? { pass, fail, total: keys.length } : null;
 		}
+		// 流程执行状态不能代替验收结论；历史 completed 记录也必须核对实际评测文件。
+		function deliveryEvaluation(resource, run, tree, description) {
+			const file = (tree || []).find(item => item.path === "11-eval-report.json");
+			if (resource?.error) return { state: "unknown", message: "验收结论未能确认：评测报告读取失败" };
+			if (resource?.value == null) return file
+				? { state: "loading", message: "正在读取验收结论…" }
+				: { state: "unknown", message: "验收结论未能确认：评测报告尚未生成" };
+			const report = parseJson(resource.value), keys = ["ROOT", "PATCH", "TEST", "DIFF", "DESC", "ACCEPT"];
+			if (!report || typeof report !== "object" || Array.isArray(report)
+				|| !keys.every(key => ["pass", "fail"].includes(report[key]) || (report.schemaVersion === 2 && report[key] === null)))
+				return { state: "unknown", message: "验收结论未能确认：评测报告格式异常或门禁记录不完整" };
+			const startedAt = Date.parse(run?.stages?.P11?.startedAt);
+			if (Number.isFinite(file?.mtimeMs) && Number.isFinite(startedAt) && file.mtimeMs < startedAt)
+				return { state: "unknown", message: "验收结论未能确认：当前文件早于本轮评测，请重新评测" };
+			if (keys.some(key => report[key] === "fail")) return { state: "fail", report };
+			if (!keys.every(key => report[key] === "pass")) return { state: "unknown", message: "验收结论未能确认：仍有门禁未评测", report };
+			if (description?.error) return { state: "unknown", message: "验收结论未能确认：交付说明读取失败" };
+			if (description?.value == null) return (tree || []).some(item => item.path === "10-pr-description.md")
+				? { state: "loading", message: "正在读取交付说明…" }
+				: { state: "unknown", message: "验收结论未能确认：交付说明尚未生成" };
+			if (!String(description.value).trim()) return { state: "unknown", message: "验收结论未能确认：交付说明为空" };
+			return { state: "pass", report };
+		}
+		function p11DisplayStatus(run, evaluation) {
+			const status = run?.stages?.P11?.status || "pending";
+			if (["pending", "running", "stopped"].includes(status)) return status;
+			if (evaluation.state === "fail") return "acceptance_failed";
+			if (status === "failed") return status;
+			if (evaluation.state === "loading") return "acceptance_loading";
+			if (evaluation.state !== "pass") return "acceptance_pending";
+			return ["approved", "completed"].includes(status) ? "acceptance_passed" : status;
+		}
+		function taskDisplayStatus(run, evaluation) {
+			if (run.status !== "completed") return run.status;
+			const status = p11DisplayStatus(run, evaluation);
+			return status.startsWith("acceptance_") ? status : "acceptance_pending";
+		}
+		function gateReasons(report, name) {
+			return Array.isArray(report?.reasons?.[name]) ? report.reasons[name].filter(line => typeof line === "string" && line.trim()) : [];
+		}
 		// 二期 S1：门禁值分色——未通过必须红章可一眼识别，通过绿章，其余保持灰提示。
-		function gateValue(value) {
+		function gateValue(value, unassessed = false) {
 			return value === "pass" ? h("span", { className: "tg t-good" }, Ic("check", 11), "通过")
 				: value === "fail" ? h("span", { className: "tg t-err" }, Ic("x", 11), "未通过")
-				: h("span", { className: "hint" }, gateLabel(value));
+				: h("span", { className: "hint" }, unassessed ? "未评测" : gateLabel(value));
 		}
 		function reportSummary(stage, raw) {
 			if (raw == null) return "正在读取结果…";
@@ -1109,16 +1256,36 @@ window.__ModuleLoader__.load({
 				studioButton("查看证据", () => onFile(path), "sm", !file));
 		}
 		// P11 节点子页签：交付（P11 自身产物）与全流程汇总（跨阶段，明确标注归属）分开呈现。
-		function DeliveryPanel({ run, tree, description, evaluation, toast }) {
+		const GATE_NAMES = { ROOT: "根因证据", PATCH: "补丁应用", TEST: "回归测试", DIFF: "变更审查", DESC: "说明忠实", ACCEPT: "验收门禁" };
+		// 二期 C2：失败门禁「查看证据」跳转映射——文件类直跳对应产物，ACCEPT 跨全流程只能看汇总
+		const GATE_EVIDENCE = { ROOT: "04-hypotheses.json", PATCH: "ledger/patch-ledger.jsonl", TEST: "07-test-report.json", DIFF: "08-review-report.json", DESC: "10-pr-description.md", ACCEPT: "summary" };
+		function DeliveryPanel({ run, tree, description, evaluation, toast, onFile, onSummary }) {
 			const stats = gateStats(evaluation);
+			const assessment = deliveryEvaluation(evaluation, run, tree, description);
+			const report = parseJson(evaluation.value);
+			// 二期 C3：PATCH 未通过时直显证据校验具体原因（报告已含 patchEvidence.errors 字符串数组）
+			const patchErrors = report?.PATCH === "fail" && !gateReasons(report, "PATCH").length && Array.isArray(report?.patchEvidence?.errors)
+				? report.patchEvidence.errors.filter(item => typeof item === "string" && item.trim()) : [];
+			// 二期 C1：存在未通过门禁时顶部警示条；流程未收尾（复核中）时不说「已结束」
+			const ended = ["completed", "failed", "stopped"].includes(run.status);
 			return h("div", { className: "studio-stack" },
+				assessment.state === "fail" ? h("div", { className: "callout err" }, h("strong", null, (ended ? "流程已结束，" : "") + "交付验收尚未通过 · " + stats.fail + " 项未通过"))
+					: assessment.message ? h("p", { className: "callout" }, assessment.message) : null,
 				h("div", { className: "studio-row wrap" }, h("h2", { className: "studio-grow" }, "交付与验收"), h("span", { className: "hint" }, "远程 PR 尚未创建"),
 					studioButton("复制说明", () => copyStudio(description.value, toast), "sm", description.value == null)),
-				h("div", { className: "studio-grid" }, ["ROOT", "PATCH", "TEST", "DIFF", "DESC", "ACCEPT"].map(name => h("div", { className: "studio-check studio-row", key: name }, h("span", { className: "studio-grow" }, ({ ROOT: "根因证据", PATCH: "补丁应用", TEST: "回归测试", DIFF: "变更审查", DESC: "说明忠实", ACCEPT: "验收门禁" })[name]), gateValue(parseJson(evaluation.value)?.[name])))),
+				h("div", { className: "studio-grid" }, Object.keys(GATE_NAMES).map(name => h("div", { className: "studio-check", key: name },
+					h("div", { className: "studio-row" }, h("span", { className: "studio-grow" }, GATE_NAMES[name]), gateValue(report?.[name], report?.schemaVersion === 2 && report[name] === null)),
+					report?.[name] === "fail" || (report?.schemaVersion === 2 && report[name] === null) ? h("div", { className: "studio-gate-reasons" }, gateReasons(report, name).length
+						? gateReasons(report, name).map((line, index) => h("p", { key: index, className: "studio-path" }, line))
+						: h("p", { className: "studio-path" }, report.reasons == null ? "旧报告未记录原因，需重新评测" : "报告未记录有效原因，需重新评测")) : null,
+					report?.[name] === "fail" ? h("div", { className: "studio-row" }, h("span", { className: "studio-grow" }),
+						GATE_EVIDENCE[name] === "summary" ? studioButton("查看汇总", () => onSummary?.(), "ghost sm")
+							: studioButton("查看证据 ↗", () => onFile(GATE_EVIDENCE[name]), "ghost sm", !tree.some(file => file.path === GATE_EVIDENCE[name]))) : null))),
+				patchErrors.length ? h("div", { className: "callout err" }, h("strong", null, "补丁应用证据校验未通过 · 原因"), patchErrors.map((line, i) => h("p", { key: i, className: "studio-path" }, line))) : null,
 				// 二期 S2：报告可解析时尾部给门禁汇总，替代无条件「本轮阶段已通过」的成功叙事
 				h("p", { className: "hint" }, stats ? stats.total + " 项门禁：" + stats.pass + " 通过 / " + stats.fail + " 未通过"
-					+ (stats.total - stats.pass - stats.fail > 0 ? " / " + (stats.total - stats.pass - stats.fail) + " 未记录" : "")
-					: evidenceState(run, "P11", tree.find(file => file.path === "11-eval-report.json"))), h(ResourceNotice, { resource: evaluation }), h(ResourceNotice, { resource: description }),
+					+ (stats.total - stats.pass - stats.fail > 0 ? " / " + (stats.total - stats.pass - stats.fail) + (report?.schemaVersion === 2 ? " 未评测 / 待确认" : " 未记录") : "")
+					: assessment.message), h(ResourceNotice, { resource: evaluation }), h(ResourceNotice, { resource: description }),
 				h("article", { className: "studio-delivery-prose" }, description.value != null ? h(ArtifactContent, { path: "10-pr-description.md", text: description.value }) : h(EmptyState, { title: "PR 说明尚未生成" })));
 		}
 		function DeliverySummaryPanel({ run, tree, slug, runId, onFile }) {
@@ -1140,6 +1307,23 @@ window.__ModuleLoader__.load({
 			return h("div", { className: "kv" }, Object.entries(value).slice(0, 40).map(([key, item]) => h(React.Fragment, { key },
 				h("span", { className: "k" }, names[key] || key), h("div", { className: "v" }, h(ReadableValue, { value: item, depth: depth + 1 })))));
 		}
+		// 二期 B：P2 检索结果按候选文件卡片呈现——文件、职责、置信度与证据相邻（02-search-candidates.json 契约字段）。
+		function SearchCandidatesCard({ parsed }) {
+			const rows = (Array.isArray(parsed?.candidates) ? parsed.candidates : []).filter(item => item && typeof item === "object");
+			const conf = value => ({ high: ["t-good", "高"], medium: ["t-warn", "中"], low: ["t-off", "低"] })[String(value ?? "").toLowerCase()] || ["t-off", "未标注"];
+			const list = (title, values) => Array.isArray(values) && values.length ? h("details", null,
+				h("summary", null, title + " · " + values.length),
+				h("div", { className: "studio-plan-tags" }, values.map((item, i) => h("span", { key: i, className: "studio-path" }, typeof item === "string" ? item : JSON.stringify(item))))) : null;
+			return h("div", { className: "studio-stack" },
+				h("p", { className: "hint" }, "候选 " + rows.length + " 个文件，按相关度排序；证据为检索阶段的选择理由，代码细节见后续阶段。"),
+				rows.map((row, i) => h("article", { className: "studio-candidate", key: i },
+					h("div", { className: "studio-row wrap studio-candidate-head" },
+						h("strong", { className: "mono studio-path" }, String(row.path || "—")),
+						row.role != null && String(row.role) ? h("span", { className: "hint" }, String(row.role)) : null,
+						h("span", { className: "tg " + conf(row.confidence)[0] }, conf(row.confidence)[1] + " 置信度")),
+					row.evidence != null && String(row.evidence) ? h("p", { className: "studio-candidate-evidence" }, h("span", { className: "hint" }, "证据 · "), String(row.evidence)) : null)),
+				list("测试候选文件", parsed?.test_candidates), list("待探索项", parsed?.uncertain));
+		}
 		function StageResult(p) {
 			const candidates = stageFiles(p.stage, p.tree, p.run).filter(file => !/\/task|task\.md$|\.log$|\.jsonl$/.test(file.path));
 			const file = candidates.find(file => file.path === p.run?.stages?.[p.stage]?.artifact) || candidates[0];
@@ -1148,7 +1332,7 @@ window.__ModuleLoader__.load({
 			const nodes = Array.isArray(parsed?.nodes) ? parsed.nodes.filter(node => node && typeof node === "object") : null;
 			const text = value => value == null ? "" : Array.isArray(value) ? value.map(text).join("、") : typeof value === "object" ? JSON.stringify(value) : String(value);
 			return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource }),
-				!file ? h(EmptyState, { title: "本阶段尚未生成结果" }, h("p", null, "执行结果生成后会显示在这里，过程事件可在下方查看。")) :
+				!file ? h(EmptyState, { title: "本阶段尚未生成结果" }, h("p", null, "执行结果生成后会显示在这里，平台执行记录可通过阶段标题旁的「阶段事件」查看。")) :
 				resource.value == null ? null : /\.md$/.test(file.path) ? h(ArtifactContent, { text: resource.value, path: file.path }) :
 				p.stage === "P5" && nodes ? h("div", null, h("p", { className: "hint" }, nodes.length + " 项任务，按依赖关系安排执行。"),
 					nodes.map((node, i) => h("article", { className: "studio-plan-item", key: String(node.id || i) },
@@ -1159,45 +1343,141 @@ window.__ModuleLoader__.load({
 								node.risk ? h("span", null, ({ low: "低风险", medium: "中风险", high: "高风险" })[node.risk] || text(node.risk)) : null),
 							node.input ? h("details", { className: "hint" }, h("summary", null, "输入依据"), h(ReadableValue, { value: node.input })) : null))),
 					parsed.review_gates || parsed.pr_gate ? h("div", { className: "callout acc" }, h(ReadableValue, { value: { ...(parsed.review_gates ? { "复核门": parsed.review_gates } : {}), ...(parsed.pr_gate ? { "PR 门": parsed.pr_gate } : {}) } })) : null) :
+				p.stage === "P2" && Array.isArray(parsed?.candidates) ? h(SearchCandidatesCard, { parsed }) :
 				parsed && typeof parsed === "object" ? h(ReadableValue, { value: parsed }) : h(ArtifactContent, { text: resource.value, path: file.path }),
 				file ? studioButton("查看结果文件", () => p.onFile(file.path), "ghost sm") : null);
 		}
-		function OutputPanel({ text = "", resource, full, onFull, label, memoryKey, filename, toast, onFile, partial = false }) {
-			const [search, setSearch] = React.useState("");
-			const [follow, setFollow] = usePreference(memoryKey + ".follow", true);
-			const [wrap, setWrap] = usePreference(memoryKey + ".wrap", true);
-			const [expanded, setExpanded] = React.useState(false);
-			const ref = React.useRef(null), expandButton = React.useRef(null), returnFocus = React.useRef(false);
-			React.useLayoutEffect(() => { if (!expanded && returnFocus.current) { expandButton.current?.focus(); returnFocus.current = false; } }, [expanded]);
-			const lines = String(text).split("\n"), query = search.toLowerCase();
-			const searchSource = query && full && full.value != null ? String(full.value) : null;
-			const searchLines = searchSource !== null ? searchSource.split("\n") : lines;
-			const filtered = query ? searchLines.filter(line => line.toLowerCase().includes(query)) : lines;
+		// 日志预览自动读尾部，搜索按需读取 full=1（服务端上限 5MB）。同一轮更新失败保留快照；切任务、重跑或删除文件时清空。
+		const LOG_PREVIEW_LINES = 5, LOG_PAGE_LINES = 50;
+		function useLogArtifact(slug, runId, path, tree, identity = "") {
+			const file = (tree || []).find(entry => entry.path === path), source = [slug, runId, path, identity].join("|");
+			const cache = React.useRef({ source: null, generation: 0 });
+			const previous = cache.current;
+			const reset = previous.source !== source || (!!previous.exists && !file)
+				|| (file && previous.exists && (file.size < previous.size || file.mtimeMs < previous.mtimeMs));
+			if (reset) cache.current = { source, generation: previous.generation + 1, value: null, full: null };
+			const snapshot = cache.current;
+			snapshot.exists = !!file; snapshot.size = file?.size; snapshot.mtimeMs = file?.mtimeMs;
+			const scope = source + "|" + snapshot.generation, partial = file?.size > 200 * 1024;
+			const [requested, setRequested] = React.useState(null), wantsFull = requested === scope && !!file && partial;
+			const preview = useRunArtifact(slug, runId, path, tree, partial ? "tail" : "", scope);
+			const complete = useRunArtifact(slug, runId, wantsFull ? path : null, tree, "full", scope);
+			if (file && preview.value != null) snapshot.value = preview.value;
+			if (file && wantsFull && complete.value != null) snapshot.full = complete.value;
+			const resource = { ...preview, value: file ? snapshot.value ?? null : null, loading: !!file && preview.value == null && !preview.error, scope, available: !!file };
+			const full = partial ? { ...complete, value: wantsFull ? snapshot.full ?? null : null,
+				loading: wantsFull && complete.value == null && !complete.error, stale: wantsFull && complete.value == null && snapshot.full != null } : resource;
+			return { resource, full, partial, onFull: () => { if (file && partial) setRequested(scope); } };
+		}
+		function stageLogText(value, stage) {
+			if (value == null || !stage) return value;
+			return parseLines(value).filter(event => event.stage === stage)
+				.map(event => [fmtClock(event.at), event.kind, event.name, event.detail].filter(Boolean).join("  ")).join("\n");
+		}
+		function RunLogPanel(p) {
+			const own = useLogArtifact(p.slug, p.runId, p.log ? null : p.path, p.tree, p.identity);
+			const log = p.log || own;
+			const display = value => { const text = stageLogText(value, p.stage); return text == null ? text : p.format ? p.format(text) : text; };
+			return h(OutputPanel, { ...p, text: display(log.resource.value) || "", resource: log.resource,
+				full: { ...log.full, value: display(log.full.value) }, onFull: log.onFull, partial: log.partial,
+				searchScope: p.stage ? "本阶段事件" : p.searchScope,
+				artifactProps: p.artifactProps ? { ...p.artifactProps, initialPath: p.path, initialRaw: true } : undefined });
+		}
+		function OutputPanel({ text = "", resource, full, onFull, label, memoryKey, filename, toast, onFile, partial = false, artifactProps, dialog = false, onClose, onInspect, searchScope = "日志全文", emptyText = "尚未记录输出" }) {
+			const [search, setSearch] = React.useState(""), [matchPage, setMatchPage] = React.useState(0);
+			const [follow, setFollow] = usePreference(memoryKey + ".follow", true), [wrap, setWrap] = usePreference(memoryKey + ".wrap", true);
+			const [expanded, setExpanded] = React.useState(false), [history, setHistory] = React.useState(false), [historyPage, setHistoryPage] = React.useState(null);
+			const [fileOpen, setFileOpen] = React.useState(false), [unseen, setUnseen] = React.useState(0), [readingVersion, setReadingVersion] = React.useState(0);
+			const ref = React.useRef(null), root = React.useRef(null), scroller = React.useRef(null);
+			const expandButton = React.useRef(null), returnFocus = React.useRef(false), workspaceTop = React.useRef(null), lastScroll = React.useRef(0);
+			const focused = dialog || expanded, query = search.trim().toLowerCase(), reading = history || !!query;
+			const scope = memoryKey + "|" + (resource?.scope || ""), linesOf = value => value ? String(value).replace(/\r?\n$/, "").split("\n") : [];
+			const lines = linesOf(text), preview = React.useRef({ scope, text, initialized: resource ? resource.value != null : true }), readingSnapshot = React.useRef({ key: null });
+			if (preview.current.scope !== scope) preview.current = { scope, text, initialized: resource ? resource.value != null : true };
+			if ((follow && !reading && !fileOpen) || (!preview.current.initialized && resource?.value != null && !reading && !fileOpen)) {
+				preview.current.text = text; if (text || resource?.value != null) preview.current.initialized = true;
+			}
+			const previewText = preview.current.text, previewLines = linesOf(previewText);
+			const readingKey = scope + "|" + readingVersion;
+			if (reading && readingSnapshot.current.key !== readingKey) readingSnapshot.current = { key: readingKey, value: full?.value ?? previewText,
+				complete: full?.value != null || (!partial && (!resource || resource.value != null)) };
+			// 全量首次返回时扩充历史快照；之后的新记录只累计提示，不能挤走正在阅读的历史页。
+			if (reading && !readingSnapshot.current.complete && full?.value != null) readingSnapshot.current = { key: readingKey, value: full.value, complete: true };
+			const readText = reading ? String(readingSnapshot.current.value || "") : previewText;
+			const readLines = linesOf(readText), filtered = query ? readLines.filter(line => line.toLowerCase().includes(query)) : readLines;
+			const pages = Math.max(1, Math.ceil(filtered.length / LOG_PAGE_LINES));
+			const page = Math.min(query ? matchPage : historyPage ?? pages - 1, pages - 1);
+			const visibleLines = reading ? filtered.slice(page * LOG_PAGE_LINES, (page + 1) * LOG_PAGE_LINES) : previewLines.slice(-LOG_PREVIEW_LINES);
 			const errorLine = /(error|failed|fatal|失败|✖|exit code [1-9]|exit [1-9]\b)/i;
-			const visibleLines = text ? (query ? filtered : lines.slice(-600)) : null;
-			React.useLayoutEffect(() => { if (!search && ref.current) ref.current.scrollTop = readPreference(memoryKey + ".scroll", 0); }, [memoryKey, expanded, !!search]);
-			React.useEffect(() => { if (follow && !search && ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [text, follow, search, expanded]);
-			React.useEffect(() => { if (query && onFull) onFull(); }, [!!query]);
-			const content = h("div", { className: "studio-terminal-shell" },
-				h("div", { className: "studio-terminal-head studio-row" }, h("span", { className: "studio-grow" }, label), h("button", { ref: expandButton, onClick: () => { returnFocus.current = true; setExpanded(!expanded); } }, expanded ? "还原" : "放大")),
-				h("div", { className: "studio-terminal-tools studio-row" },
-					h("input", { type: "search", value: search, placeholder: "搜索输出", "aria-label": "搜索日志", onChange: e => setSearch(e.target.value) }),
-					h("button", { onClick: () => setWrap(!wrap), "aria-pressed": wrap }, "换行"),
-					h("button", { onClick: () => setFollow(!follow) }, follow ? "暂停跟随" : "恢复跟随"),
-					h("button", { onClick: () => copyStudio(text, toast), disabled: !text }, "复制日志"),
-					h("button", { onClick: () => downloadStudio(filename, text), disabled: !text }, partial ? "下载已读内容" : "下载日志"),
-					search ? h("span", null, filtered.length + " 行匹配") : null),
-				h("div", { className: "studio-terminal" + (wrap ? " wrapped" : ""), ref, role: "log", tabIndex: 0, "aria-label": label,
-					onScroll: e => { const node = e.currentTarget; if (!search) { writePreference(memoryKey + ".scroll", node.scrollTop); if (node.scrollHeight - node.scrollTop - node.clientHeight > 40) setFollow(false); } } },
-					visibleLines ? visibleLines.map((line, i) => errorLine.test(line) ? h("div", { key: i, className: "bad" }, line) : h("div", { key: i }, line))
-							: query ? "没有匹配输出" : resource?.error ? "输出暂不可读取" : "尚未记录输出"),
-				h("div", { className: "studio-terminal-foot studio-row wrap" }, h("span", { className: "studio-grow" },
-					partial ? "文件超过预览上限，仅显示尾部最近内容；复制/下载为该部分"
-						: query ? (full && full.loading ? "正在加载全量日志…" : "匹配 " + filtered.length + " / 共 " + searchLines.length + " 行" + (searchSource !== null ? " · 全量" : ""))
-						: text ? "共 " + lines.length + " 行 · 显示最近 600 行" : "尚无输出；开始执行后这里会显示日志"),
-					onFile ? h("button", { onClick: onFile }, "查看源文件") : null));
-			return h(React.Fragment, null, resource ? h(ResourceNotice, { resource }) : null,
-				expanded ? h(StudioDialog, { title: label, wide: true, onClose: () => setExpanded(false) }, content) : content);
+			const observed = React.useRef({ scope, lines, ready: resource ? resource.value != null : true });
+			React.useEffect(() => { setUnseen(0); }, [scope]);
+			React.useLayoutEffect(() => {
+				if (fileOpen) return;
+				const node = focused ? ref.current : root.current?.closest?.(".studio-workspace"); scroller.current = node;
+				if (!node) return;
+				if (focused) node.scrollTop = readPreference(memoryKey + ".focus.scroll", 0);
+				else if (workspaceTop.current != null) { node.scrollTop = workspaceTop.current; workspaceTop.current = null; }
+				lastScroll.current = node.scrollTop;
+				const onScroll = () => { if (node.scrollTop < lastScroll.current - 2) setFollow(false); lastScroll.current = node.scrollTop;
+					if (focused) writePreference(memoryKey + ".focus.scroll", node.scrollTop); };
+				const onFocus = event => { if (!root.current?.contains?.(event.target)) setFollow(false); };
+				node.addEventListener?.("scroll", onScroll, { passive: true }); node.addEventListener?.("focusin", onFocus);
+				return () => { node.removeEventListener?.("scroll", onScroll); node.removeEventListener?.("focusin", onFocus); };
+			}, [focused, fileOpen, memoryKey]);
+			React.useEffect(() => {
+				const ready = observed.current.scope === scope && observed.current.ready, before = observed.current.scope === scope ? observed.current.lines : [];
+				observed.current = { scope, lines, ready: resource ? resource.value != null : true };
+				const prefix = before.length <= lines.length && before.every((line, i) => line === lines[i]);
+				const last = before.length ? lines.lastIndexOf(before.at(-1)) : -1, added = prefix ? lines.length - before.length : last >= 0 ? lines.length - last - 1 : 0;
+				if (ready && (!follow || reading || fileOpen)) setUnseen(value => value + Math.max(0, added));
+				else if (follow && !reading && !fileOpen) setUnseen(0);
+			}, [text, scope]);
+			// 普通五行窗口不滚动整个工作区；只有历史页切换调整弹窗内的滚动位置。
+			React.useLayoutEffect(() => {
+				if (focused && reading && !fileOpen && ref.current) ref.current.scrollTop = !query && historyPage == null ? ref.current.scrollHeight : 0;
+			}, [focused, reading, page, query, readingSnapshot.current.complete]);
+			React.useLayoutEffect(() => { if (!focused && returnFocus.current) { expandButton.current?.focus?.(); returnFocus.current = false; } }, [focused]);
+			React.useEffect(() => { if (reading) onFull?.(); }, [reading, scope, resource?.available, partial]);
+			const pause = () => { preview.current.initialized = true; setFollow(false); };
+			const resume = () => { preview.current = { scope, text, initialized: true }; setSearch(""); setMatchPage(0); setHistory(false); setHistoryPage(null); setFollow(true); setUnseen(0); };
+			const inspectHistory = () => { onInspect?.(); pause(); setSearch(""); setMatchPage(0); setHistory(true); setHistoryPage(null); setReadingVersion(value => value + 1); };
+			const openSource = () => { setFollow(false); if (focused && artifactProps) setFileOpen(true); else onFile?.(); };
+			const readPartial = partial && (!reading || !readingSnapshot.current.complete), copyValue = readText;
+			const range = !readPartial ? "全量" : "已读内容", status = reading
+				? (query ? "匹配 " + filtered.length + " / 共 " + readLines.length + " 行" : "历史记录 · 共 " + readLines.length + " 行") + " · " + range + " · " + searchScope
+					+ (filtered.length ? " · 显示第 " + (page * LOG_PAGE_LINES + 1) + "–" + Math.min((page + 1) * LOG_PAGE_LINES, filtered.length) + (query ? " 条匹配" : " 行") : "")
+					+ (full?.loading ? " · 正在加载全量日志…" : full?.error ? " · 全量读取失败" : "")
+					: previewText ? "共 " + previewLines.length + " 行 · 显示最近 " + Math.min(LOG_PREVIEW_LINES, previewLines.length) + " 行" + (partial ? " · 仅尾部最近内容" : "") : emptyText === "尚未记录输出" ? "尚无输出；开始执行后这里会显示日志" : emptyText;
+			const content = h("div", { className: "studio-terminal-shell" + (focused ? " focused" : "") + (reading ? " browsing" : ""), ref: root },
+				h("div", { className: "studio-terminal-head studio-row" }, h("span", { className: "studio-grow" }, label), !focused ? h("button", { ref: expandButton,
+					onClick: () => { workspaceTop.current = scroller.current?.scrollTop ?? null; returnFocus.current = true; setExpanded(true); inspectHistory(); } }, "专注查看") : null,
+					focused && !history ? h("button", { onClick: inspectHistory }, "查看历史") : null,
+					reading ? h("button", { onClick: resume }, "最近 " + LOG_PREVIEW_LINES + " 行") : null),
+				resource ? h(ResourceNotice, { resource }) : null,
+				reading && full?.error ? h(ResourceNotice, { resource: { ...full, reload: full.reload || onFull } }) : null,
+				h("div", { className: "studio-terminal-tools studio-row wrap" },
+					h("input", { type: "search", value: search, placeholder: "搜索" + searchScope, "aria-label": "搜索日志", onChange: e => {
+						if (!reading && e.target.value.trim()) { setReadingVersion(value => value + 1); onInspect?.(); }
+						setFollow(false); setSearch(e.target.value); setMatchPage(0);
+					} }),
+					reading ? h("button", { onClick: () => setWrap(!wrap), "aria-pressed": wrap }, "换行") : null,
+					h("button", { onClick: () => follow && !reading ? pause() : resume() }, follow && !reading ? "暂停跟随" : "跟随最新"),
+					h("button", { onClick: () => copyStudio(copyValue, toast), disabled: !copyValue }, readPartial ? "复制已读内容" : "复制日志"),
+					h("button", { onClick: () => downloadStudio(filename, copyValue), disabled: !copyValue }, readPartial ? "下载已读内容" : "下载日志"),
+					reading && pages > 1 ? h(React.Fragment, null,
+						h("button", { onClick: () => query ? setMatchPage(page - 1) : setHistoryPage(page - 1), disabled: page === 0 }, query ? "上一页匹配" : "上一页"),
+						h("span", null, page + 1 + " / " + pages),
+						h("button", { onClick: () => query ? setMatchPage(page + 1) : setHistoryPage(page + 1), disabled: page + 1 === pages }, query ? "下一页匹配" : "下一页")) : null),
+				h("div", { className: "studio-terminal" + (wrap ? " wrapped" : ""), ref, role: "log", tabIndex: focused ? 0 : undefined, "aria-label": label,
+					onScroll: e => { const node = e.currentTarget; if (focused) { writePreference(memoryKey + ".focus.scroll", node.scrollTop); if (node.scrollHeight - node.scrollTop - node.clientHeight > 40) setFollow(false); } } },
+					visibleLines.length ? visibleLines.map((line, i) => h("div", { key: i, className: errorLine.test(line) ? "bad" : undefined, title: reading ? undefined : line }, line))
+						: query ? "没有匹配输出" : resource?.error ? "输出暂不可读取" : emptyText),
+				h("div", { className: "studio-terminal-foot studio-row wrap" }, h("span", { className: "studio-grow" }, status,
+					copyValue ? h("span", null, " · 复制/下载：" + (readPartial ? "已读片段" : "全量内容") + "（不受五行预览、搜索或分页影响）") : null),
+					unseen > 0 ? h("button", { onClick: resume }, "有 " + unseen + " 条新记录") : null,
+					onFile || artifactProps ? h("button", { onClick: openSource }, "打开源文件") : null));
+			if (fileOpen && artifactProps) return h(ArtifactsDialog, { ...artifactProps, onClose: () => setFileOpen(false), onReturn: () => setFileOpen(false), returnLabel: "返回日志" });
+			return focused ? h(StudioDialog, { title: label, wide: true, onClose: () => { if (dialog) onClose?.(); else { setExpanded(false); setHistory(false); } } }, content) : content;
 		}
 		function executionItems(run, report) {
 			const tasks = Array.isArray(report?.tasks) ? report.tasks : Array.isArray(report?.patches) ? report.patches.map(item => ({ ...item, status: "patched" })) : [];
@@ -1223,37 +1503,324 @@ window.__ModuleLoader__.load({
 				} catch { return line; }
 			}).filter((line) => line !== null).join("\n");
 		}
+		// 二期 E2：时间线新格式 `YYYY-MM-DD HH:MM:SS|kind|text`（旧格式无日期前缀）；展示剥离日期只显时分秒
+		function timelineStripDate(line) { return String(line).replace(/^\d{4}-\d{2}-\d{2}[ T]/, ""); }
+		// 展示行保留规则：滤掉写入门禁/环境探测类 raw 遥测行（新旧时间格式一并匹配）
+		function timelineKeep(line) { const t = String(line).trim(); return !!t && !/^(?:\d{4}-\d{2}-\d{2}[ T])?(?:\d{2}:\d{2}:\d{2}\|)?raw\|(=== |bin=|permission=|auth=|--- )/.test(t); }
+		// 二期 A2：时间线行 → 事件对象（入参为已剥离日期的 `HH:MM:SS|kind|内容`）。
+		// 名称只取真实值：tool 行首 token 是工具名；其余 kind 无名称字段显示 —，不造中文动作名。
+		function parseTimelineEvent(line) {
+			const m = /^(\d{2}:\d{2}:\d{2})\|([^|]+)\|([\s\S]*)$/.exec(String(line ?? "").trim());
+			if (!m) return null;
+			let name = "—", content = m[3];
+			if (m[2] === "tool") {
+				const head = content.split(/\s+/)[0];
+				if (head) { name = head; content = content.slice(head.length).trim(); }
+			}
+			return { time: m[1], kind: m[2], name, content };
+		}
+		function agentTimelinePairs(text, structured = false) {
+			if (text == null) return null;
+			return String(text).split("\n").flatMap(raw => {
+				if (!structured) return timelineKeep(raw) ? [[raw, timelineStripDate(raw)]] : [];
+				const record = parseJson(raw);
+				return record?.id && typeof record.kind === "string" && typeof record.text === "string"
+					? [[raw, fmtClock(record.at) + "|" + record.kind + "|" + record.text]] : [];
+			});
+		}
+		// ReadableValue 面向报告摘要；原始消息使用不改字段名、不裁剪条目的独立 JSON 查看器。
+		function AgentJsonNode({ value, label, depth = 0 }) {
+			const [open, setOpen] = React.useState(depth === 0);
+			const prefix = label == null ? "" : JSON.stringify(label) + ": ";
+			if (value === null || typeof value !== "object") return h("div", null, prefix + JSON.stringify(value));
+			const entries = Object.entries(value), array = Array.isArray(value);
+			return h("details", { open, onToggle: e => { if (open !== e.currentTarget.open) setOpen(e.currentTarget.open); } },
+				h("summary", null, prefix + (array ? "[" : "{") + " " + entries.length + " 项" + (open ? "" : array ? " ]" : " }")),
+				open ? h("div", { style: { paddingLeft: "18px" } }, entries.map(([key, item]) => h(AgentJsonNode, { key, label: key, value: item, depth: depth + 1 }))) : null,
+				open ? h("div", null, array ? "]" : "}") : null);
+		}
+		function agentMessageSections(message, record) {
+			const sections = [], add = (label, value) => {
+				if (value != null) sections.push({ label, content: typeof value === "string" ? value : JSON.stringify(value, null, 2) });
+			};
+			const body = message?.type === "assistant/message" ? message.data?.message : message?.message;
+			if (Array.isArray(body?.content)) {
+				body.content.forEach((block, i) => {
+					if (record?.blockIndex != null && record.blockIndex !== i) return;
+					if (block.type === "thinking" || block.type === "reasoning") add("Agent 返回的思考文本", block.thinking ?? block.text);
+					else if (block.type === "text") add("正文", block.text);
+					else if (block.type === "tool_use") add("工具参数 · " + (block.name || "工具"), block.input);
+					else if (block.type === "tool-call") add("工具参数 · " + (block.name || "工具"), block.arguments);
+					else if (block.type === "tool_result" || block.type === "tool-result") add("工具结果", block.content);
+					else add("消息内容", block);
+				});
+			} else if (message?.type === "tool/call") add("工具参数 · " + (message.data?.name || "工具"), message.data?.arguments ?? message.data?.input);
+			else if (message?.type === "tool/result") {
+				const blocks = message.data?.message?.content;
+				if (Array.isArray(blocks)) blocks.forEach((block, i) => { if (record?.blockIndex == null || record.blockIndex === i) add("工具结果", block.content ?? block); });
+				else add("工具结果", message.data?.result ?? message.data?.content ?? message.data);
+			}
+			else if (message?.type === "result") add("最终回复", message.result ?? message.resultText);
+			if (!sections.length) add("消息内容", message);
+			return sections;
+		}
+		// 二期 A2：内容预览 ≤max 码点（默认 120，含省略号），压缩空白换行；完整内容走悬停 title 与行内展开/详情
+		function previewClamp(text, max = 120) {
+			const flat = String(text ?? "").replace(/\s+/g, " ").trim();
+			const chars = [...flat];
+			return chars.length <= max ? flat : chars.slice(0, max - 1).join("") + "…";
+		}
+		function taskInputSummary(text) {
+			const goal = /^#{1,6}\s+(?:目标|任务目标|Goal|Objective)\s*[:：]?\s*\r?\n([\s\S]*?)(?=^#{1,6}\s|$(?![\s\S]))/im.exec(String(text || ""));
+			// 当前 P6 任务包使用 TaskGraph；只取实际节点标题，不概括或编造目标。
+			const block = /^#{1,6}\s+TaskGraph\s*\r?\n\s*```json\s*\r?\n([\s\S]*?)\r?\n```/im.exec(String(text || ""));
+			const graph = parseJson(block?.[1]), titles = Array.isArray(graph?.nodes)
+				? graph.nodes.map(node => node?.title).filter(title => typeof title === "string" && title.trim()).join("；") : "";
+			return previewClamp(goal?.[1]?.trim() || titles || text, 160);
+		}
+
+		// 按事件 ID 读取经校验的真实消息；旧时间线只能在唯一匹配原始帧时恢复。
+		function EventDetailDialog({ event, sourcePath, slug, runId, tree, toast, onClose, artifactProps }) {
+			const [mode, setMode] = React.useState("detail"), [selected, setSelected] = React.useState(0);
+			const [query, setQuery] = React.useState(""), [match, setMatch] = React.useState(0);
+			const [file, setFile] = React.useState(null), hitRef = React.useRef(null);
+			const record = event.record, platform = record?.origin === "platform";
+			const lookup = record?.id ? "id=" + encodeURIComponent(record.id) : "legacyLine=" + encodeURIComponent(event.raw || "");
+			const identity = slug && runId && !platform && (record?.id || event.raw) ? slug + "/" + runId + "/" + lookup : "";
+			const version = (tree || []).filter(f => /external-exec\.(?:events\.jsonl|messages\.jsonl|log)$/.test(f.path)).map(f => [f.path, f.size, f.mtimeMs].join(":")).join("|");
+			const resource = useResource(identity, signal => readOk("/projects/" + encodeURIComponent(slug) + "/runs/" + encodeURIComponent(runId) + "/agent-event?" + lookup, signal));
+			const observedVersion = React.useRef({ identity, version });
+			React.useEffect(() => {
+				const previous = observedVersion.current; observedVersion.current = { identity, version };
+				if (identity && previous.identity === identity && previous.version !== version) resource.reload();
+			}, [identity, version]);
+			const result = resource.value, available = result?.status === "available" && result.message != null;
+			const messages = available ? [{ event: result.event || record, message: result.message }, ...(result.related || [])] : [];
+			const current = messages[selected] || messages[0];
+			const rawText = current ? JSON.stringify(current.message, null, 2) : "";
+			const sections = available ? messages.flatMap((item, i) => agentMessageSections(item.message, item.event).map(section => ({ ...section, label: (i ? "关联 · " : "") + section.label })))
+				: [{ label: platform ? "平台事件" : "事件摘要", content: event.content || "" }];
+			const reason = platform ? "此事件由平台生成，没有对应的 Agent 原始消息。" : result?.reason || (resource.error ? "原始消息读取失败，请重试。" : identity && !result ? "正在读取原始消息…" : "未记录可可靠关联的原始消息；当前仅保留事件摘要。");
+			const q = query.trim().toLowerCase(), detailText = sections.map(section => section.content).join("\n\n");
+			const hits = q ? (mode === "raw" ? rawText : detailText).split("\n").map((line, i) => [line, i]).filter(([line]) => line.toLowerCase().includes(q)) : [];
+			const hitLine = hits.length ? hits[match % hits.length][1] : -1;
+			React.useEffect(() => { hitRef.current?.scrollIntoView?.({ block: "nearest" }); }, [query, match, mode, selected]);
+			const renderLines = (text, offset) => String(text).split("\n").map((line, i) => h("div", { key: i, ...(offset + i === hitLine ? { className: "hit", ref: hitRef } : {}) }, line || " "));
+			const copyAll = () => copyStudio(mode === "raw" ? rawText : sections.map(section => section.label + "\n" + section.content).join("\n\n"), toast);
+			const originalPath = result?.sourcePath || sourcePath;
+			if (file) return h(ArtifactsDialog, { ...artifactProps, slug, runId, tree, toast, initialPath: file, initialRaw: true,
+				onClose: () => setFile(null), onReturn: () => setFile(null), returnLabel: "← 返回事件" });
+			let offset = 0;
+			return h(StudioDialog, { title: event.name !== "—" ? event.name + " · " + event.kind : event.kind, wide: true, onClose },
+				h("div", { className: "studio-stack" },
+					h("div", { className: "kv" }, kvRow("时间", event.time, true), kvRow("类型", event.kind, true), kvRow("名称", event.name, true)),
+					h("nav", { className: "studio-segmented" }, [["detail", "详情"], ["raw", "原始 JSON"]].map(([id, label]) =>
+						h("button", { key: id, className: mode === id ? "on" : "", "aria-pressed": mode === id, onClick: () => { setMode(id); setMatch(0); } }, label))),
+					h(ResourceNotice, { resource }),
+					!available ? h("p", { className: "hint", role: "status" }, reason) : null,
+					result?.relatedReason ? h("p", { className: "hint" }, result.relatedReason) : null,
+					mode === "raw" && messages.length > 1 ? h("div", { className: "studio-row wrap", "aria-label": "选择原始消息" }, messages.map((item, i) => studioButton(i === 0 ? "当前消息" : (item.event?.relation === "call" ? "关联工具调用 " : "关联工具结果 ") + i,
+						() => { setSelected(i); setMatch(0); }, selected === i ? "on sm" : "ghost sm"))) : null,
+					h("div", { className: "studio-row wrap" },
+						h("input", { className: "f-input", type: "search", placeholder: mode === "raw" ? "搜索当前原始消息的全部字段" : "在详情中搜索", "aria-label": "搜索事件详情", value: query,
+							onChange: e => { setQuery(e.target.value); setMatch(0); } }),
+						hits.length ? h("span", { className: "hint" }, "匹配 " + (match % hits.length + 1) + " / " + hits.length + " 行") : q ? h("span", { className: "hint" }, "无匹配") : null,
+						hits.length > 1 ? h(React.Fragment, null,
+							studioButton("上一个", () => setMatch((match - 1 + hits.length) % hits.length), "ghost sm"),
+							studioButton("下一个", () => setMatch((match + 1) % hits.length), "ghost sm")) : null,
+						studioButton(mode === "raw" ? "复制完整 JSON" : "复制全部", copyAll, "ghost sm", mode === "raw" ? !available : !detailText)),
+					mode === "raw" ? h(React.Fragment, null,
+						available ? h(React.Fragment, null, q ? h("pre", { className: "studio-detail-body" }, renderLines(rawText, 0))
+							: h("div", { className: "studio-detail-body", "aria-label": "完整原始 JSON" }, h(AgentJsonNode, { key: identity + selected, value: current.message })),
+							h("p", { className: "hint" }, "显示 Agent 实际返回的完整消息，包含未列入摘要的字段。同一消息的多个内容块共享这份 JSON。搜索包含折叠字段；复制不受折叠或搜索影响。")) : null,
+						originalPath ? studioButton("打开源文件", () => setFile(originalPath), "ghost sm", !(tree || []).some(entry => entry.path === originalPath)) : null)
+						: h(React.Fragment, null, sections.map((section, i) => {
+							const start = offset; offset += String(section.content).split("\n").length + 1;
+							return h("section", { key: i, className: "studio-detail-section" },
+								h("div", { className: "studio-row" }, h("h3", { className: "studio-grow" }, section.label), studioButton("复制", () => copyStudio(section.content, toast), "ghost sm")),
+								h("pre", { className: "studio-detail-body" }, renderLines(section.content, start)));
+						}), h("p", { className: "hint" }, available ? "正文、工具参数和结果来自原始消息；其他字段见「原始 JSON」。" : "摘要可能已截断，不能用来恢复 Agent 的全部字段。"))));
+		}
+		// 二期 A2/A3/A5：外部执行器事件表——四列单行、整行点击行内展开；类型下拉（动态）+异常开关+搜索（沿用 full=1 全量）。
+		// 内置多智能体实例不走此表（输出结构不同，保持原样）。
+		function TimelineTable({ lines, rawLines, full, onFull, sourcePath, slug, runId, tree, onFile, toast, artifactProps, onInspect,
+			live = false, observedLines, observedRaw, recordedAt, recordingNote, partial = false }) {
+			const [type, setType] = React.useState("all"), [abnormal, setAbnormal] = React.useState(false);
+			const [search, setSearch] = React.useState(""), [open, setOpen] = React.useState(-1), [detail, setDetail] = React.useState(null);
+			const [follow, setFollow] = React.useState(live), [unseen, setUnseen] = React.useState(0), [focused, setFocused] = React.useState(false);
+			const [sourceOpen, setSourceOpen] = React.useState(false);
+			const [held, setHeld] = React.useState(null), [page, setPage] = React.useState(null);
+			const latest = React.useRef(null), archive = React.useRef(null);
+			const savedFocusScroll = React.useRef(null);
+			const root = React.useRef(null), end = React.useRef(null), scroller = React.useRef(null), lastScroll = React.useRef(0);
+			const focusButton = React.useRef(null), restoreFocus = React.useRef(false);
+			const observed = Array.isArray(observedLines) ? observedLines : Array.isArray(lines) ? lines : [];
+			const previous = React.useRef(observed), observation = observed.join("\n");
+			const query = search.trim().toLowerCase(), filtering = type !== "all" || abnormal || !!query;
+			const browsing = focused || filtering;
+			const preview = held || { lines: observed, raw: observedRaw || rawLines };
+			if (!browsing) archive.current = null;
+			if (browsing && (!archive.current || (!archive.current.complete && full?.value != null))) {
+				archive.current = { lines: Array.isArray(lines) ? lines : [], raw: rawLines, complete: full?.value != null || !partial };
+			}
+			const displayLines = browsing ? archive.current.lines : preview.lines;
+			const events = displayLines.map((line, i) => ({ ...parseTimelineEvent(line), raw: (browsing ? archive.current.raw : preview.raw)?.[i], record: parseJson((browsing ? archive.current.raw : preview.raw)?.[i]) })).filter(item => item.time);
+			const available = (browsing ? archive.current.lines : Array.isArray(lines) ? lines : []).map(parseTimelineEvent).filter(Boolean);
+			const kinds = [...new Set(available.map(item => item.kind))].map(kind => [kind, available.filter(item => item.kind === kind).length]);
+			// 镜像日志不携带执行器原生状态：异常=按内容错误关键字筛选，开关 title 明示派生方式
+			const isErrorRow = item => /error|denied|forbidden|unauthorized|timeout|失败|异常/i.test(item.content);
+			const rows = events.map((item, i) => ({ ...item, i }))
+				.filter(item => (type === "all" || item.kind === type) && (!abnormal || isErrorRow(item))
+					&& (!query || (item.raw || item.time + " " + item.name + " " + item.kind + " " + item.content).toLowerCase().includes(query)));
+			const pages = Math.max(1, Math.ceil(rows.length / LOG_PAGE_LINES));
+			const safePage = Math.min(page ?? pages - 1, pages - 1);
+			const visible = browsing ? rows.slice(safePage * LOG_PAGE_LINES, (safePage + 1) * LOG_PAGE_LINES) : rows.slice(-LOG_PREVIEW_LINES);
+			latest.current = { lines: observed, raw: observedRaw || rawLines, page: safePage };
+			const pause = () => {
+				setFollow(false); setHeld(value => value || { lines: latest.current.lines, raw: latest.current.raw });
+				if (focused) setPage(latest.current.page);
+			};
+			const filterChanged = () => { onInspect?.(); pause(); setOpen(-1); setPage(0); onFull?.(); };
+			const turnPage = value => { pause(); setPage(value); setOpen(-1); if (focused && scroller.current) scroller.current.scrollTop = 0; };
+			const jumpLatest = () => {
+				const node = scroller.current, target = end.current;
+				if (focused && node?.getBoundingClientRect && target?.getBoundingClientRect) {
+					node.scrollTop += target.getBoundingClientRect().bottom - node.getBoundingClientRect().bottom + 52;
+					lastScroll.current = node.scrollTop;
+				}
+				setUnseen(0);
+			};
+			React.useLayoutEffect(() => {
+				const node = focused ? root.current?.querySelector?.(".studio-events-scroll") : root.current?.closest?.(".studio-workspace");
+				scroller.current = node;
+				if (!node) return;
+				if (focused && savedFocusScroll.current != null) { node.scrollTop = savedFocusScroll.current; savedFocusScroll.current = null; }
+				lastScroll.current = node.scrollTop;
+				const onScroll = () => {
+					if (node.scrollTop < lastScroll.current - 2) pause();
+					lastScroll.current = node.scrollTop;
+				};
+				const onFocus = event => { if (!root.current?.contains(event.target)) pause(); };
+				node.addEventListener("scroll", onScroll, { passive: true });
+				node.addEventListener("focusin", onFocus);
+				return () => { node.removeEventListener("scroll", onScroll); node.removeEventListener("focusin", onFocus); };
+			}, [focused, !!detail, sourceOpen]);
+			React.useEffect(() => {
+				const before = previous.current;
+				previous.current = observed;
+				// 只比较观测快照：全量搜索、筛选和刷新空窗不计算为新增事件。
+				const prefix = before.length <= observed.length && before.every((line, i) => line === observed[i]);
+				const last = before.length ? observed.lastIndexOf(before.at(-1)) : -1;
+				const added = prefix ? observed.length - before.length : last >= 0 ? observed.length - last - 1 : 0;
+				if (!follow || filtering || detail) setUnseen(value => value + Math.max(0, added));
+			}, [observation]);
+			React.useLayoutEffect(() => {
+				if (follow && !filtering && !detail && !sourceOpen) jumpLatest();
+			}, [observation, follow, filtering, focused, !!detail, sourceOpen]);
+			React.useLayoutEffect(() => {
+				if (!focused && restoreFocus.current) { focusButton.current?.focus?.(); restoreFocus.current = false; }
+			}, [focused]);
+			const resume = () => { archive.current = null; setType("all"); setAbnormal(false); setSearch(""); setOpen(-1); setHeld(null); setPage(null); setFollow(true); jumpLatest(); };
+			const lastEvent = parseTimelineEvent(observed.at(-1));
+			const content = h("div", { ref: root, className: "studio-stack studio-timeline" + (focused ? " focused" : "") },
+				h("div", { className: "studio-row wrap studio-events-toolbar" },
+					h("select", { className: "f-select", "aria-label": "筛选事件类型", value: type, onFocus: () => onFull?.(), onChange: e => { setType(e.target.value); filterChanged(); } },
+						[h("option", { key: "all", value: "all" }, "全部类型 · " + events.length),
+							...kinds.map(([kind, count]) => h("option", { key: kind, value: kind }, kind + " · " + count))]),
+					h("button", { className: "btn ghost sm", "aria-pressed": abnormal, title: "按内容错误关键字筛选；镜像日志未携带执行器原生状态", onClick: () => { setAbnormal(!abnormal); filterChanged(); } }, "异常"),
+					h("input", { className: "f-input", placeholder: "搜索事件内容", "aria-label": "搜索事件", value: search,
+						onChange: e => { setSearch(e.target.value); filterChanged(); } }),
+					!focused ? h("button", { ref: focusButton, className: "btn ghost sm", onClick: () => { onInspect?.(); pause(); setPage(filtering ? 0 : null); onFull?.(); restoreFocus.current = true; setFocused(true); } }, "专注查看") : null,
+					sourcePath ? studioButton("打开源文件", () => {
+						pause();
+						if (focused) { savedFocusScroll.current = scroller.current?.scrollTop ?? 0; setSourceOpen(true); }
+						else onFile?.(sourcePath, { raw: true });
+					}, "ghost sm") : null),
+				browsing && full?.error ? h(ResourceNotice, { resource: full }) : null,
+				events.length ? h("div", { className: "studio-events", "aria-label": "执行事件表" }, h("div", { className: "studio-events-scroll", tabIndex: focused ? 0 : undefined, "aria-label": focused ? "执行事件滚动区" : undefined }, h("div", { className: "studio-events-grid" },
+					h("div", { className: "studio-events-head" }, ["时间", "类型", "名称", "内容"].map(label => h("span", { key: label }, label))),
+					visible.map(item => h(React.Fragment, { key: item.i },
+						h("button", { className: "studio-event-row" + (open === item.i ? " on" : ""), title: item.content, "aria-expanded": open === item.i,
+							onClick: () => { setOpen(open === item.i ? -1 : item.i); pause(); } },
+							h("span", { className: "mono" }, item.time), h("span", { className: "mono" }, item.kind), h("span", { className: "mono" }, item.name),
+							h("span", null, previewClamp(item.content))),
+						// 二期 A3/A4：行内展开完整镜像内容；长内容/复制/原始记录进详情弹窗
+						open === item.i ? h("div", { className: "studio-event-full" }, item.content || "—",
+							[...item.content].length >= 500 ? h("span", { className: "hint" }, "（当前为摘要，完整内容见详情）") : null,
+							studioButton("详情 ↗", () => { onInspect?.(); pause(); if (focused) savedFocusScroll.current = scroller.current?.scrollTop ?? 0; setDetail(item); }, "ghost sm")) : null)),
+					!rows.length ? h("p", { className: "hint" }, "没有匹配的事件") : null, h("div", { ref: end })) ))
+					: h("p", { className: "hint" }, "时间线没有可显示的事件行。"),
+				h("div", { className: "studio-row wrap studio-timeline-status" },
+					h("span", { className: "hint", title: recordedAt || "" },
+						"显示 " + visible.length + " / " + events.length + " 行" + (!browsing ? " · 最近 " + LOG_PREVIEW_LINES + " 条" : filtering ? " · 匹配 " + rows.length + " 条" : " · 历史记录")
+						+ (browsing && full?.value != null ? " · 全量" : partial ? " · 最近片段" : "")
+						+ (browsing && full?.loading ? " · 全量加载中…" : browsing && full?.error ? " · 全量读取失败，仅显示已读内容" : "") + (lastEvent ? " · 最近记录 " + lastEvent.time : "")
+						+ (recordingNote ? " · " + recordingNote : "")),
+					browsing && pages > 1 ? h(React.Fragment, null, studioButton("上一页", () => turnPage(safePage - 1), "ghost sm", safePage === 0),
+						h("span", { className: "hint" }, safePage + 1 + " / " + pages), studioButton("下一页", () => turnPage(safePage + 1), "ghost sm", safePage + 1 === pages)) : null,
+					unseen > 0 ? studioButton("有 " + unseen + " 条新记录", resume, "ghost sm") : null,
+					live ? studioButton(follow && !filtering ? "暂停跟随" : "跟随最新", () => follow && !filtering ? pause() : resume(), "ghost sm") : null),
+				h("p", { className: "hint" }, (events.some(item => item.record?.id) ? "搜索范围：全部已读事件摘要，内容可能已截断；原始消息全部字段在详情中搜索。" : "搜索范围：时间线镜像记录，内容可能已截断。") + (sourcePath?.endsWith("external-exec.log") ? "原始日志见「打开源文件」。" : "")));
+			// 专注视图与事件详情互相替换，避免叠加两层模态框。
+			if (sourceOpen) return h(ArtifactsDialog, { ...artifactProps, slug, runId, tree, toast, initialPath: sourcePath, initialRaw: true,
+				onClose: () => setSourceOpen(false), onReturn: () => setSourceOpen(false), returnLabel: "← 返回执行记录" });
+			if (detail) {
+				const dialog = h(EventDetailDialog, { key: detail.record?.id || detail.raw, event: detail, sourcePath, slug, runId, tree, toast, artifactProps, onClose: () => setDetail(null) });
+				return focused ? dialog : h(React.Fragment, null, content, dialog);
+			}
+			return focused ? h(StudioDialog, { title: "Agent 执行记录", wide: true, onClose: () => setFocused(false) }, content) : content;
+		}
 		function ExecutionsPanel(p) {
 			const [filter, setFilter] = React.useState("all"), [search, setSearch] = React.useState("");
 			const [view, setView] = usePreference("i2p.execution-view." + p.slug + "/" + p.runId, "output");
-			const externalLog = useRunArtifact(p.slug, p.runId, "06-implementation/external-exec.log", p.tree, "tail"); // 委外日志常超限，尾部读取（原始保真）
-			const agentTimeline = useRunArtifact(p.slug, p.runId, "06-implementation/external-exec.timeline.log", p.tree); // 写入时已格式化的人读时间线
-			const [agentFullSearch, setAgentFullSearch] = React.useState(false);
-			const agentTimelineFull = useRunArtifact(p.slug, p.runId, agentFullSearch ? "06-implementation/external-exec.timeline.log" : null, p.tree, "full"); // 搜索时才加载全量
+			const structured = p.tree.some(file => file.path === "06-implementation/external-exec.events.jsonl");
+			const timelinePath = "06-implementation/external-exec." + (structured ? "events.jsonl" : "timeline.log");
+			const timelineFile = p.tree.find(file => file.path === timelinePath);
+			const observationKey = [p.slug, p.runId, p.outputKey, p.run.externalExec?.startedAt].join("|");
+			const externalReading = useLogArtifact(p.slug, p.runId, "06-implementation/external-exec.log", p.tree, observationKey);
+			const externalLog = externalReading.resource;
+			const timelineReading = useLogArtifact(p.slug, p.runId, timelinePath, p.tree, observationKey);
+			const agentTimeline = timelineReading.resource, agentTimelineFull = timelineReading.full;
 			const sessionTask = useRunArtifact(p.slug, p.runId, "06-implementation/session-task.md", p.tree); // 交给外部 agent 的任务包（输入）
-			const [inputOpen, setInputOpen] = React.useState(false);
+			const [instanceOpen, setInstanceOpen] = React.useState(false);
+			const outputRef = React.useRef(null);
 			const hasSessionTask = p.tree.some(file => file.path === "06-implementation/session-task.md");
 			const report = parseJson(p.coder.value), items = executionItems(p.run, report);
-			const selected = items.find(item => item.id === p.selection);
+			// 单个外部执行直接内嵌展示，不写入实例选择，保留当前阶段的复核上下文。
+			const selected = items.find(item => item.id === p.selection) || (items.length === 1 && items[0].external ? items[0] : null);
 			const filtered = items.filter(item => (filter === "all" || (filter === "done" ? ["done", "patched", "no_change"].includes(item.status) : item.status === filter))
 				&& [item.title, item.reason, item.patch, item.executor].join(" ").toLowerCase().includes(search.toLowerCase()));
 			const files = stageFiles("P6", p.tree, p.run).filter(file => !selected || selected.external || selected.patch === file.path);
+			const outputFiles = files.filter(file => /\.(?:diff|patch)$/.test(file.path) || /(?:report|result)[^/]*\.json$/.test(file.path));
+			const auxiliaryFiles = files.filter(file => !outputFiles.includes(file));
+			const live = selected?.status === "running" && selected?.executor === "claude-code";
+			const recordingNote = selected?.executor === "dsh-agent" ? "执行结束后提供记录" : live ? "记录自动刷新" : "";
 			const rawTail = externalLog.value != null ? formatAgentLog(externalLog.value) : null;
-			const timelineDisplay = agentTimeline.value != null
-				? agentTimeline.value.split("\n")
-					.filter(l => l.trim() && !/^(\d{2}:\d{2}:\d{2}\|)?raw\|(=== |bin=|permission=|auth=|--- )/.test(l.trim()))
-					.join("\n\n")
-				: null;
+			// 保留（来源行, 展示行）配对：新事件携带 ID，旧时间线保留完整原行用于严格匹配。
+			const timelinePairs = agentTimeline.value != null
+				? agentTimelinePairs(agentTimeline.value, structured) : null;
+			const timelineFullPairs = agentTimelineFull.value != null
+				? agentTimelinePairs(agentTimelineFull.value, structured) : null;
+			const timelineLines = timelinePairs ? timelinePairs.map(pair => pair[1]) : null;
+			const timelineRaw = timelinePairs ? timelinePairs.map(pair => pair[0]) : null;
+			const timelineDisplay = timelineLines ? timelineLines.join("\n\n") : null;
 			const output = selected?.external
 				? (timelineDisplay != null ? timelineDisplay : rawTail != null ? rawTail : p.eventsText)
-				: "此执行报告未记录独立实例输出。返回全部实例可查看阶段事件。";
-			const logPath = selected?.external && externalLog.value != null ? "06-implementation/external-exec.log" : "trace/events.jsonl";
-			// 最终回复：优先时间线的 result 行，回退原始日志的 result 帧
+				: "此执行报告未记录独立实例输出。平台记录可从阶段标题右侧的「阶段事件」查看。";
+			const messagesPath = "06-implementation/external-exec.messages.jsonl";
+			const logPath = selected?.external && p.tree.some(file => file.path === messagesPath) ? messagesPath : selected?.external && p.tree.some(file => file.path === "06-implementation/external-exec.log")
+				? "06-implementation/external-exec.log" : timelineFile?.path || "trace/events.jsonl";
+			// 最终回复：优先时间线的 result 行，回退原始日志的 result 帧（二期 E2：正则兼容日期前缀）
 			const finalReply = (() => {
 				if (!selected?.external) return null;
+				// DSH 的 turn/end 只记录结束原因；最终回复取真实 assistant 文本摘要。
+				if (structured && selected.executor === "dsh-agent") {
+					const reply = timelinePairs?.map(pair => parseJson(pair[0])).findLast(record => record?.kind === "text");
+					return reply?.text || null;
+				}
 				const outLines = String(output).split("\n");
 				for (let i = outLines.length - 1; i >= 0; i--) {
-					const m = /^\d{2}:\d{2}:\d{2}\|result\|(.+)$/.exec(outLines[i]);
+					const m = /^(?:\d{4}-\d{2}-\d{2}[ T])?\d{2}:\d{2}:\d{2}\|result\|(.+)$/.exec(outLines[i]);
 					if (m && m[1].trim()) return m[1];
 				}
 				for (let i = outLines.length - 1; i >= 0; i--) {
@@ -1261,21 +1828,62 @@ window.__ModuleLoader__.load({
 				}
 				return null;
 			})();
-return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.coder }),
+			const showOutput = () => {
+				const target = outputRef.current, node = target?.closest?.(".studio-workspace");
+				if (node && target) { node.scrollTop += target.getBoundingClientRect().top - node.getBoundingClientRect().top - 12; target.focus(); }
+			};
+			return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.coder }),
 				selected ? h(React.Fragment, null,
-					h("div", { className: "studio-row studio-execution-head wrap" }, studioButton("← 全部实例", () => p.onSelect(""), "ghost sm"),
+					h("div", { className: "studio-row studio-execution-head wrap" }, items.length > 1 || !selected.external ? studioButton("← 全部实例", () => p.onSelect(""), "ghost sm") : null,
 						h("h2", null, selected.title),
-						h("nav", { className: "studio-execution-tabs", "aria-label": "实例视图" }, [["output", "执行输出"], ["checks", "本实例检查"], ["artifacts", "本实例产物"]].map(([id, label]) => h("button", { key: id, className: view === id ? "on" : "", onClick: () => setView(id) }, label))),
-						hasSessionTask ? studioButton("输入 · 任务包", () => setInputOpen(true), "ghost sm") : null),
-					h("div", { className: "studio-row wrap" }, h("span", { className: "tg " + (selected.status === "failed" ? "t-err" : selected.status === "running" ? "t-acc" : "t-off") }, instanceStatus(selected.status)),
-						h("span", { className: "hint studio-path studio-grow" }, selected.external ? [selected.sessionId ? "会话 " + selected.sessionId : "", selected.startedAt ? "开始 " + fmtTime(selected.startedAt) : "", selected.exitCode != null ? "退出码 " + selected.exitCode : ""].filter(Boolean).join(" · ") : selected.reason)),
-					view === "checks" ? h("div", { className: "studio-stack" }, h("h3", null, "执行报告"),
-						h(ReadableValue, { value: selected.external ? { status: instanceStatus(selected.status), reason: selected.error || selected.stats?.result || "未记录独立检查结论" } : { status: instanceStatus(selected.status), reason: selected.reason || "未记录说明" } }),
-						h("p", { className: "hint" }, "实例执行结果不代表任务回归或最终验收通过。"), studioButton("查看原始报告", () => p.onFile("06-implementation/coder-report.json"), "ghost sm", p.coder.value == null)) :
-					view === "artifacts" ? h("div", { className: "studio-stack" }, files.length ? files.map(file => studioButton(file.path, () => p.onFile(file.path), "ghost sm")) : h("p", { className: "hint" }, "尚无明确归属到本实例的文件。")) :
-						h(OutputPanel, { key: selected.id, text: output, resource: selected.external ? (agentTimeline.value != null ? null : externalLog) : null, full: { value: agentTimelineFull.value, loading: agentFullSearch && agentTimelineFull.value == null && !agentTimelineFull.error }, onFull: () => setAgentFullSearch(true), label: selected.external && (agentTimeline.value != null || externalLog.value != null) ? selected.title + " · 执行输出" : selected.external ? "阶段调用事件" : "实例输出记录", memoryKey: p.outputKey + "." + selected.id, filename: p.runId + "-P6-" + selected.id + ".log", toast: p.toast,
-						partial: p.tree.find(file => file.path === logPath)?.size > 200 * 1024, onFile: selected.external ? () => p.onFile(logPath) : undefined }),
-					finalReply ? h("div", { className: "studio-final-reply" }, h("h3", null, "最终回复"), h("p", null, finalReply)) : null) :
+						selected.external ? h("div", { className: "studio-row studio-instance-meta" },
+							studioButton("查看输出 ↓", showOutput, "ghost sm"), studioButton("实例详情", () => { p.onInspect?.(); setInstanceOpen(true); }, "ghost sm")) : null,
+						// 二期 A1：外部实例改单轮结构不再用三页签；内置实例保持原页签视图
+						selected.external ? null : h("nav", { className: "studio-execution-tabs", "aria-label": "实例视图" }, [["output", "执行输出"], ["checks", "本实例检查"], ["artifacts", "本实例产物"]].map(([id, label]) => h("button", { key: id, className: view === id ? "on" : "", onClick: () => setView(id) }, label)))),
+					!selected.external ? h("div", { className: "studio-row wrap" }, h("span", { className: "tg " + (selected.status === "failed" ? "t-err" : selected.status === "running" ? "t-acc" : "t-off") }, instanceStatus(selected.status)),
+						h("span", { className: "hint studio-path studio-grow" }, selected.reason)) : null,
+					selected.external ? h("article", { className: "studio-turn", "aria-label": "本次执行的单轮记录" },
+						h("header", { className: "studio-turn-head" }, h("h3", null, "第 1 轮"),
+							h("span", { className: "hint" }, "任务执行"),
+							h("span", { className: "tg " + (selected.status === "failed" ? "t-err" : selected.status === "running" ? "t-acc" : "t-off") }, instanceStatus(selected.status)),
+							selected.startedAt ? h("time", { className: "studio-turn-time", dateTime: selected.startedAt, title: [selected.startedAt, selected.finishedAt].filter(Boolean).join(" — ") },
+								fmtClock(selected.startedAt) + (selected.finishedAt ? " — " + fmtClock(selected.finishedAt) : "")) : null),
+						h("div", { className: "studio-turn-body" },
+						// 二期 A1：单轮结构——输入（任务包内嵌块）→ 执行过程（事件表）→ 输出（最终回复 + 关联产物链接）。
+						// 当前外部会话不支持多轮续接，按一轮呈现；不提供补充输入 composer。
+						hasSessionTask ? h("section", { className: "studio-message studio-input-summary" },
+							h("strong", null, "输入"),
+							h("p", { className: "studio-message-body" }, sessionTask.value != null ? taskInputSummary(sessionTask.value) : sessionTask.error ? "任务包读取失败" : "任务包读取中…"),
+							studioButton("查看完整输入", () => p.onFile("06-implementation/session-task.md"), "ghost sm")) : null,
+						h("section", { className: "studio-stack" },
+							h("div", { className: "studio-row wrap" }, h("strong", null, "执行过程"),
+								h("span", { className: "hint" }, timelineLines ? "" : timelineFile ? "正在读取执行记录…" : selected.executor === "dsh-agent" && selected.status === "running" ? recordingNote : "显示原始日志尾部")),
+							h(ResourceNotice, { resource: agentTimeline }),
+							// 二期 A6：有时间线镜像走事件表；旧运行无镜像回退原文本输出
+								timelineLines ? h(TimelineTable, { key: observationKey + ".events." + structured, live, observedLines: timelineLines, observedRaw: timelineRaw,
+									recordedAt: structured ? parseJson(timelineRaw.at(-1))?.at : timelineRaw.at(-1)?.split("|")[0], recordingNote, partial: timelineFile?.size > 200 * 1024,
+								lines: timelineFullPairs ? timelineFullPairs.map(pair => pair[1]) : timelineLines,
+								rawLines: timelineFullPairs ? timelineFullPairs.map(pair => pair[0]) : timelineRaw,
+								full: agentTimelineFull,
+								onFull: timelineReading.onFull, sourcePath: logPath, slug: p.slug, runId: p.runId, tree: p.tree, onFile: p.onFile, toast: p.toast, artifactProps: p, onInspect: p.onInspect }) :
+								h(RunLogPanel, { ...p, key: observationKey, path: logPath, log: logPath === "06-implementation/external-exec.log" ? externalReading : undefined,
+								searchScope: logPath === "trace/events.jsonl" ? "本阶段事件" : logPath.endsWith("timeline.log") ? "时间线镜像记录" : "Agent 日志记录",
+								stage: logPath === "trace/events.jsonl" ? "P6" : undefined, format: logPath === "trace/events.jsonl" ? undefined : formatAgentLog, identity: observationKey,
+								label: selected.title + " · 执行输出", memoryKey: p.outputKey + "." + selected.id, filename: p.runId + "-P6-" + selected.id + ".log", artifactProps: p, onFile: () => p.onFile(logPath, { raw: true }) })),
+						h("section", { className: "studio-message", ref: outputRef, tabIndex: -1, "aria-label": "执行输出" },
+							h("div", { className: "studio-row wrap" }, h("strong", null, "输出"), h("span", { className: "hint studio-grow" }, "实例执行结果不代表任务回归或最终验收通过")),
+							finalReply ? h("p", { className: "studio-message-body" }, finalReply) : h("p", { className: "hint" }, selected.status === "running" ? "执行中，尚未记录最终回复。" : "结果帧未记录最终回复。"),
+							files.length ? h("div", { className: "studio-output-files" },
+								outputFiles.length ? h("div", { className: "studio-row wrap" }, h("span", { className: "hint" }, "阶段产物"),
+									outputFiles.map(file => h("button", { key: file.path, type: "button", className: "btn ghost sm", onClick: () => p.onFile(file.path) }, file.path.split("/").at(-1)))) : null,
+								auxiliaryFiles.length ? h("details", null, h("summary", null, "更多文件 " + auxiliaryFiles.length), h("div", { className: "studio-row wrap" },
+									auxiliaryFiles.map(file => h("button", { key: file.path, type: "button", className: "btn ghost sm", onClick: () => p.onFile(file.path) }, file.path.split("/").at(-1))))) : null) : null))) :
+					h(React.Fragment, null,
+						view === "checks" ? h("div", { className: "studio-stack" }, h("h3", null, "执行报告"),
+							h(ReadableValue, { value: { status: instanceStatus(selected.status), reason: selected.reason || "未记录说明" } }),
+							h("p", { className: "hint" }, "实例执行结果不代表任务回归或最终验收通过。"), studioButton("查看原始报告", () => p.onFile("06-implementation/coder-report.json"), "ghost sm", p.coder.value == null)) :
+						view === "artifacts" ? h("div", { className: "studio-stack" }, files.length ? files.map(file => studioButton(file.path, () => p.onFile(file.path), "ghost sm")) : h("p", { className: "hint" }, "尚无明确归属到本实例的文件。")) :
+							h(OutputPanel, { key: selected.id, text: output, label: "实例输出记录", memoryKey: p.outputKey + "." + selected.id, filename: p.runId + "-P6-" + selected.id + ".log", toast: p.toast, onInspect: p.onInspect }))) :
 				h(React.Fragment, null,
 					h("div", { className: "studio-execution-filters" },
 						h("div", { className: "studio-segmented" }, [["all", "全部"], ["running", "执行中"], ["done", "完成"], ["failed", "失败"]].map(([id, label]) =>
@@ -1284,9 +1892,13 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 					filtered.length ? h("div", null, filtered.map(item => h("button", { key: item.id, className: "studio-execution-row", onClick: () => p.onSelect(item.id) },
 						h("strong", null, item.title, h("small", null, item.external ? "外部会话" : "任务节点结果")), h("span", null, item.reason || item.error || (item.external ? "执行整个任务图" : item.patch || "结果报告")),
 						h("span", null, h("span", { className: "tg " + (item.status === "failed" ? "t-err" : item.status === "running" ? "t-acc" : "t-off") }, instanceStatus(item.status)), h("small", null, stageFiles("P6", p.tree, p.run).filter(file => item.external || item.patch === file.path).length + " 个产物")), Ic("right", 14)))) :
-						h("p", { className: "hint" }, items.length ? "没有匹配实例" : "尚无实例结果报告；阶段事件可在「执行日志」页签查看。")),
-				h("p", { className: "hint" }, "展示已有执行记录；未记录的实例生命周期与历史轮次不可用。"),
-				inputOpen ? h(StudioDialog, { title: "输入 · 任务包", wide: true, onClose: () => setInputOpen(false) }, sessionTask.value != null ? h(ArtifactContent, { text: sessionTask.value, path: "06-implementation/session-task.md" }) : h("p", { className: "hint" }, "任务包未生成")) : null);
+						h("p", { className: "hint" }, items.length ? "没有匹配实例" : "尚无实例结果报告；平台记录可从阶段标题右侧的「阶段事件」查看。")),
+				instanceOpen && selected ? h(StudioDialog, { title: "实例详情", wide: true, onClose: () => setInstanceOpen(false) },
+					h("div", { className: "kv" }, kvRow("执行器", selected.title), kvRow("执行状态", instanceStatus(selected.status)),
+						kvRow("会话编号", selected.sessionId || "未记录", true), kvRow("开始时间", fmtTime(selected.startedAt)),
+						kvRow("结束时间", selected.finishedAt ? fmtTime(selected.finishedAt) : "尚未记录"), kvRow("退出码", selected.exitCode ?? "尚未记录")),
+					selected.sessionId ? studioButton("复制会话编号", () => copyStudio(selected.sessionId, p.toast), "ghost sm") : null,
+					h("p", { className: "hint" }, "展示本次执行已有记录；历史轮次未记录。")) : null);
 		}
 		function PatchPreview(p) {
 			const patches = p.tree.filter(file => /\.(diff|patch)$/.test(file.path));
@@ -1299,23 +1911,165 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 			if (!patches.length) return null;
 			const diffLines = content.value ? String(content.value).split("\n") : null;
 			const patchStat = diffLines ? diffLines.filter(line => line.startsWith("diff --git ")).length + " 文件 · +" + diffLines.filter(line => /^\+[^+]/.test(line)).length + " −" + diffLines.filter(line => /^-[^-]/.test(line)).length : "";
-			return h("section", null, h("div", { className: "studio-row wrap" }, h("h2", { className: "studio-grow" }, "变更文件"), patchStat ? h("span", { className: "hint" }, patchStat) : null, path ? studioButton("查看文件", () => p.onFile(path), "ghost sm") : null),
+			return h("section", null, h("div", { className: "studio-row wrap" }, h("h2", { className: "studio-grow" }, "补丁"), patchStat ? h("span", { className: "hint" }, "涉及 " + patchStat) : null, path ? studioButton("打开补丁文件", () => p.onFile(path), "ghost sm") : null),
 				stale > 0 ? h("p", { className: "hint" }, "另有 " + stale + " 个上一轮补丁文件仍保留在产物中，已不作为本轮验证依据。") : null,
 				current.length ? h("select", { className: "f-select", "aria-label": "选择补丁", value: path, onChange: e => setSelected(e.target.value) }, current.map(file => h("option", { key: file.path, value: file.path }, file.path)))
-					: h(EmptyState, { title: stale ? "本轮尚未生成补丁" : "尚未生成补丁" }, stale ? h("p", { className: "hint" }, "上一轮补丁可在文件页查看，但不代表本轮结果。") : null),
+					: h(EmptyState, { title: stale ? "本轮尚未生成补丁" : "尚未生成补丁" }, stale ? h("p", { className: "hint" }, "上一轮补丁可从「全部产物」查看，但不代表本轮结果。") : null),
 				h(ResourceNotice, { resource: content }), path ? h(DiffContent, { path, text: content.value }) : null);
+		}
+		function durationText(ms) {
+			const sec = Math.max(0, Math.floor(ms / 1000)), min = Math.floor(sec / 60);
+			return sec < 60 ? sec + " 秒" : min < 60 ? min + " 分 " + (sec % 60) + " 秒" : Math.floor(min / 60) + " 小时 " + (min % 60) + " 分";
+		}
+		// 以最近一次成功读取的服务器时间为锚点；断线时冻结在该确认点。
+		function useRunClock(run, error) {
+			const [, refresh] = React.useState(0), anchor = React.useRef(null);
+			if (!anchor.current || (!error && anchor.current.run !== run)) {
+				anchor.current = { run, clientAt: Date.now(), serverAt: Date.parse(run?.observedAt) || Date.now() };
+			}
+			const live = !!run && ["running", "awaiting_review"].includes(run.status) && !error;
+			React.useEffect(() => {
+				if (!live) return;
+				const timer = setInterval(() => refresh(value => value + 1), 1000);
+				return () => clearInterval(timer);
+			}, [run?.id, live]);
+			return anchor.current.serverAt + (live ? Math.max(0, Date.now() - anchor.current.clientAt) : 0);
+		}
+		function stageTimingText(run, id, records, now, disconnected = false) {
+			const state = run.stages?.[id];
+			if (!state || state.status === "pending") return "";
+			const start = Date.parse(state.startedAt), finish = Date.parse(state.finishedAt), stopped = Date.parse(state.stoppedAt);
+			const running = state.status === "running" && run.status === "running" && run.current === id;
+			let elapsed;
+			if (running && Number.isFinite(start)) elapsed = Math.max(0, now - start);
+			else if (Number.isFinite(start) && Number.isFinite(stopped) && stopped >= start) elapsed = stopped - start;
+			else if (Number.isFinite(start) && Number.isFinite(finish) && finish >= start) elapsed = finish - start;
+			else {
+				const times = records.filter(event => event.stage === id).map(event => Date.parse(event.at))
+					.filter(at => Number.isFinite(at) && (!Number.isFinite(start) || at >= start));
+				if (times.length) elapsed = Math.max(...times) - (Number.isFinite(start) ? start : Math.min(...times));
+			}
+			if (elapsed == null) return "";
+			let label = (disconnected && running ? "上次确认已运行 " : running ? "已运行 " : "耗时 ") + durationText(elapsed);
+			if (state.status === "awaiting_review" && run.current === id && run.status === "awaiting_review" && !state.external && Number.isFinite(finish) && finish >= start) {
+				label += " · " + (disconnected ? "上次确认等待复核 " : "等待复核 ") + durationText(Math.max(0, now - finish));
+			}
+			return label;
+		}
+		function agentActivityView(run, now, error) {
+			const activity = run.agentActivity || { status: "unavailable" }, stage = run.stages?.P6 || {};
+			const live = run.current === "P6" && run.status === "running" && stage.status === "running";
+			const signalAt = Date.parse(activity.lastSignalAt), logAt = Date.parse(activity.lastLogUpdateAt);
+			const age = Number.isFinite(signalAt) ? Math.max(0, now - signalAt) : null;
+			const sinceStart = now - Date.parse(stage.startedAt);
+			const quietMs = activity.thresholds?.quietMs || 60000, staleMs = activity.thresholds?.staleMs || 180000;
+			let title, tone = "quiet";
+			if (error) { title = "连接中断，正在重试"; tone = "warn"; }
+			else if (stage.status === "stopped" || (run.current === "P6" && run.status === "stopped")) title = "任务已停止";
+			else if (activity.phase === "timeout") { title = "Agent 执行超时"; tone = "bad"; }
+			else if (stage.status === "failed" || activity.phase === "failed") { title = "Agent 执行失败"; tone = "bad"; }
+			else if (activity.phase === "completed" || (!live && ["approved", "completed", "awaiting_review"].includes(stage.status))) title = "Agent 执行已结束";
+			else if (activity.status === "legacy") {
+				title = live && Number.isFinite(logAt) && now - logAt < quietMs ? "日志仍有更新" : "未采集实时活动摘要";
+			} else if (activity.status !== "available") title = "尚未收到活动摘要";
+			else if (live && (age ?? sinceStart) >= quietMs) { title = "暂未收到新活动"; tone = "warn"; }
+			else if (live) { title = ({ starting: "正在启动 Agent", thinking: "正在推理", tool: "正在调用工具", responding: "正在输出回复", waiting: "等待后续活动", stopped: "执行器已停止" })[activity.phase] || "等待后续活动"; tone = activity.phase === "stopped" ? "quiet" : "active"; }
+			else title = "当前执行状态未确认";
+			const signal = error ? "活动状态暂未确认" : age != null ? "最近信号 · " + durationText(age) + "前"
+				: Number.isFinite(logAt) ? "日志更新 · " + fmtTime(activity.lastLogUpdateAt) : "尚无可靠活动时间";
+			const tasks = activity.status === "available" && Array.isArray(activity.backgroundTasks) ? activity.backgroundTasks.filter(task => task && task.isBackgrounded !== false) : [];
+			const process = activity.process, processText = error ? "当前进程状态未确认"
+				: process?.state === "alive" ? "执行器进程存活" : process?.state === "exited" ? "执行器进程已退出" : "进程状态未确认";
+			const warning = !error && live && (age ?? sinceStart) >= staleMs && activity.status === "available"
+				? "持续未收到新消息；" + processText + "。活动信号不足以判断是否卡住，任务未自动停止。" : "";
+			return { activity, live, title, tone, signal, tasks, processText, warning };
+		}
+		function AgentActivityPanel({ run, now, error, onFile }) {
+			const { activity, live, title, tone, signal, tasks, processText, warning } = agentActivityView(run, now, error);
+			const taskStatus = task => ({ completed: "已完成", failed: "失败", stopped: "已停止", submitted: "已提交后台", unknown: "状态待确认" })[task.status]
+				|| (live && !error ? "运行中" : "结束状态未确认");
+			return h("section", { className: "studio-activity " + tone, "aria-label": "Agent 当前活动" },
+				h("div", { className: "studio-row wrap" }, h("strong", { className: "studio-grow" }, h("span", { className: "studio-activity-dot", "aria-hidden": "true" }), title), h("span", { className: "hint" }, signal)),
+				activity.lastAction ? h("div", { className: "hint studio-path" }, "最近动作 · " + (activity.lastAction.name || activity.lastAction.kind) + " · " + fmtTime(activity.lastAction.at)) : null,
+				warning ? h("p", { className: "hint", role: "status" }, warning) : null,
+				activity.status === "legacy" ? h("p", { className: "hint" }, "本次执行未采集结构化活动，仅展示原始日志更新时间。") : null,
+				tasks.map(task => {
+					const start = Date.parse(task.startedAt), finish = Date.parse(task.finishedAt);
+					const elapsed = Number.isFinite(start) && Number.isFinite(finish) && finish >= start ? durationText(finish - start)
+						: live && Number.isFinite(start) && task.status === "running" ? (error ? "上次确认 " : "已运行 ") + durationText(Math.max(0, now - start)) : "";
+					return h("details", { key: activity.captureId + ":" + task.id, className: "studio-activity-task" },
+						h("summary", null, (task.name || task.description || "后台任务") + " · " + taskStatus(task) + (elapsed ? " · " + elapsed : "")),
+						task.command ? h("pre", null, task.command) : null,
+						h("p", { className: "hint" }, "开始：" + (task.startedAt ? fmtTime(task.startedAt) : "未记录") + (task.finishedAt ? " · 结束：" + fmtTime(task.finishedAt) : "") + (task.exitCode != null ? " · 退出码 " + task.exitCode : "")),
+						h("pre", null, task.summary || "尚未收到任务输出或完成通知"));
+				}),
+				h("details", null, h("summary", { className: "hint" }, "活动依据"),
+					h("p", { className: "hint" }, processText + (!error && activity.process?.checkedAt ? " · 核对时间 " + fmtTime(activity.process.checkedAt) : "")),
+					h("p", { className: "hint" }, error ? "页面同步失败；保留最近确认内容，正在自动重试。" : "页面最近同步：" + fmtTime(run.observedAt)),
+					activity.thinking?.estimatedTokens != null ? h("p", { className: "hint" }, "执行器最近报告的推理计数：" + activity.thinking.estimatedTokens + "（估算值，不代表完成进度）") : null,
+					onFile ? studioButton("查看原始日志", () => onFile("06-implementation/external-exec.log", { raw: true }), "ghost sm") : null));
+		}
+		function testActivityView(run, tree, events, now, error) {
+			const stage = run.stages?.P8 || {}, start = Date.parse(stage.startedAt), raw = run.testActivity;
+			const available = raw?.status === "available" && raw.stageStartedAt === stage.startedAt && stage.status !== "pending";
+			const activity = available ? raw : null, stale = raw?.reasonCode === "stale" || (raw?.status === "available" && !available);
+			const fresh = file => stage.status !== "pending" && (!Number.isFinite(start) || file.mtimeMs >= start);
+			const outputFile = !stale && activity?.outputReady !== false && (tree || []).find(file => file.path === "08-test-output.txt" && fresh(file));
+			const reportFile = !stale && (tree || []).find(file => file.path === "07-test-report.json" && fresh(file));
+			const stageRunning = stage.status === "running" && run.current === "P8" && run.status === "running";
+			const executing = activity?.executionStatus === "running", ended = activity && !executing;
+			const stopped = stage.status === "stopped" || (run.current === "P8" && run.status === "stopped");
+			const process = error ? "unknown" : activity?.process?.state || "unknown";
+			const commandEvent = (events || []).filter(event => event.stage === "P8" && event.kind === "test"
+				&& (!Number.isFinite(start) || Date.parse(event.at) >= start)).at(-1);
+			const command = activity?.command || commandEvent?.name || run.executionConfig?.testCommand || "";
+			const lastOutputAt = Date.parse(activity?.lastOutputAt), since = Number.isFinite(lastOutputAt) ? lastOutputAt : Date.parse(activity?.startedAt);
+			const quietFor = Number.isFinite(since) ? Math.max(0, now - since) : 0;
+			let title, tone = "quiet", note = "";
+			if (error) { title = "同步中断，正在重试"; tone = "warn"; note = "保留最近确认的内容，当前测试状态待确认。"; }
+			else if (activity?.logError) { title = "测试记录保存异常"; tone = "bad"; note = activity.logError; }
+			else if (!available && ["invalid", "read_error"].includes(raw?.reasonCode)) { title = "测试状态读取失败"; tone = "warn"; note = raw.reason || "正在重试读取实时执行状态。"; }
+			else if (activity?.executionStatus === "timeout") { title = "测试已超时"; tone = "bad"; }
+			else if (activity?.executionStatus === "failed") { title = "测试未通过"; tone = "bad"; }
+			else if (activity?.executionStatus === "completed" && activity.exitCode === 0) title = "测试命令已通过";
+			else if (executing && process === "alive") {
+				title = stopped ? "流程已停止，测试命令仍在执行" : "测试命令执行中";
+				tone = stopped || quietFor >= 60000 ? "warn" : "active";
+				if (quietFor >= 60000) note = "已 " + durationText(quietFor) + "没有新输出；测试进程仍在运行，暂不能据此判断是否卡住。";
+			} else if (executing) { title = "测试执行状态待确认"; tone = "warn"; note = "当前宿主没有可确认的测试进程状态。"; }
+			else if (stopped) title = "流程已停止";
+			else if (stageRunning) { title = "测试阶段运行中"; note = "本次执行未采集实时状态；已有输出生成后会显示在下方。"; }
+			else if (stage.status === "pending") title = "等待测试开始";
+			else { title = "测试执行记录"; note = "本次执行未采集实时状态，可查看已保存的输出和阶段结果。"; }
+			const signal = error ? "最近输出时间待同步" : Number.isFinite(lastOutputAt)
+				? "最近输出 · " + (executing ? durationText(Math.max(0, now - lastOutputAt)) + "前" : fmtTime(activity.lastOutputAt))
+				: activity ? "尚未收到测试输出" : outputFile ? "日志更新时间 · " + fmtTime(outputFile.mtimeMs) : "尚无测试输出";
+			const emptyText = error ? "同步恢复后将继续读取测试输出" : stale || stage.status === "pending" ? "等待本轮测试输出；上一轮记录未作为当前输出展示"
+				: ended ? "测试已结束，没有可显示的输出" : executing ? "测试命令已启动，等待首条输出" : "尚未收到本轮测试输出";
+			return { activity, title, tone, note, signal, command, emptyText, reportFile, outputFile,
+				outputTree: outputFile ? [outputFile] : [], identity: activity?.captureId || stage.startedAt || "legacy" };
+		}
+		function TestActivityPanel({ view }) {
+			const { activity, title, tone, note, signal, command } = view;
+			return h("section", { className: "studio-activity " + tone, "aria-label": "测试当前活动" },
+				h("div", { className: "studio-row wrap" }, h("strong", { className: "studio-grow" }, h("span", { className: "studio-activity-dot", "aria-hidden": "true" }), title), h("span", { className: "hint" }, signal)),
+				command ? h("div", { className: "studio-path" }, "测试命令：", h("code", null, command)) : h("span", { className: "hint" }, "正在等待实际测试命令"),
+				note ? h("p", { className: "hint", role: "status" }, note) : null,
+				activity ? h("div", { className: "hint" }, ["开始：" + fmtTime(activity.startedAt),
+					activity.finishedAt ? "结束：" + fmtTime(activity.finishedAt) : "",
+					activity.exitCode != null ? "退出码 " + activity.exitCode : "",
+					activity.signal ? "退出信号 " + activity.signal : ""].filter(Boolean).join(" · ")) : null);
 		}
 		function RunsPanel(p) {
 			const key = p.slug + "/" + p.runId;
+			const now = useRunClock(p.run, p.error);
 			// v9 隔离规则：节点选择不跨访问记忆——每次进入默认当前阶段（执行中）/最后节点（已完成），
-			// 默认跟随推进；手动选择即暂停跟随（流程展开后底部显示"已偏离"，点击返回并恢复）。页签只保留 执行过程 / 全部产物。
+			// 默认跟随推进；手动选择即暂停跟随，紧凑与完整流程都可返回当前阶段。
 			const [stage, setStage] = React.useState(p.run?.current || "P1");
-			const [storedTab, setTab] = usePreference("i2p.tasktab." + key, "process");
-			const tab = storedTab === "files" ? "files" : "process";
 			const [trackOpen, setTrackOpen] = usePreference("i2p.track." + key, false);
-						const [followStage, setFollowStage] = React.useState(true);
-			const [path, setPath] = React.useState("");
-			const [returnTo, setReturnTo] = usePreference("i2p.file-return." + key, { tab: "process", stage, instance: "" });
+			const [followStage, setFollowStage] = React.useState(true);
+			// 文件只覆盖为弹窗，阶段正文保持挂载；不再读取旧的整页文件偏好。
+			const [fileDialog, setFileDialog] = React.useState(null), [eventsOpen, setEventsOpen] = React.useState(false);
 			const [comment, setComment] = React.useState("");
 			const [busy, setBusy] = React.useState(false), [contextOpen, setContextOpen] = React.useState(false);
 			const [instance, setInstance] = usePreference("i2p.instance." + key, "");
@@ -1334,20 +2088,22 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 				return () => { document.removeEventListener("click", onDoc); document.removeEventListener("keydown", onKey); };
 			}, [actionsOpen]);
 			const busyRef = React.useRef(false), alive = React.useRef(true);
-			const events = useRunArtifact(p.slug, p.runId, "trace/events.jsonl", p.tree);
+			const eventsLog = useLogArtifact(p.slug, p.runId, "trace/events.jsonl", p.tree, key + "|" + (p.run?.stages?.[stage]?.startedAt || ""));
+			const events = eventsLog.resource;
 			const ledger = useRunArtifact(p.slug, p.runId, "ledger/patch-ledger.jsonl", p.tree);
 			const coder = useRunArtifact(p.slug, p.runId, "06-implementation/coder-report.json", p.tree);
 			const description = useRunArtifact(p.slug, p.runId, "10-pr-description.md", p.tree);
 			const evaluation = useRunArtifact(p.slug, p.runId, "11-eval-report.json", p.tree);
-			const testOutput = useRunArtifact(p.slug, p.runId, "08-test-output.txt", p.tree);
+			const issueAnalysis = useRunArtifact(p.slug, p.runId, "01-issue-analysis.json", p.tree);
 			React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-			React.useEffect(() => { if (followStage && p.run?.current) { setStage(p.run.current); setInstance(""); } }, [p.run?.current, followStage]);
+			React.useEffect(() => { if (followStage && p.run?.current && !fileDialog && !eventsOpen && !contextOpen) { setStage(p.run.current); setInstance(""); } }, [p.run?.current, followStage, !!fileDialog, eventsOpen, contextOpen]);
 			React.useEffect(() => { setComment(""); }, [stage, p.run?.current, p.run?.stages?.[p.run?.current]?.attempts]);
 			const activeStage = STAGES.some(item => item.id === stage) ? stage : p.run?.current || "P1";
-			React.useEffect(() => { setNodeTab(""); }, [activeStage]);
-			const selectStage = id => { setStage(id); setInstance(""); setTab("process"); setFollowStage(false); };
-			const openFile = file => { setReturnTo({ tab, stage: activeStage, instance }); setPath(file); setTab("files"); };
-			const returnFromFile = () => { setStage(returnTo.stage); setInstance(returnTo.instance || ""); setTab(returnTo.tab === "files" ? "process" : returnTo.tab); };
+			React.useEffect(() => { setNodeTab(""); }, [activeStage, activeStage === "P8" ? p.run?.stages?.P8?.startedAt : null]);
+			const selectStage = id => { setStage(id); setInstance(""); setFollowStage(false); };
+			const openFile = (file, options = {}) => setFileDialog({ path: file || "", raw: !!options.raw, stage: activeStage });
+			const retainStage = () => { if (activeStage !== p.run?.current) setFollowStage(false); };
+			const closeFile = () => { retainStage(); setFileDialog(null); };
 			const act = async (action, body = {}, method = "POST") => {
 				if (busyRef.current) return;
 				busyRef.current = true; setBusy(true);
@@ -1361,42 +2117,35 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 			};
 			if (!p.run) return h(EmptyState, { title: p.error ? "任务读取失败" : "正在读取任务…" });
 			const run = p.run, tree = p.tree || [], state = run.stages?.[activeStage], current = run.stages?.[run.current];
+			const acceptance = deliveryEvaluation(evaluation, run, tree, description), p11Status = p11DisplayStatus(run, acceptance);
+			const taskStatus = taskDisplayStatus(run, acceptance);
 			const execConfig = run.executionConfig;
+			const phenomenon = parseJson(issueAnalysis.value)?.phenomenon;
+			const taskCaption = typeof phenomenon === "string" && phenomenon.trim() !== taskTitle(run).trim() ? phenomenon.trim() : "";
 			const files = stageFiles(activeStage, tree, run), reviews = tree.filter(file => file.path.startsWith("reviews/"));
 			const report = parseJson(coder.value), instances = Array.isArray(report?.tasks) ? report.tasks : Array.isArray(report?.patches) ? report.patches : [];
 			const currentInstance = activeStage === "P6" && executionItems(run, report).some(item => item.id === instance) ? instance : "";
 			const externalReady = !["session", "claude", "dsh"].includes(run.p6Mode) || run.externalExec?.status === "done" || !!run.externalProgress?.report || run.externalProgress?.patches > 0;
-			const reviewContext = tab === "process" && activeStage === run.current && !currentInstance;
-			const reviewReady = reviewContext && run.status === "awaiting_review" && current?.status === "awaiting_review" && (run.current !== "P6" || externalReady);
-			const backCurrent = () => { setStage(run.current); setInstance(""); setTab("process"); setFollowStage(true); };
+			const reviewContext = activeStage === run.current && !currentInstance && !fileDialog && !eventsOpen && !contextOpen;
+			const reviewReady = reviewContext && run.status === "awaiting_review" && current?.status === "awaiting_review"
+				&& (run.current !== "P6" || externalReady) && (run.current !== "P11" || acceptance.state === "pass");
+			const backCurrent = () => { setStage(run.current); setInstance(""); setFollowStage(true); };
 			const review = decision => {
 				if (!reviewContext) { p.toast("请先返回当前阶段的复核对象", "bad"); return; }
-				if (decision === "approve" && !reviewReady) { p.toast("等待当前阶段产物就绪", "bad"); return; }
+				if (decision === "approve" && !reviewReady) { p.toast(run.current === "P11" ? "六项验收门禁确认通过后才能完成复核" : "等待当前阶段产物就绪", "bad"); return; }
 				if (decision === "reject" && !comment.trim()) { p.toast("打回需要填写复核意见", "bad"); return; }
 				act("review", { decision, comment, expectedStage: run.current, expectedStatus: run.status, expectedAttempt: current?.attempts || 0, expectedStartedAt: current?.startedAt || null });
 			};
-			const mainFlow = STAGES.filter(item => !item.bypass), done = mainFlow.filter(item => ["approved", "completed"].includes(run.stages?.[item.id]?.status)).length;
+			const mainFlow = STAGES.filter(item => !item.bypass), done = mainFlow.filter(item => ["approved", "completed", "failed", "stopped"].includes(run.stages?.[item.id]?.status)).length;
 			const records = parseLines(events.value).filter(event => event.stage === activeStage);
+			const testView = testActivityView(run, tree, records, now, p.error);
 			const eventsText = records.map(event => [fmtClock(event.at), event.kind, event.name, event.detail].filter(Boolean).join("  ")).join("\n");
 			const stageUntouched = (state?.status || "pending") === "pending" && !files.length && !records.length;
-			const stageTimes = {};
-			for (const ev of parseLines(events.value)) {
-				const ts = Date.parse(ev.at);
-				if (!Number.isFinite(ts)) continue;
-				const span = stageTimes[ev.stage] || (stageTimes[ev.stage] = { min: ts, max: ts });
-				span.min = Math.min(span.min, ts);
-				span.max = Math.max(span.max, ts);
-			}
-			const fmtDuration = ms => {
-				const sec = Math.max(0, Math.round(ms / 1000));
-				if (sec < 60) return sec + " 秒";
-				const min = Math.floor(sec / 60);
-				return min < 60 ? min + " 分 " + (sec % 60) + " 秒" : Math.floor(min / 60) + " 小时 " + (min % 60) + " 分";
-			};
-			const stageDurationText = id => stageTimes[id] ? "耗时 " + fmtDuration(stageTimes[id].max - stageTimes[id].min) : "";
+			const timingEvents = eventsLog.partial ? [] : parseLines(events.value);
+			const stageDurationText = id => stageTimingText(run, id, timingEvents, now, !!p.error);
 			// 阶段运行信息：模型取启动快照的阶段覆盖，未配置回落 defaultRoute；执行器按阶段语义展示（P7/P8 不走模型）
 			const runtimeModelOf = id => {
-				const override = execConfig?.stageConfig?.[id];
+				const override = (execConfig ? execConfig.stageConfig : p.project?.stageConfig)?.[id];
 				if (override?.provider && override?.model) return override.model;
 				return execConfig?.defaultRoute?.model || null;
 			};
@@ -1404,88 +2153,89 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 			const stageRunTextOf = id => {
 				if (id === "P7") return "补丁管线 · 无模型调用";
 				if (id === "P8") return "测试执行" + (execConfig?.testCommand ? " · " + execConfig.testCommand : "");
-				const override = execConfig?.stageConfig?.[id];
+				const override = (execConfig ? execConfig.stageConfig : p.project?.stageConfig)?.[id];
+				if (id === "P6" && ["claude", "dsh"].includes(run.p6Mode)) return p6ModeLabel(run.p6Mode);
+				if (run.stages?.[id]?.external || override?.delegate?.mode === "session" || (id === "P6" && run.p6Mode === "session")) return "外部会话 · 过程未采集";
 				const modelText = override?.provider && override?.model
 					? "模型 " + override.model + "（阶段覆盖）"
 					: runtimeModelOf(id) ? "模型 " + runtimeModelOf(id) : "模型 宿主默认";
 				if (id === "P6") {
-					if (["session", "claude", "dsh"].includes(run.p6Mode)) return p6ModeLabel(run.p6Mode);
 					return "内置多智能体 · " + modelText;
 				}
 				return modelText;
 			};
 			const runtimeText = [
-				...(!stageUntouched ? ["第 " + ((state?.attempts || 0) + 1) + " 轮", stageTimes[activeStage] ? stageDurationText(activeStage) : null] : []),
+				...(!stageUntouched ? [state?.attempts > 0 ? "已打回 " + state.attempts + " 次" : null, stageDurationText(activeStage)] : []),
 				stageRunTextOf(activeStage),
 			].filter(Boolean).join(" · ");
 			const p10File = tree.some(file => file.path === "09-failure-analysis.json");
 			const outputKey = "i2p.output." + key + "." + activeStage + "." + (state?.attempts || 0) + "." + (state?.startedAt || "");
 			const stageDef = STAGES.find(item => item.id === activeStage);
 			// v9 规则：未触及的节点（pending 且没有任何事件与产物）只显示一条等待空态，不渲染零内容区块。
-			const tabs = [["process", "执行过程"], ["files", "全部产物"]];
 			// 方案三：节点内容盘点置顶为子页签（带计数），没有内容的区块不出页签（留空规则）。
 			const allPatches = tree.filter(file => /\.(diff|patch)$/.test(file.path));
 			const p6StartedAt = Date.parse(run.stages?.P6?.startedAt || "");
 			const currentPatches = Number.isFinite(p6StartedAt) ? allPatches.filter(file => file.mtimeMs >= p6StartedAt) : [];
 			const nodeTabs = [];
-			if (activeStage === "P6") nodeTabs.push(["instances", "执行实例"]);
+			if (activeStage === "P6") nodeTabs.push(["instances", "Agent 执行记录"]);
+			else if (activeStage === "P8") { nodeTabs.push(["testout", "测试输出"]); if (testView.reportFile) nodeTabs.push(["result", "阶段结果"]); }
 			else if (activeStage === "P7") nodeTabs.push(["result", "补丁账本"]);
 			else if (activeStage === "P11") nodeTabs.push(["delivery", "交付"], ["summary", "全流程汇总"]);
 			else nodeTabs.push(["result", "阶段结果"]);
-			if (activeStage === "P8" && tree.some(file => file.path === "08-test-output.txt")) nodeTabs.push(["testout", "测试输出"]);
-			if (activeStage === "P6" && allPatches.length) nodeTabs.push(["patches", "变更文件 " + currentPatches.length]);
-			if (records.length) nodeTabs.push(["log", "执行日志 " + records.length]);
+			if (activeStage === "P6" && allPatches.length) nodeTabs.push(["patches", "补丁 " + currentPatches.length]);
 			if (files.length) nodeTabs.push(["artifacts", "阶段产物 " + files.length]);
 			const nodeTabId = nodeTabs.some(item => item[0] === nodeTab) ? nodeTab : nodeTabs[0]?.[0];
-			// 二期 S2：P11 门禁存在未通过时，阶段标题绿徽章旁并列警示章，打破「纯成功」叙事
-			const p11Gates = activeStage === "P11" ? gateStats(evaluation) : null;
 			
 			return h("div", { className: "studio-task" },
 				h("header", { className: "studio-task-head" },
 					// 二期 L-A：面包屑 id 超长自动省略（CSS 170px 上限），title 悬停可见全量
 					h("div", { className: "studio-breadcrumb studio-row" }, h("button", { onClick: p.onBack }, "← 任务列表"), "/", h("span", null, p.project?.name || p.slug), "/", h("button", { className: "mono studio-path", title: run.id + " · 点击复制", onClick: () => copyStudio(run.id, p.toast) }, run.id)),
-					h("div", { className: "studio-row studio-task-title" }, h("h1", { className: "studio-grow studio-path" }, taskTitle(run)), h(StatusBadge, { status: run.status }),
-						["running", "awaiting_review"].includes(run.status) ? studioButton([Ic("stop", 14), "停止"], () => act("stop"), "", busy) : null,
+					h("div", { className: "studio-row studio-task-title" },
+						h("div", { className: "studio-task-name" }, h("h1", { className: "studio-path" }, taskTitle(run)),
+							taskCaption ? h("p", { className: "studio-task-caption", title: "需求分析 · " + taskCaption }, taskCaption) : null),
+						h(StatusBadge, { status: taskStatus }), studioButton("任务详情", () => setContextOpen(true)),
+						["running", "awaiting_review"].includes(run.status) ? h("button", { type: "button", className: "btn", onClick: () => act("stop"), disabled: busy }, Ic("stop", 14), "停止") : null,
 						h("details", { className: "studio-run-actions", open: actionsOpen, onToggle: e => setActionsOpen(e.currentTarget.open), ref: actionsRef }, h("summary", { "aria-label": "更多任务操作" }, "•••"),
-							h("div", { className: "studio-action-menu" }, studioButton("任务详情", () => setContextOpen(true), "ghost sm"), run.status !== "running" ? h(React.Fragment, null,
+							h("div", { className: "studio-action-menu" }, run.status !== "running" ? h(React.Fragment, null,
 								h("select", { className: "f-select", "aria-label": "重跑起始阶段", value: rerunStage, onChange: e => setRerunStage(e.target.value) }, STAGES.map(item => h("option", { key: item.id, value: item.id }, item.id + " " + STUDIO_STAGE_NAMES[item.id]))),
 								studioButton("重跑", () => { if (window.confirm("从 " + rerunStage + " 重跑，后续阶段状态将重置，相关委外旧产物会清理。继续？")) act("rerun", { stage: rerunStage }); }, "", busy)) : null,
 							studioButton("删除任务", () => { if (window.confirm("删除此任务及全部产物？此操作不可恢复。")) act("", {}, "DELETE"); }, "danger", busy),
 							h("small", { className: "hint" }, "停止后不再推进；当前内置阶段可能仍需执行完毕，外部执行器会收到终止请求。"))))),
-					tab !== "files" ? h("section", { className: "studio-topology", "aria-label": "流水线阶段" },
-					h("div", { className: "studio-row studio-workflow-summary" }, h("strong", null, run.current + " · " + STUDIO_STAGE_NAMES[run.current]),
-						// 二期 M-A1：展开轨道时隐藏折叠小进度条，两种进度展示不叠加
-						trackOpen ? null : h("span", { className: "studio-progress", "aria-hidden": true }, mainFlow.map(item => h("i", { key: item.id, className: ["approved", "completed"].includes(run.stages?.[item.id]?.status) ? "done" : run.stages?.[item.id]?.status === "failed" ? "failed" : item.id === run.current ? "current" : "" }))),
-						h("span", { className: "hint studio-stage-total" }, done + " / 10 阶段已完成"), h("span", { className: "studio-grow" }),
-						h("button", { className: "btn ghost sm", "aria-expanded": trackOpen, onClick: () => setTrackOpen(!trackOpen) }, trackOpen ? "收起流程" : "完整流程")),
-					trackOpen ? h(React.Fragment, null, h("nav", { className: "studio-track", "aria-label": "完整阶段流程" }, mainFlow.map(item => {
-						const status = run.stages?.[item.id]?.status || "pending";
+				h("section", { className: "studio-topology", "aria-label": "流水线阶段" },
+					h("div", { className: "studio-row studio-workflow-summary" }, h("strong", null, run.status === "completed" ? "流程已结束 · " + tag(taskStatus)[1] : run.current + " · " + STUDIO_STAGE_NAMES[run.current]),
+						h("span", { className: "hint studio-stage-total" }, done + " / 10 阶段已结束"), h("span", { className: "studio-grow" }),
+						!trackOpen && !followStage ? h("button", { className: "studio-workflow-location", onClick: backCurrent, title: "返回当前阶段并恢复跟随" }, "正在查看 " + activeStage + " · 返回当前 " + run.current + " →") : null,
+						h("button", { className: "studio-flow-toggle", "aria-expanded": trackOpen, onClick: () => setTrackOpen(!trackOpen) }, trackOpen ? "收起流程" : "展开流程")),
+					h("nav", { className: "studio-track" + (trackOpen ? "" : " compact"), "aria-label": trackOpen ? "完整阶段流程" : "紧凑阶段流程" }, mainFlow.map(item => {
+						const status = item.id === "P11" ? p11Status : run.stages?.[item.id]?.status || "pending";
 						const stale = item.id !== "P10" && status === "pending" && stageFiles(item.id, tree, run).length > 0;
-							return h("button", { key: item.id, className: "studio-stage " + status + (item.id === activeStage ? " on" : "") + (item.id === run.current ? " current" : ""), title: item.id + " " + STUDIO_STAGE_NAMES[item.id] + "，" + tag(status)[1] + (stageTimes[item.id] ? " · " + stageDurationText(item.id) : "") + " · " + stageRunTextOf(item.id), "aria-label": item.id + " " + STUDIO_STAGE_NAMES[item.id] + "，" + tag(status)[1], "aria-pressed": item.id === activeStage, onClick: () => selectStage(item.id) },
-							h("span", { className: "studio-stage-mark" }, ["approved", "completed"].includes(status) ? Ic("check", 13) : status === "failed" ? Ic("x", 13) : status === "awaiting_review" ? "!" : item.id === run.current ? "●" : ""),
+							return h("button", { key: item.id, className: "studio-stage " + status + (item.id === activeStage ? " on" : "") + (item.id === run.current ? " current" : ""), title: item.id + " " + STUDIO_STAGE_NAMES[item.id] + "，" + tag(status)[1] + (stageDurationText(item.id) ? " · " + stageDurationText(item.id) : "") + " · " + stageRunTextOf(item.id), "aria-label": item.id + " " + STUDIO_STAGE_NAMES[item.id] + "，" + tag(status)[1], "aria-pressed": item.id === activeStage, onClick: () => selectStage(item.id) },
+							h("span", { className: "studio-stage-mark" }, ["approved", "completed", "acceptance_passed"].includes(status) ? Ic("check", 13) : ["failed", "acceptance_failed"].includes(status) ? Ic("x", 13) : status === "awaiting_review" ? "!" : item.id === run.current ? "●" : ""),
 							h("strong", null, STUDIO_STAGE_NAMES[item.id]), h("span", { className: "studio-stage-code" }, item.id + (item.id === run.current ? " · 当前" : stale ? " · 待重验" : item.key ? " · 复核" : "")));
-					})), h("div", { className: "studio-row studio-track-footer wrap" }, followStage ? h("span", { className: "hint" }, "跟随当前阶段 ✓") : h("button", { onClick: backCurrent, title: "点击返回当前阶段并恢复跟随" }, "正在查看 " + activeStage + " · 返回当前 " + run.current + " →"), h("button", { onClick: () => selectStage("P10") }, "P10 失败分析 · " + (run.failureAnalysis ? "已生成" : p10File ? "历史记录" : "按需触发")))) : null,
+					})), trackOpen ? h("div", { className: "studio-row studio-track-footer wrap" }, followStage ? h("span", { className: "hint" }, "跟随当前阶段 ✓") : h("button", { onClick: backCurrent, title: "点击返回当前阶段并恢复跟随" }, "正在查看 " + activeStage + " · 返回当前 " + run.current + " →"), h("button", { onClick: () => selectStage("P10") }, "P10 失败分析 · " + (run.failureAnalysis ? "已生成" : p10File ? "历史记录" : "按需触发"))) : null,
 					// 二期 M-A4：页面级失败条只保留结论与动作，详细描述留在阶段级错误条，不再重复
-					run.failureAnalysis ? h("div", { className: "studio-return-lane studio-row wrap" }, h("span", { className: "studio-grow" }, [run.failureAnalysis.category, run.failureAnalysis.action].filter(value => typeof value === "string").join(" · ")), studioButton("查看失败分析", () => selectStage("P10"), "ghost sm")) : null) : null,
-				h("nav", { className: "studio-tabs", "aria-label": "任务视图" }, tabs.map(([id, label]) => h("button", { key: id, className: tab === id ? "on" : "", "aria-current": tab === id ? "page" : undefined, onClick: () => { if (id === "files" && tab !== "files") { setPath(""); setReturnTo({ tab, stage: activeStage, instance }); } setTab(id); } }, label + (id === "files" ? " " + tree.length : "")))),
-				// 二期 M-A3：运行元信息降级为页签下方独立次要行，不再与页签同行混排
-				tab === "process" && runtimeText ? h("div", { className: "studio-runtime-meta hint" }, runtimeText) : null,
+					run.failureAnalysis ? h("div", { className: "studio-return-lane studio-row wrap" }, h("span", { className: "studio-grow" }, [run.failureAnalysis.category, run.failureAnalysis.action].filter(value => typeof value === "string").join(" · ")), studioButton("查看失败分析", () => selectStage("P10"), "ghost sm")) : null),
+				h("section", { className: "studio-stage-bar" },
+					h("div", { className: "studio-section-heading" }, h("div", { className: "studio-row wrap" },
+						h("h2", null, activeStage + " · " + STUDIO_STAGE_NAMES[activeStage]), h(StatusBadge, { status: activeStage === "P11" ? p11Status : state?.status }),
+						h("span", { className: "studio-runtime-meta hint" }, runtimeText),
+						tree.some(file => file.path === "trace/events.jsonl") ? studioButton("阶段事件" + (events.error ? " · 读取失败" : events.loading ? " · 读取中" : eventsLog.partial ? " · 最近 " + records.length : " " + records.length), () => setEventsOpen(true), "ghost sm") : null,
+						tree.length ? studioButton("全部产物 " + tree.length + " ↗", () => openFile(""), "ghost sm") : null)),
+					h("div", { className: "studio-stage-tabs" },
+						nodeTabs.length > 1 && !stageUntouched ? h("nav", { className: "studio-execution-tabs", "aria-label": "节点内容" },
+							nodeTabs.map(([id, label]) => h("button", { key: id, className: nodeTabId === id ? "on" : "", "aria-pressed": nodeTabId === id, onClick: () => setNodeTab(id) }, label))) : null)),
 				h("div", { className: "studio-workspace" },
-					tab === "files" ? h(ArtifactsPanel, { ...p, instances, initialPath: path, onReturn: returnFromFile }) :
 					h("div", { className: "studio-process" }, h("section", { className: "studio-process-main" },
-						h("div", { className: "studio-section-heading" }, h("div", { className: "studio-row wrap" }, h("h2", { className: "studio-grow" }, activeStage + " · " + STUDIO_STAGE_NAMES[activeStage]), h(StatusBadge, { status: state?.status }),
-							p11Gates?.fail ? h("span", { className: "tg t-warn", title: "交付评测六项门禁存在未通过项，详见交付页" }, Ic("x", 11), p11Gates.fail + " 项门禁未通过") : null,
-														nodeTabs.length > 1 && !stageUntouched ? h("nav", { className: "studio-execution-tabs", "aria-label": "节点内容", style: { margin: "0 0 0 auto", alignSelf: "flex-end" } },
-								nodeTabs.map(([id, label]) => h("button", { key: id, className: nodeTabId === id ? "on" : "", "aria-pressed": nodeTabId === id, onClick: () => setNodeTab(id) }, label))) : null,
-							), state?.error ? h("p", { className: "callout err", style: { marginTop: 10 } }, state.error) : null),
+						activeStage === "P6" && run.p6Mode === "claude" && !stageUntouched ? h(AgentActivityPanel, { run, now, error: p.error, onFile: openFile }) : null,
+						activeStage === "P8" && !stageUntouched ? h(TestActivityPanel, { view: testView }) : null,
+						state?.error ? h("p", { className: "callout err", style: { marginBottom: 14 } }, state.error) : null,
 												stageUntouched ? h(EmptyState, { title: activeStage === "P10" ? "目前没有需要分析的失败" : activeStage === run.current ? "本阶段尚未开始执行" : "等待上游阶段完成" },
 							h("p", null, activeStage === "P10" ? "P10 在主线阶段失败时触发，帮助定位原因并选择恢复方式。" : (STUDIO_STAGE_NAMES[activeStage] || stageDef?.name || activeStage) + "尚未开始，结果生成后会显示在这里。"),
 							stageDef?.art ? h("p", { className: "hint" }, "预期产物：" + stageDef.art) : null) :
 						h(React.Fragment, null,
-							nodeTabId === "instances" ? h(ExecutionsPanel, { ...p, tree, coder, events, eventsText, outputKey, selection: currentInstance, onSelect: setInstance, onFile: openFile }) :
+							nodeTabId === "instances" ? h(ExecutionsPanel, { ...p, tree, coder, events, eventsText, outputKey, selection: currentInstance, onSelect: setInstance, onFile: openFile, onInspect: () => setFollowStage(false) }) :
 							nodeTabId === "patches" ? h(PatchPreview, { ...p, tree, onFile: openFile }) :
-							nodeTabId === "testout" ? h(OutputPanel, { key: "testout", text: testOutput.value || "", resource: testOutput, label: "P8 · 测试输出", memoryKey: outputKey + ".testout", filename: p.runId + "-P8-output.txt", toast: p.toast, onFile: () => openFile("08-test-output.txt"), partial: tree.find(file => file.path === "08-test-output.txt")?.size > 200 * 1024 }) :
-							nodeTabId === "log" ? h(OutputPanel, { key: outputKey, text: eventsText, resource: events, label: activeStage + " · 阶段事件", memoryKey: outputKey, filename: p.runId + "-" + activeStage + ".log", toast: p.toast, onFile: () => openFile("trace/events.jsonl"), partial: tree.find(file => file.path === "trace/events.jsonl")?.size > 200 * 1024 }) :
+							nodeTabId === "testout" ? h(RunLogPanel, { ...p, tree: testView.outputTree, key: outputKey + ".testout", path: "08-test-output.txt", identity: outputKey + "." + testView.identity, label: "P8 · 测试输出", searchScope: "测试输出全文", emptyText: testView.emptyText, memoryKey: outputKey + ".testout", filename: p.runId + "-P8-output.txt", artifactProps: testView.outputFile ? { ...p, instances } : undefined, onFile: testView.outputFile ? () => openFile("08-test-output.txt", { raw: true }) : undefined, onInspect: () => setFollowStage(false) }) :
 							nodeTabId === "artifacts" ? h("div", { className: "studio-artifacts" },
 								(() => {
 									const groups = new Map();
@@ -1500,7 +2250,7 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 											dir ? h("div", { className: "studio-artifacts-dir" }, Ic("folder", 14), dir) : null,
 											list.map(file => studioButton([Ic("file", 15), file.path.split("/").at(-1)], () => openFile(file.path), "ghost sm"))));
 								})()) :
-							nodeTabId === "delivery" ? h(DeliveryPanel, { run, tree, description, evaluation, toast: p.toast }) :
+							nodeTabId === "delivery" ? h(DeliveryPanel, { run, tree, description, evaluation, toast: p.toast, onFile: openFile, onSummary: () => setNodeTab("summary") }) :
 							nodeTabId === "summary" ? h(DeliverySummaryPanel, { run, tree, slug: p.slug, runId: p.runId, onFile: openFile }) :
 							activeStage === "P7" ? h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: ledger }),
 							parseLines(ledger.value).length ? parseLines(ledger.value).map(row => h("div", { className: "studio-row wrap studio-check", key: row.lineNo }, h("span", { className: "studio-grow studio-path" }, "#" + row.lineNo + " " + (row.patch || "回滚 #" + row.rollbackOf)),
@@ -1513,15 +2263,19 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 							return (REVIEW_QUESTIONS[run.current] || "确认当前阶段结果") + (next ? "；通过后进入 " + next.id + " · " + STUDIO_STAGE_NAMES[next.id] : "；通过后任务完成");
 						})())),
 					h("input", { className: "f-input studio-grow", value: comment, "aria-label": "复核意见", placeholder: "复核意见（打回必填）", onChange: e => setComment(e.target.value) }),
-					studioButton("打回", () => review("reject"), "danger", busy), studioButton("通过 " + run.current + " 并继续", () => review("approve"), "pri", busy || !reviewReady), !reviewReady ? h("span", { className: "hint" }, "等待外部产物就绪") : null)
+					studioButton("打回", () => review("reject"), "danger", busy), studioButton("通过 " + run.current + " 并继续", () => review("approve"), "pri", busy || !reviewReady), !reviewReady ? h("span", { className: "hint" }, run.current === "P11" ? acceptance.state === "loading" ? "正在读取验收结论…" : "重新评测并通过六项门禁后可复核通过" : "等待外部产物就绪") : null)
 					: h("div", { className: "studio-row wrap" }, h("span", { className: "studio-grow hint" }, "当前正在查看其他内容；" + run.current + " 的阶段汇总等待复核。"), studioButton("返回当前复核对象", backCurrent, "pri"))) : null,
-				contextOpen ? h(StudioDialog, { title: "任务详情", wide: true, onClose: () => setContextOpen(false) }, h("div", { className: "studio-stack" },
+				contextOpen && !fileDialog ? h(StudioDialog, { title: "任务详情", wide: true, onClose: () => { retainStage(); setContextOpen(false); } }, h("div", { className: "studio-stack" },
 					h("div", { className: "kv" }, kvRow("项目", p.project?.name || p.slug), kvRow("任务编号", run.id, true), kvRow("来源", run.trigger?.uri || "—", true), kvRow("创建时间", fmtTime(run.createdAt)), kvRow("复核方式", reviewModeLabel(run.reviewMode)), kvRow("代码执行器", p6ModeLabel(run.p6Mode))),
 					h("p", { className: "hint" }, run.executionConfig ? "使用启动配置 v" + run.executionConfig.revision + " · 默认模型 " + (run.executionConfig.defaultRoute?.model || "未记录") : "历史任务未记录配置快照，兼容读取旧项目配置。"),
 					run.executionConfig ? h("details", null, h("summary", null, "查看启动配置"), h("pre", { className: "studio-json" }, JSON.stringify(run.executionConfig, null, 2))) : null,
 					h("details", null, h("summary", null, "阶段职责与契约"), h(StageContractCard, { stageId: activeStage, defaults: p.defaults }), h(StageGuideCard, { stageId: activeStage, defaults: p.defaults })),
-						h("details", null, h("summary", null, "复核历史 · " + reviews.length), reviews.length ? reviews.slice(-20).reverse().map(file => studioButton(file.path.split("/").at(-1), () => { setContextOpen(false); openFile(file.path); }, "ghost sm")) : h("p", { className: "hint" }, "暂无复核记录")),
-					studioButton("调整新任务的阶段默认值", () => { setContextOpen(false); p.onConfig(activeStage); }, "ghost"))) : null);
+						h("details", null, h("summary", null, "复核历史 · " + reviews.length), reviews.length ? reviews.slice(-20).reverse().map(file => studioButton(file.path.split("/").at(-1), () => openFile(file.path), "ghost sm")) : h("p", { className: "hint" }, "暂无复核记录")),
+					studioButton("调整新任务的阶段默认值", () => { setContextOpen(false); p.onConfig(activeStage); }, "ghost"))) : null,
+				// 保留原阶段正文，文件与阶段事件均通过弹窗查看。
+				eventsOpen ? h(RunLogPanel, { ...p, key: outputKey, log: eventsLog, path: "trace/events.jsonl", stage: activeStage, label: activeStage + " · 阶段事件", memoryKey: outputKey + ".events", filename: p.runId + "-" + activeStage + "-events.log", dialog: true, onClose: () => { retainStage(); setEventsOpen(false); }, artifactProps: { ...p, instances }, onFile: () => openFile("trace/events.jsonl", { raw: true }) }) : null,
+				fileDialog ? h(ArtifactsDialog, { ...p, tree, instances, initialPath: fileDialog.path, initialRaw: fileDialog.raw, onClose: closeFile,
+					onReturn: contextOpen ? closeFile : undefined, returnLabel: "← 返回任务详情" }) : null);
 		}
 
 		function GuidePanel() {
@@ -2015,7 +2769,7 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 						onChange: e => { setFilter(e.target.value); setPage(0); } }, h("option", { value: "all" }, "全部项目"), p.projects.map(item => h("option", { key: item.slug, value: item.slug }, item.name)))),
 					h("input", { type: "search", className: "f-input studio-search", value: search, "aria-label": "搜索任务", placeholder: "搜索任务、编号或项目",
 						onChange: e => { setSearch(e.target.value); setPage(0); } }),
-					h("div", { className: "studio-segmented", "aria-label": "筛选任务状态" }, [["all", "全部"], ["attention", "待处理 " + attention], ["running", "执行中"], ["completed", "已完成"]].map(([id, label]) =>
+					h("div", { className: "studio-segmented", "aria-label": "筛选任务状态" }, [["all", "全部"], ["attention", "待处理 " + attention], ["running", "执行中"], ["completed", "流程已结束"]].map(([id, label]) =>
 						h("button", { key: id, className: status === id ? "on" : "", "aria-pressed": status === id, onClick: () => { setStatus(id); setPage(0); } }, label)))),
 				h("div", { className: "studio-row studio-filter-result" }, h("span", { className: "studio-grow" }, (effectiveFilter === "all" ? "全部项目" : selected[0]?.name) + " · " + rows.length + " / " + allRows.length + " 项任务"),
 					status !== "all" || search ? studioButton("清除搜索与状态筛选", () => { setStatus("all"); setSearch(""); setPage(0); }, "ghost sm") : null,
@@ -2024,9 +2778,9 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 				source.value?.errors.length ? h("div", { className: "callout err", role: "alert" }, "部分项目读取失败，保留其上次结果：" + source.value.errors.join("；"), studioButton("重试", source.reload, "sm")) : null,
 				source.value == null && !source.error ? h(Skel) : rows.length ? h("div", { className: "studio-task-list", "aria-label": "任务列表" },
 					rows.slice(currentPage * 30, (currentPage + 1) * 30).map(run => h("button", { className: "studio-run-row", key: run.slug + "/" + run.id, onClick: () => p.onOpen(run.slug, run.id) },
-						h("span", { className: "studio-run-icon " + run.status }, Ic(run.status === "completed" ? "check" : run.status === "failed" ? "x" : "git", 20)),
+						h("span", { className: "studio-run-icon " + (run.status === "completed" ? "flow_ended" : run.status) }, Ic(run.status === "failed" ? "x" : "git", 20)),
 						h("span", null, h("strong", null, taskTitle(run)), h("span", { className: "studio-run-description" }, run.projectName + " · " + run.id), h("span", { className: "studio-run-reason" }, taskReason(run))),
-						h(StatusBadge, { status: run.status }), h("span", { className: "studio-run-time hint", title: fmtTime(run.createdAt) }, fmtTime(run.createdAt).slice(5, 10)))))
+						h(StatusBadge, { status: run.status === "completed" ? "flow_ended" : run.status }), h("span", { className: "studio-run-time hint", title: fmtTime(run.createdAt) }, fmtTime(run.createdAt).slice(5, 10)))))
 					: h(EmptyState, { title: "暂无匹配任务" }, h("p", null, "选择其他筛选条件，或新建一个任务。")),
 				pages > 1 ? h("div", { className: "studio-row studio-pagination" }, h("span", { className: "studio-grow hint" }, rows.length + " 个任务"),
 					studioButton("上一页", () => setPage(currentPage - 1), "sm", currentPage === 0), h("span", null, (currentPage + 1) + " / " + pages),
@@ -2515,7 +3269,7 @@ return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource: p.c
 								m.role === "assistant" && !m.err
 									? h("div", { className: "i2p-ai-md" },
 										waiting ? h("span", { className: "i2p-ai-dots" }, h("i"), h("i"), h("i"))
-											: h(MarkdownText, { text: m.text }))
+											: h(MarkdownText, { text: m.text, labels: MARKDOWN_LABELS }))
 									: h("span", { className: "i2p-ai-t" }, m.text));
 						})),
 					h("div", { className: "i2p-ai-input" },
