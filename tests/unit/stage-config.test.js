@@ -113,7 +113,7 @@ test("stageDelegated：P6 读 rcx 或 run 上的 p6Mode；其余阶段读 stageC
   assert.equal(stageDelegated({}, "P7"), false); // P7 无委托能力
 });
 
-test("delegateReady：非 P6 看产物文件；P6 看 patches/coder-report 口径", () => {
+test("delegateReady：非 P6 看产物文件；P6 等最终报告，不因部分补丁就绪", () => {
   const runDir = mkdtempSync(join(root, "ready-"));
   assert.equal(delegateReady(runDir, "P1"), false);
   writeFileSync(join(runDir, "01-issue-analysis.json"), "{}");
@@ -122,7 +122,9 @@ test("delegateReady：非 P6 看产物文件；P6 看 patches/coder-report 口�
   assert.equal(delegateReady(runDir2, "P6"), false);
   mkdirSync(join(runDir2, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir2, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
-  assert.equal(delegateReady(runDir2, "P6"), true);
+  assert.equal(delegateReady(runDir2, "P6"), false);
+  writeFileSync(join(runDir2, "06-implementation", "coder-report.json"), "{}");
+  assert.equal(delegateReady(runDir2, "P6"), true); // 就绪后仍须验证报告完整性
 });
 
 test("delegateReady：P11 必须同时有 PR 说明与 eval 报告", () => {

@@ -1,7 +1,7 @@
 // tests/delegate-verify.test.js — A4 修正回归：委外产物验证（结构完整 + HEAD 基线应用性演练）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -24,17 +24,48 @@ function makePatch(repoDir, rel, next) {
   writeFileSync(abs, before);
   return diff;
 }
+function writeReport(runDir, files = ["0001.diff"]) {
+  const tasks = files.map((file, i) => ({ node: "T" + (i + 1), status: "patched", patch: "06-implementation/patches/" + file }));
+  writeFileSync(join(runDir, "05-task-graph.json"), JSON.stringify({ nodes: tasks.map(t => ({ id: t.node })) }));
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"), JSON.stringify({ tasks }));
+}
 function mkRun() {
   const runDir = mkdtempSync(join(root, "run-"));
   mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+  writeReport(runDir);
   return runDir;
 }
+
+test("P6 门禁：补丁存在也必须有完整最终报告，不能借旧 patches 清单绕过任务覆盖", async () => {
+  const runDir = mkRun();
+  const path = join(runDir, "06-implementation", "coder-report.json");
+  const patch = { node: "T1", patch: "06-implementation/patches/0001.diff" };
+  writeFileSync(join(runDir, patch.patch), "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n");
+  unlinkSync(path);
+  let v = await verifyDelegateResult({ runDir }, "P6");
+  assert.equal(v.ok, false);
+  assert.match(v.errors.join("；"), /缺少 coder-report/);
+  for (const report of [null, {}, [], { mode: "claude-code" }, { tasks: [] }]) {
+    writeFileSync(path, JSON.stringify(report));
+    v = await verifyDelegateResult({ runDir }, "P6");
+    assert.equal(v.ok, false, JSON.stringify(report));
+  }
+  writeFileSync(join(runDir, "05-task-graph.json"), JSON.stringify({ nodes: [{ id: "T1" }, { id: "T2" }] }));
+  writeFileSync(path, JSON.stringify({ patches: [patch] }));
+  v = await verifyDelegateResult({ runDir }, "P6");
+  assert.equal(v.ok, false);
+  assert.match(v.errors.join("；"), /缺少任务结果: T2/);
+  writeFileSync(path, JSON.stringify({ tasks: [{ ...patch, status: "patched" }, { node: "T2", status: "pending" }] }));
+  v = await verifyDelegateResult({ runDir }, "P6");
+  assert.equal(v.ok, false);
+  assert.match(v.errors.join("；"), /T2 status 无效/);
+});
 
 test("P6 验证：无补丁 = 未拿到委外结果（不允许放行）", async () => {
   const runDir = mkRun();
   const v = await verifyDelegateResult({ runDir }, "P6");
   assert.equal(v.ok, false);
-  assert.match(v.errors.join("；"), /未检测到补丁/);
+  assert.match(v.errors.join("；"), /0001.diff 不存在/);
 });
 
 test("P6 结构验证：空补丁 / 非 diff 内容 / 坏 report / 清单缺文件 逐一拦截", async () => {
@@ -62,7 +93,7 @@ test("P6 结构验证：空补丁 / 非 diff 内容 / 坏 report / 清单缺文�
 test("P6 验证：清单路径越界返回结构化失败而非抛异常", async () => {
   const runDir = mkRun();
   writeFileSync(join(runDir, "06-implementation", "coder-report.json"),
-    JSON.stringify({ patches: [{ patch: "../../outside.diff" }] }));
+    JSON.stringify({ patches: [{ node: "T1", patch: "../../outside.diff" }] }));
 
   const v = await verifyDelegateResult({ runDir }, "P6");
 
@@ -129,6 +160,7 @@ test("P6 应用性演练：合法补丁对 HEAD 基线可应用 → ok；不可�
   const runDir = mkRun();
   const diff = makePatch(repoDir, "a.txt", "line1-fixed\n");
   writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), diff);
+  writeReport(runDir, ["0001-T1.diff"]);
   let v = await verifyDelegateResult({ runDir, repoDir }, "P6");
   assert.equal(v.ok, true, "合法补丁应通过演练");
   assert.equal(v.rehearsal, true);
@@ -138,6 +170,7 @@ test("P6 应用性演练：合法补丁对 HEAD 基线可应用 → ok；不可�
   const bad = diff.replace(/a\.txt/g, "no-such-file.txt").replace(/b\.txt/g, "no-such-file.txt");
   const runDir2 = mkRun();
   writeFileSync(join(runDir2, "06-implementation", "patches", "0001-T1.diff"), bad);
+  writeReport(runDir2, ["0001-T1.diff"]);
   v = await verifyDelegateResult({ runDir: runDir2, repoDir }, "P6");
   assert.equal(v.ok, false);
   assert.match(v.errors.join("；"), /无法应用到 HEAD 基线/);
@@ -164,6 +197,7 @@ test("P6 应用性演练：多补丁按序在前序之上验证（P7 同语义�
   // 单独给 patch2：对 HEAD 不可应用 → 拦截（不因「文件存在」放行）
   const runAlone = mkRun();
   writeFileSync(join(runAlone, "06-implementation", "patches", "0002-T2.diff"), p2raw);
+  writeReport(runAlone, ["0002-T2.diff"]);
   const vAlone = await verifyDelegateResult({ runDir: runAlone, repoDir }, "P6");
   assert.equal(vAlone.ok, false, "后继补丁脱离前序应验证失败");
 
@@ -171,6 +205,7 @@ test("P6 应用性演练：多补丁按序在前序之上验证（P7 同语义�
   const runSeq = mkRun();
   writeFileSync(join(runSeq, "06-implementation", "patches", "0001-T1.diff"), p1);
   writeFileSync(join(runSeq, "06-implementation", "patches", "0002-T2.diff"), p2raw);
+  writeReport(runSeq, ["0001-T1.diff","0002-T2.diff"]);
   const vSeq = await verifyDelegateResult({ runDir: runSeq, repoDir }, "P6");
   assert.equal(vSeq.ok, true, "按序演练应通过");
   assert.equal(vSeq.patches, 2);

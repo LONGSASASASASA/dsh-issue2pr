@@ -1116,6 +1116,31 @@ test("二期M-A：仅保留一条可操作流程；失败条只留结论与动�
   assert.ok(walk(page.tree).some(n => n.props["aria-label"] === "紧凑阶段流程"));
 });
 
+test("重跑后的旧失败摘要不显示警告，历史入口保留，当前失败仍正常显示", async t => {
+  const ui = studio(async () => ({ ok: true }));
+  const run = { id: "a", current: "P4", status: "failed", p6Mode: "builtin",
+    failureAnalysis: { category: "实现错误", action: "replan", detail: "上一轮失败" },
+    stages: { P4: { status: "failed", attempts: 0 } } };
+  const tree = [{ path: "09-failure-analysis.json", size: 100, mtimeMs: 1 }];
+  const page = ui.mount(ui.RunsPanel, { slug: "alpha", runId: "a", run, tree, toast() {}, onChanged() {} });
+  t.after(() => page.dispose()); await tick(); page.render();
+  button(page.tree, "展开流程").props.onClick(); page.render();
+  const lane = () => walk(page.tree).find(n => n.props.className?.startsWith("studio-return-lane"));
+  assert.match(text(lane()), /实现错误 · replan/);
+  assert.match(text(page.tree), /P10 失败分析 · 已生成/);
+  for (const status of ["running", "awaiting_review", "stopped", "completed"]) {
+    page.render({ ...page.props, run: { ...run, status, stages: { P4: { status } } } });
+    assert.equal(lane(), undefined, status + " 不显示旧失败警告（兼容旧 run.json 残留）");
+    assert.match(text(page.tree), /P10 失败分析 · 历史记录/);
+  }
+  page.render({ ...page.props, run: { ...run, status: "running", failureAnalysis: undefined } });
+  assert.equal(lane(), undefined, "重跑已清摘要时同样没有失败警告");
+  button(page.tree, "P10 失败分析 · 历史记录").props.onClick(); page.render();
+  assert.match(text(walk(page.tree).find(n => n.props.className === "studio-section-heading")), /P10 · 失败分析/, "历史入口仍可切换到 P10");
+  page.render({ ...page.props, run: { ...run, failureAnalysis: { category: "环境缺失", action: "escalate" } } });
+  assert.match(text(lane()), /环境缺失 · escalate/, "本轮再次失败时显示新的分析");
+});
+
 test("二期M-B：打回次数显式回显生效值，未设置显示默认 3", async t => {
   const ui = studio(async (url, options) => url.endsWith("/settings") && options?.method === "PUT"
     ? { ok: true, settings: { ...JSON.parse(options.body), revision: 2 } }

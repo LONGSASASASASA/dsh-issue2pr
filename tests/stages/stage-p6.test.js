@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { advance, initRun, saveRun } from "../../lib/core/pipeline.js";
 import p6 from "../../lib/stages/p6-coder.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-p6-"));
@@ -16,6 +18,20 @@ const TASK_GRAPH = JSON.stringify({ nodes: [
   { id: "T2", title: "补回归测试", output: "patch", deps: ["T1"] },
 ]});
 
+function externalRepo() {
+  const dir = mkdtempSync(join(root, "external-repo-"));
+  const git = args => execFileSync("git", args, { cwd: dir, stdio: "pipe" });
+  git(["init"]); git(["config", "user.email", "test@example.com"]); git(["config", "user.name", "Test"]);
+  writeFileSync(join(dir, "x"), "a\n");
+  git(["add", "."]); git(["commit", "-m", "baseline"]);
+  return dir;
+}
+function writeExternalReport(runDir) {
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"), JSON.stringify({ tasks: [
+    { node: "T1", status: "patched", patch: "06-implementation/patches/0001-T1.diff" },
+    { node: "T2", status: "no_change", reason: "本节点仅核验，不需要代码变更" },
+  ] }));
+}
 function llmSequence(seq) {
   let i = 0;
   const calls = [];
@@ -121,12 +137,12 @@ test("claude：执行成功产出 patches/report → externalExec=done（含 sta
     const nap = (ms) => new Promise((res) => setTimeout(res, ms));
     await nap(80); // 采样器先观察到 0 patch
     mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
-    writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
-    writeFileSync(join(runDir, "06-implementation", "coder-report.json"), '{"mode":"claude-code"}');
+    writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n");
+    writeExternalReport(runDir);
     await nap(60); // 留时间给采样器捕捉 1/2
     return { code: 0, stdout: '{"num_turns":5,"total_cost_usd":0.42,"duration_ms":63000,"result":"已全部完成"}', stderr: "" };
   };
-  const r = await p6({ runDir, repoDir, run, llm, reviewComment: "", p6Mode: "claude", spawnExternal, externalProgressIntervalMs: 10 });
+  const r = await p6({ runDir, repoDir: externalRepo(), run, llm, reviewComment: "", p6Mode: "claude", spawnExternal, externalProgressIntervalMs: 10 });
   assert.equal(r.artifact, "06-implementation/");
   assert.equal(r.external, undefined); // 实施已完成，走正常待复核（不再是"等外部执行"）
   assert.match(r.summary, /1 份 patch/);
@@ -150,8 +166,8 @@ test("claude：stream-json 输出 → externalExec 记 sessionId 与归一 stats
   const run = { id: "r5", stages: {} };
   const spawnExternal = async () => {
     mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
-    writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
-    writeFileSync(join(runDir, "06-implementation", "coder-report.json"), '{"mode":"claude-code"}');
+    writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n");
+    writeExternalReport(runDir);
     return {
       code: 0, stderr: "",
       stdout: [
@@ -161,7 +177,7 @@ test("claude：stream-json 输出 → externalExec 记 sessionId 与归一 stats
       ].join("\n"),
     };
   };
-  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
+  const r = await p6({ runDir, repoDir: externalRepo(), run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
   assert.equal(r.external, undefined);
   assert.equal(run.externalExec.sessionId, "sess-stream-1"); // 为 --resume 重试留钩
   assert.equal(run.externalExec.stats.turns, 7);
@@ -177,7 +193,7 @@ test("claude：is_error=true（403 类）→ failed 且错误信息含 result �
     code: 0, stderr: "",
     stdout: JSON.stringify({ type: "result", is_error: true, result: "API Error: 403 ip access denied", usage: { input_tokens: 0, output_tokens: 0 } }),
   });
-  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
+  const r = await p6({ runDir, repoDir: externalRepo(), run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
   assert.equal(r.external, true); // 回退等人工
   assert.equal(run.externalExec.status, "failed");
   assert.match(run.externalExec.error, /403/); // 不再漏判：exit 0 但 is_error 也算失败
@@ -191,11 +207,11 @@ test("dsh：p6Mode=dsh 经 dsh-agent 执行器 → externalExec.executor=dsh-age
   const spawnExternal = async (opts) => {
     assert.ok(opts.repoDir && opts.prompt && opts.timeoutMs > 0, "执行器应收到完整 runCtx");
     mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
-    writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
-    writeFileSync(join(runDir, "06-implementation", "coder-report.json"), '{"mode":"dsh-agent"}');
+    writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n");
+    writeExternalReport(runDir);
     return { code: 0, sessionId: "session-dsh-1", stats: { turns: 2, durationMs: 30000, result: "完成" }, resultText: "完成", toolCalls: ["write", "bash"], stopReason: "completed" };
   };
-  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "dsh", spawnExternal });
+  const r = await p6({ runDir, repoDir: externalRepo(), run, llm: {}, reviewComment: "", p6Mode: "dsh", spawnExternal });
   assert.equal(r.external, undefined);
   assert.equal(run.externalExec.executor, "dsh-agent");
   assert.equal(run.externalExec.sessionId, "session-dsh-1");
@@ -210,7 +226,7 @@ test("dsh：智能体异常结束无产物 → failed 回退等人工", async ()
   writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
   const run = { id: "r8", stages: {} };
   const spawnExternal = async () => ({ code: 1, stopReason: "error", resultText: "工具执行被拒", toolCalls: [] });
-  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "dsh", spawnExternal });
+  const r = await p6({ runDir, repoDir: externalRepo(), run, llm: {}, reviewComment: "", p6Mode: "dsh", spawnExternal });
   assert.equal(r.external, true);
   assert.equal(run.externalExec.status, "failed");
   assert.match(run.externalExec.error, /error/);
@@ -222,7 +238,7 @@ test("claude：执行失败无产物 → externalExec=failed，external=true 回
   writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
   const run = { id: "r2", stages: {} };
   const spawnExternal = async () => ({ code: 1, stdout: "", stderr: "boom: not logged in" });
-  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
+  const r = await p6({ runDir, repoDir: externalRepo(), run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
   assert.equal(r.artifact, "06-implementation/session-task.md");
   assert.equal(r.external, true);
   assert.equal(run.externalExec.status, "failed");
@@ -235,8 +251,49 @@ test("claude：spawn 报错（如未安装）→ externalExec=skipped，external
   writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
   const run = { id: "r3", stages: {} };
   const spawnExternal = async () => ({ code: -1, error: "spawn claude ENOENT" });
-  const r = await p6({ runDir, repoDir, run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
+  const r = await p6({ runDir, repoDir: externalRepo(), run, llm: {}, reviewComment: "", p6Mode: "claude", spawnExternal });
   assert.equal(r.external, true);
   assert.equal(run.externalExec.status, "skipped");
   assert.match(run.externalExec.error, /ENOENT/);
 });
+
+for (const scenario of [
+  { name: "429 中断且只有部分补丁", code: 1, error: true, report: false },
+  { name: "退出码 0 但 result.is_error，已有完整报告", code: 0, error: true, report: true },
+  { name: "退出码 0 但没有完成报告", code: 0, error: false, report: false },
+  { name: "非零退出码且已有完整报告", code: 1, error: false, report: true },
+]) {
+  test("P6 自动门禁：" + scenario.name + "，保留产物且不进入 P7", async () => {
+    const runDir = mkdtempSync(join(root, "interrupted-"));
+    const repo = externalRepo();
+    const run = initRun({ runId: "20260915-100000-test", slug: "test", trigger: { uri: "issue.md" }, reviewMode: "auto", p6Mode: "claude" });
+    for (const id of ["P1", "P2", "P3", "P4", "P5"]) run.stages[id].status = "approved";
+    run.current = "P6";
+    saveRun(runDir, run);
+    writeFileSync(join(runDir, "05-task-graph.json"), TASK_GRAPH);
+    const patchPath = join(runDir, "06-implementation", "patches", "0001-T1.diff");
+    const patch = "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n";
+    let p7Calls = 0;
+    await advance({ runDir, run, repoDir: repo, p6Mode: "claude", llm: {},
+      executors: { P6: p6, P7: async () => { p7Calls += 1; throw new Error("不应到达 P7"); } },
+      spawnExternal: async () => {
+        mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
+        writeFileSync(patchPath, patch);
+        if (scenario.report) writeExternalReport(runDir);
+        return { code: scenario.code, stderr: "", stdout: JSON.stringify({ type: "result", is_error: scenario.error,
+          result: scenario.error ? "API Error: 429 [1308] 已达到 5 小时的使用上限" : "完成" }) };
+      },
+    });
+    assert.equal(run.current, "P6");
+    assert.equal(run.stages.P6.status, "failed");
+    assert.equal(run.status, "failed");
+    assert.equal(run.externalExec.status, "failed");
+    assert.equal(p7Calls, 0);
+    assert.equal(readFileSync(patchPath, "utf8"), patch);
+    assert.equal(readFileSync(join(repo, "x"), "utf8"), "a\n", "验证不应用补丁到工作区");
+    if (scenario.error) assert.match(run.stages.P6.error, /429.*1308/);
+    if (!scenario.report) assert.match(run.stages.P6.error, /缺少 coder-report/);
+    const events = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8");
+    assert.doesNotMatch(events, /Claude Code 执行完成|P6 完成|patch \+ report/);
+  });
+}

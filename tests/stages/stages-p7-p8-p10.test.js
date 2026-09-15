@@ -5,7 +5,9 @@ import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, readdi
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
-import p7, { hashRepo, rollbackLedger } from "../../lib/stages/p7-patch.js";
+import p7, { collectPatches, hashRepo, rollbackLedger } from "../../lib/stages/p7-patch.js";
+import { verifyDelegateResult } from "../../lib/delegate/delegateVerify.js";
+import { verifyPatchEvidence } from "../../lib/infra/patchEvidence.js";
 import p8 from "../../lib/stages/p8-test-runner.js";
 import p10 from "../../lib/stages/p10-failure.js";
 
@@ -35,6 +37,56 @@ test("P7：应用 diff 并写 ledger；rollback 只反应用该 patch", async ()
   assert.ok(existsSync(join(runDir, "ledger", "patch-ledger.jsonl")));
   await rollbackLedger(runDir, repoDir, 0);
   assert.equal(readFileSync(join(repoDir, "a.txt"), "utf8"), "line1\n");
+});
+
+test("补丁清单：任务内绝对路径及两种相对路径统一，拒绝任务外与盘符相对路径", () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  const patchDir = join(runDir, "06-implementation", "patches");
+  mkdirSync(patchDir, { recursive: true });
+  const expected = "06-implementation/patches/0001-a.diff";
+  const reportPath = join(runDir, "06-implementation", "coder-report.json");
+  const check = patch => {
+    writeFileSync(reportPath, JSON.stringify({ tasks: [{ node: "T1", patch }] }));
+    return collectPatches(runDir);
+  };
+  for (const value of [
+    join(patchDir, "0001-a.diff"), join(patchDir, "0001-a.diff").replace(/\\/g, "/"),
+    expected, "patches/0001-a.diff", "patches\\0001-a.diff", "patches/../patches/0001-a.diff",
+  ]) {
+    assert.deepEqual(check(value), [{ patch: expected }], value);
+  }
+  for (const value of [
+    join(dirname(runDir), "outside.diff"), join(runDir + "-sibling", "outside.diff"),
+    "../../outside.diff", "C:outside.diff", "//server/share/outside.diff",
+    process.platform === "win32" && runDir.toLowerCase().startsWith("c:") ? "D:/outside.diff" : "C:/outside.diff",
+  ]) {
+    assert.throws(() => check(value), /非法路径/, value);
+  }
+});
+
+test("绝对补丁路径：P6 验证、P7 应用、P11 证据与回滚使用同一相对路径", async () => {
+  const repoDir = gitRepo();
+  const runDir = mkdtempSync(join(root, "run-"));
+  const patchPath = join(runDir, "06-implementation", "patches", "0001-a.diff");
+  mkdirSync(dirname(patchPath), { recursive: true });
+  writeFileSync(patchPath, "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-line1\n+line1-patched\n");
+  writeFileSync(join(runDir, "05-task-graph.json"), JSON.stringify({ nodes: [{ id: "T1" }] }));
+  const reportPath = join(runDir, "06-implementation", "coder-report.json");
+  const report = JSON.stringify({ tasks: [{ node: "T1", status: "patched", patch: patchPath }] });
+  writeFileSync(reportPath, report);
+  const verification = await verifyDelegateResult({ runDir, repoDir }, "P6");
+  assert.equal(verification.ok, true, verification.errors.join("；"));
+  assert.equal(verification.rehearsal, true);
+  assert.equal(readFileSync(join(repoDir, "a.txt"), "utf8"), "line1\n");
+  await p7({ runDir, repoDir });
+  assert.equal(readFileSync(join(repoDir, "a.txt"), "utf8"), "line1-patched\n");
+  const ledger = JSON.parse(readFileSync(join(runDir, "ledger", "patch-ledger.jsonl"), "utf8"));
+  assert.equal(ledger.patch, "06-implementation/patches/0001-a.diff");
+  const evidence = await verifyPatchEvidence({ runDir, repoDir });
+  assert.equal(evidence.ok, true, evidence.errors.join("；"));
+  await rollbackLedger(runDir, repoDir, 0);
+  assert.equal(readFileSync(join(repoDir, "a.txt"), "utf8"), "line1\n");
+  assert.equal(readFileSync(reportPath, "utf8"), report, "归一化不改写原始报告");
 });
 
 test("P8：真实执行命令，exitCode 落报告；失败抛错；完整输出落 08-test-output.txt", async () => {

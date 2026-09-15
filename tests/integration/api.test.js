@@ -233,10 +233,18 @@ test("API：stop 停止待复核 run；rerun 回退重跑；delete 删除目录"
     r = await call(h, "POST", `/issue2pr/api/projects/ctrl/runs/${runId}/stop`, {});
     assert.equal(r.status, 400);
     // rerun：非法阶段 400；合法阶段 → running 且该阶段 pending
+    const previousFailure = { category: "实现错误", action: "replan", detail: "上一轮失败" };
+    const stoppedRun = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+    stoppedRun.failureAnalysis = previousFailure;
+    writeFileSync(join(runDir, "run.json"), JSON.stringify(stoppedRun));
+    const failureReport = JSON.stringify(previousFailure);
+    writeFileSync(join(runDir, "09-failure-analysis.json"), failureReport);
     r = await call(h, "POST", `/issue2pr/api/projects/ctrl/runs/${runId}/rerun`, { stage: "P1" });
     assert.equal(r.body.ok, true);
     r = await call(h, "GET", `/issue2pr/api/projects/ctrl/runs/${runId}`);
     assert.equal(r.body.status, "running");
+    assert.equal(r.body.failureAnalysis, undefined, "重跑清除上一轮当前失败摘要");
+    assert.equal(readFileSync(join(runDir, "09-failure-analysis.json"), "utf8"), failureReport, "旧报告保留供历史查阅");
     // running 中 rerun → 400（先停止）
     r = await call(h, "POST", `/issue2pr/api/projects/ctrl/runs/${runId}/rerun`, { stage: "P1" });
     assert.equal(r.status, 400);
@@ -495,12 +503,20 @@ test("API：P6 session 模式 — GET 带 externalProgress，空 patches 拒绝 
   assert.equal(r.status, 400);
   assert.match(r.body.message, /session 模式/);
 
-  // 外部会话产出任务图 + patch：进度更新，通过放行
+  // 外部会话只产出部分 patch：进度更新，但缺报告仍不得放行
   writeFileSync(join(runDir, "05-task-graph.json"), JSON.stringify({ nodes: [{ id: "T1" }, { id: "T2" }, { id: "T3" }] }));
   mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
   r = await call(handler2, "GET", `/issue2pr/api/projects/sess/runs/${runId}`);
   assert.deepEqual(r.body.externalProgress, { patches: 1, tasks: 3, report: false });
+  r = await call(handler2, "POST", `/issue2pr/api/projects/sess/runs/${runId}/review`, { decision: "approve", comment: "" });
+  assert.equal(r.status, 400);
+  assert.match(r.body.message, /coder-report/);
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"), JSON.stringify({ tasks: [
+    { node: "T1", status: "patched", patch: "06-implementation/patches/0001-T1.diff" },
+    { node: "T2", status: "no_change", reason: "仅分析，无代码修改" },
+    { node: "T3", status: "no_change", reason: "已验证，无需额外修改" },
+  ] }));
   r = await call(handler2, "POST", `/issue2pr/api/projects/sess/runs/${runId}/review`, { decision: "approve", comment: "" });
   assert.equal(r.body.ok, true);
 });

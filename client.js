@@ -2169,6 +2169,7 @@ window.__ModuleLoader__.load({
 				stageRunTextOf(activeStage),
 			].filter(Boolean).join(" · ");
 			const p10File = tree.some(file => file.path === "09-failure-analysis.json");
+			const currentFailure = run.status === "failed" ? run.failureAnalysis : null;
 			const outputKey = "i2p.output." + key + "." + activeStage + "." + (state?.attempts || 0) + "." + (state?.startedAt || "");
 			const stageDef = STAGES.find(item => item.id === activeStage);
 			// v9 规则：未触及的节点（pending 且没有任何事件与产物）只显示一条等待空态，不渲染零内容区块。
@@ -2212,9 +2213,9 @@ window.__ModuleLoader__.load({
 							return h("button", { key: item.id, className: "studio-stage " + status + (item.id === activeStage ? " on" : "") + (item.id === run.current ? " current" : ""), title: item.id + " " + STUDIO_STAGE_NAMES[item.id] + "，" + tag(status)[1] + (stageDurationText(item.id) ? " · " + stageDurationText(item.id) : "") + " · " + stageRunTextOf(item.id), "aria-label": item.id + " " + STUDIO_STAGE_NAMES[item.id] + "，" + tag(status)[1], "aria-pressed": item.id === activeStage, onClick: () => selectStage(item.id) },
 							h("span", { className: "studio-stage-mark" }, ["approved", "completed", "acceptance_passed"].includes(status) ? Ic("check", 13) : ["failed", "acceptance_failed"].includes(status) ? Ic("x", 13) : status === "awaiting_review" ? "!" : item.id === run.current ? "●" : ""),
 							h("strong", null, STUDIO_STAGE_NAMES[item.id]), h("span", { className: "studio-stage-code" }, item.id + (item.id === run.current ? " · 当前" : stale ? " · 待重验" : item.key ? " · 复核" : "")));
-					})), trackOpen ? h("div", { className: "studio-row studio-track-footer wrap" }, followStage ? h("span", { className: "hint" }, "跟随当前阶段 ✓") : h("button", { onClick: backCurrent, title: "点击返回当前阶段并恢复跟随" }, "正在查看 " + activeStage + " · 返回当前 " + run.current + " →"), h("button", { onClick: () => selectStage("P10") }, "P10 失败分析 · " + (run.failureAnalysis ? "已生成" : p10File ? "历史记录" : "按需触发"))) : null,
+					})), trackOpen ? h("div", { className: "studio-row studio-track-footer wrap" }, followStage ? h("span", { className: "hint" }, "跟随当前阶段 ✓") : h("button", { onClick: backCurrent, title: "点击返回当前阶段并恢复跟随" }, "正在查看 " + activeStage + " · 返回当前 " + run.current + " →"), h("button", { onClick: () => selectStage("P10") }, "P10 失败分析 · " + (currentFailure ? "已生成" : p10File || run.failureAnalysis ? "历史记录" : "按需触发"))) : null,
 					// 二期 M-A4：页面级失败条只保留结论与动作，详细描述留在阶段级错误条，不再重复
-					run.failureAnalysis ? h("div", { className: "studio-return-lane studio-row wrap" }, h("span", { className: "studio-grow" }, [run.failureAnalysis.category, run.failureAnalysis.action].filter(value => typeof value === "string").join(" · ")), studioButton("查看失败分析", () => selectStage("P10"), "ghost sm")) : null),
+					currentFailure ? h("div", { className: "studio-return-lane studio-row wrap" }, h("span", { className: "studio-grow" }, [currentFailure.category, currentFailure.action].filter(value => typeof value === "string").join(" · ")), studioButton("查看失败分析", () => selectStage("P10"), "ghost sm")) : null),
 				h("section", { className: "studio-stage-bar" },
 					h("div", { className: "studio-section-heading" }, h("div", { className: "studio-row wrap" },
 						h("h2", null, activeStage + " · " + STUDIO_STAGE_NAMES[activeStage]), h(StatusBadge, { status: activeStage === "P11" ? p11Status : state?.status }),

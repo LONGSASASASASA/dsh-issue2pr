@@ -3,7 +3,7 @@
 //      连续 DELEGATE_VERIFY_MAX_FAILS 次不过 → Run 显式失败；有人工门交人工。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -52,6 +52,7 @@ function freshCase({ reviewMode = "auto", p6Mode = "session" } = {}) {
   run.stages.P6 = { status: "awaiting_review", attempts: 0, external: true };
   run.current = "P6"; run.status = "awaiting_review";
   saveRun(runDir, run);
+  writeFileSync(join(runDir, "05-task-graph.json"), JSON.stringify({ nodes: [{ id: "T1" }] }));
   return { runId, runDir, repoDir };
 }
 
@@ -125,6 +126,23 @@ test("监听 tick：人工门（key-only 的 P6）→ gate，不自动放行", a
 test("监听 tick：非委托等待 → idle", async () => {
   const { runDir } = freshCase({ p6Mode: "builtin" });
   assert.equal(await delegateWatchTick(fakeCtx(), root, runDir), "idle");
+});
+
+test("监听 tick：只有部分补丁、报告未生成时持续等待，不自动放行或清理补丁", async () => {
+  const { runDir, repoDir } = freshCase();
+  seedRepoWithPatch(repoDir, runDir);
+  unlinkSync(join(runDir, "06-implementation", "coder-report.json"));
+  const patchPath = join(runDir, "06-implementation", "patches", "0001-T1.diff");
+  const before = readFileSync(patchPath, "utf8");
+  for (let i = 0; i <= DELEGATE_VERIFY_MAX_FAILS; i++) {
+    assert.equal(await delegateWatchTick(fakeCtx(), root, runDir), "waiting");
+  }
+  const run = loadRun(runDir);
+  assert.equal(run.status, "awaiting_review");
+  assert.equal(run.stages.P6.status, "awaiting_review");
+  assert.equal(run.stages.P7.status, "pending");
+  assert.equal(run.delegateVerifyFails, undefined);
+  assert.equal(readFileSync(patchPath, "utf8"), before);
 });
 
 test("A4 修正主链路：拿到委外结果 + 验证 ok → 自动放行流转（auto-approve 记录可审计）", async () => {

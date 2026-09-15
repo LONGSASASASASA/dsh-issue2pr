@@ -902,6 +902,8 @@ async function handleApi(ctx, root, req, res) {
         }
         run.current = stage;
         run.status = "running";
+        // 上轮 P10 报告保留供历史查阅，当前失败摘要不应带入新一轮。
+        delete run.failureAnalysis;
         saveRun(runDir, run);
         stopDelegateWatch(runDir); // 旧监听作废（阶段已重置、产物已清场，等新产物重新就绪）
         sendJson(res, 200, { ok: true, message: "已从 " + stage + " 重跑" });

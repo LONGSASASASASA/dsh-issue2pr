@@ -16,6 +16,12 @@ function freshRun(reviewMode) {
   saveRun(runDir, run);
   return { runDir, run };
 }
+function writeP6Report(runDir, file) {
+  writeFileSync(join(runDir, "05-task-graph.json"), JSON.stringify({ nodes: [{ id: "T1" }] }));
+  writeFileSync(join(runDir, "06-implementation", "coder-report.json"), JSON.stringify({ tasks: [
+    { node: "T1", status: "patched", patch: "06-implementation/patches/" + file },
+  ] }));
+}
 function writeDelivery(runDir, overrides = {}) {
   writeFileSync(join(runDir, "10-pr-description.md"), "# 修复说明\n已实现任务要求，补丁、测试与审查证据一致。\n");
   writeFileSync(join(runDir, "11-eval-report.json"), JSON.stringify({
@@ -227,6 +233,7 @@ test("P6 external（session）：事件不说\"完成\"；空 patches 拒绝 app
   // 外部会话产出 patch → 放行
   mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
+  writeP6Report(runDir, "0001-T1.diff");
   const [ok2] = await applyReview(rcx, { decision: "approve", comment: "" });
   assert.ok(ok2);
   assert.equal(run.stages.P6.status, "approved");
@@ -244,6 +251,7 @@ test("A4 修复：auto 模式 + P6 session → 外部产物未就绪时挂起等
   // 外部产出后放行 → P7 才被执行
   mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
+  writeP6Report(runDir, "0001-T1.diff");
   assert.ok((await applyReview(rcx, { decision: "approve", comment: "" }))[0]);
   await advance(rcx);
   assert.equal(run.stages.P7.status, "approved", "产出就绪后 P7 正常推进");
@@ -261,6 +269,7 @@ test("A2 修复：打回委托 P6 清空旧外部产物（防 delegateReady 误�
   // 外部会话产出旧产物
   mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir, "06-implementation", "patches", "0001-T1.diff"), "--- a/x\n+++ b/x\n");
+  writeP6Report(runDir, "0001-T1.diff");
   writeFileSync(join(runDir, "06-implementation", "coder-report.json"), "{\"mode\":\"session\"}");
   writeFileSync(join(runDir, "06-implementation", "session-task.md"), "任务包");
   assert.equal(delegateReady(runDir, "P6"), true);
@@ -320,6 +329,7 @@ test("A4 修正：人工放行也过机器验证——非 diff 内容的补丁�
   await advance(rcx); // P6 → awaiting_review
   mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), "这不是补丁，只是普通文本");
+  writeP6Report(runDir, "0001.diff");
   const [ok, msg] = await applyReview(rcx, { decision: "approve", comment: "" });
   assert.equal(ok, false);
   assert.match(msg, /委外产物验证未通过/);
@@ -340,11 +350,13 @@ test("A4 修正：对 HEAD 基线不可应用的补丁，人工放行被拒；�
   await advance(rcx); // P6 → awaiting_review
   mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), diff.replace(/line1/g, "ghost-line"));
+  writeP6Report(runDir, "0001.diff");
   let [ok, msg] = await applyReview(rcx, { decision: "approve", comment: "" });
   assert.equal(ok, false, "上下文不匹配的补丁不得放行");
   assert.match(msg, /无法应用到 HEAD 基线/);
   // 外部会话修正产物 → 同一验证口径下放行
   writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), diff);
+  writeP6Report(runDir, "0001.diff");
   [ok] = await applyReview(rcx, { decision: "approve", comment: "" });
   assert.ok(ok);
   assert.equal(run.stages.P6.status, "approved");
@@ -368,6 +380,7 @@ test("A4 修正：全自动 + 委托产物就绪但坏 → advance 显式失败�
   run.current = "P6"; saveRun(runDir, run);
   mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), diff.replace(/line1/g, "ghost-line"));
+  writeP6Report(runDir, "0001.diff");
   await advance(rcx);
   assert.equal(run.stages.P6.status, "failed", "坏补丁在 P6 显式失败");
   assert.match(run.stages.P6.error, /委外产物验证未通过/);
@@ -390,6 +403,7 @@ test("A4 修正：全自动 + 委托产物就绪且验证 ok → 自动放行，
   run.current = "P6"; saveRun(runDir, run);
   mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), diff);
+  writeP6Report(runDir, "0001.diff");
   await advance(rcx);
   assert.equal(run.stages.P6.status, "approved", "拿到结果且验证 ok → 自动放行");
   assert.equal(run.status, "completed");
@@ -443,6 +457,7 @@ test("P11：真实补丁证据通过但交付门禁 fail，人工 approve 被拒
   const diff = realPatchFixture(repoDir);
   mkdirSync(join(runDir, "06-implementation", "patches"), { recursive: true });
   writeFileSync(join(runDir, "06-implementation", "patches", "0001.diff"), diff);
+  writeP6Report(runDir, "0001.diff");
   writeFileSync(join(runDir, "06-implementation", "coder-report.json"), JSON.stringify({
     patches: [{ patch: "06-implementation/patches/0001.diff" }],
   }));
