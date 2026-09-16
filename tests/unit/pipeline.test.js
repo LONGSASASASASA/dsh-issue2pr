@@ -41,6 +41,29 @@ test("STAGES 11 项，key 门恰为 P5/P6/P9/P11", () => {
   assert.deepEqual(MAIN_FLOW, ["P1","P2","P3","P4","P5","P6","P7","P8","P9","P11"]);
 });
 
+test("迟到的阶段成功或异常不能覆盖停止和新一轮状态", async () => {
+  for (const stopped of [true, false]) for (const fails of [true, false]) {
+    const { runDir, run } = freshRun("every");
+    let expected;
+    const executors = { P1: async () => {
+      expected = loadRun(runDir);
+      if (stopped) {
+        expected.status = "stopped";
+        expected.stages.P1.status = "stopped";
+      } else {
+        expected.status = "running";
+        expected.stages.P1 = { status: "running", startedAt: "2099-01-01T00:00:00.000Z" };
+      }
+      saveRun(runDir, expected);
+      if (fails) throw new Error("old execution failure");
+      return { artifact: "old.json" };
+    } };
+    await advance({ runDir, run, executors });
+    assert.deepEqual(loadRun(runDir), expected);
+    assert.deepEqual(run, expected);
+  }
+});
+
 test("every 模式：逐阶段停 awaiting_review，approve 后才推进", async () => {
   const { runDir, run } = freshRun("every");
   const rcx = { runDir, run, executors: okExecutors, log() {} };

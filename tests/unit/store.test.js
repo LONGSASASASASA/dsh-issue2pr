@@ -37,9 +37,36 @@ test("saveProject/loadProject/listProjects 往返", () => {
   assert.equal(store.loadProject(root, "nope"), null);
 });
 
+test("项目测试环境：兼容旧项目、校验平台和绝对 Shell 路径并保存", () => {
+  const project = { name: "环境", slug: "env", repos: ["r"], triggers: [], reviewMode: "every", p6Mode: "builtin" };
+  for (const testEnvironment of [null, [], "linux", { platform: "windows" }, { shell: 1 }, { shell: "bash" }, { shell: "/bin/sh\n" }]) {
+    assert.equal(store.validateProject({ ...project, testEnvironment })[0], false, JSON.stringify(testEnvironment));
+  }
+  for (const testEnvironment of [{}, { platform: "host", shell: "" }, { platform: "linux", shell: "/bin/bash" },
+    { platform: "win32", shell: "C:\\Program Files\\Git\\bin\\bash.exe" }, { platform: "darwin", shell: "/bin/zsh" }]) {
+    assert.equal(store.validateProject({ ...project, testEnvironment })[0], true, JSON.stringify(testEnvironment));
+  }
+  store.saveProject(root, project);
+  assert.deepEqual(store.loadProject(root, "env").testEnvironment, { platform: "host", shell: "" });
+  const testEnvironment = { platform: "linux", shell: "/bin/bash" };
+  store.saveProject(root, { ...project, testEnvironment });
+  assert.deepEqual(store.loadProject(root, "env").testEnvironment, testEnvironment);
+});
+
 test("newRunId 带时间戳与触发源 slug", () => {
   const id = store.newRunId("D:\\issues\\session-logout.md", new Date(2026, 7, 27, 20, 30, 5));
   assert.equal(id, "20260827-203005-session-logout-md");
+});
+
+test("executionProject：有旧快照时测试环境固定默认，无快照才沿用项目环境", () => {
+  const project = { name: "环境", testEnvironment: { platform: "linux", shell: "/bin/bash" } };
+  assert.equal(store.executionProject(project, {}), project);
+  const oldSnapshot = { executionConfig: { revision: 1, stageConfig: {} } };
+  assert.deepEqual(store.executionProject(project, oldSnapshot).testEnvironment, { platform: "host", shell: "" });
+  const changed = { ...project, testEnvironment: { platform: "darwin", shell: "/bin/zsh" } };
+  assert.deepEqual(store.executionProject(changed, oldSnapshot).testEnvironment, { platform: "host", shell: "" });
+  const run = { executionConfig: { testEnvironment: { platform: "win32", shell: "C:\\Windows\\System32\\cmd.exe" } } };
+  assert.deepEqual(store.executionProject(changed, run).testEnvironment, run.executionConfig.testEnvironment);
 });
 
 test("createRun 建目录骨架；writeArtifact 拒绝 ..；listRunTree 递归", () => {
@@ -82,7 +109,8 @@ test("readArtifact 不存在返回 null", () => {
   assert.equal(store.readArtifact(root, "a/b/c.txt"), null);
 });
 
-test("createRun 同秒冲突：同一 trigger 连续两次创建抛 Run 已存在", () => {
+test("createRun 同秒冲突：同一 trigger 连续两次创建抛 Run 已存在", t => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-09-15T00:00:00.000Z") });
   store.saveProject(root, { name: "c", slug: "c", repos: ["r"], triggers: [], reviewMode: "every", p6Mode: "builtin" });
   store.createRun(root, "c", { kind: "issue", uri: "dup.md" });
   assert.throws(() => store.createRun(root, "c", { kind: "issue", uri: "dup.md" }), /Run 已存在/);

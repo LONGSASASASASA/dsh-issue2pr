@@ -47,7 +47,7 @@ function studio(fetcher = async () => ({ ok: true }), clock = {}) {
     window: { confirm: () => true, addEventListener() {}, removeEventListener() {},
       __ModuleLoader__: { load(def) { exports = def.factory(name => name === "react" ? React : { MarkdownText: () => null }); } } },
   };
-  const source = readFileSync(new URL("../../client.js", import.meta.url), "utf8").replace("exports.apply = apply;", "exports.apply = apply; exports.test = { testActivityView, TestActivityPanel, useRunClock, stageTimingText, agentActivityView, AgentActivityPanel, useResource, StudioSettings, StudioDialog, NewTaskDialog, RunsPanel, PatchPreview, ArtifactsPanel, TaskList, ProjectsPanel, OutputPanel, useLogArtifact, RunLogPanel, stageLogText, ArtifactsDialog, RunReportCard, DeliveryPanel, WorkbenchPage, AssistantDock, panelStore, aiStore, ReadableValue, DiffContent, diffLineNumbers, formatAgentLog, timelineStripDate, timelineKeep, parseTimelineEvent, previewClamp, taskInputSummary, TimelineTable, EventDetailDialog, ExecutionsPanel, executionItems, artifactOwner, taskTitle, taskReason, evidenceState, parseLines, renderView, detectHostDark, reportSummary, gateLabel, gateStats, StageResult, SearchCandidatesCard, ArtifactContent };");
+  const source = readFileSync(new URL("../../client.js", import.meta.url), "utf8").replace("exports.apply = apply;", "exports.apply = apply; exports.test = { tag, currentFailureOf, ProjectDialog, testActivityView, TestActivityPanel, useRunClock, stageTimingText, agentActivityView, AgentActivityPanel, useResource, StudioSettings, StudioDialog, NewTaskDialog, RunsPanel, PatchPreview, ArtifactsPanel, TaskList, ProjectsPanel, OutputPanel, useLogArtifact, RunLogPanel, stageLogText, ArtifactsDialog, RunReportCard, DeliveryPanel, WorkbenchPage, AssistantDock, panelStore, aiStore, ReadableValue, DiffContent, diffLineNumbers, formatAgentLog, timelineStripDate, timelineKeep, parseTimelineEvent, previewClamp, taskInputSummary, TimelineTable, EventDetailDialog, ExecutionsPanel, executionItems, artifactOwner, taskTitle, taskReason, evidenceState, parseLines, renderView, detectHostDark, reportSummary, gateLabel, gateStats, StageResult, SearchCandidatesCard, ArtifactContent };");
   vm.runInNewContext(source, sandbox, { filename: "client.js" });
   function mount(fn, props) {
     const instance = { index: 0, cells: [], effects: [], props, tree: null,
@@ -64,6 +64,51 @@ const walk = tree => tree && typeof tree === "object" ? [tree, ...(tree.children
 const text = tree => typeof tree === "string" || typeof tree === "number" ? String(tree) : (tree?.children || []).map(text).join("");
 const button = (tree, label) => walk(tree).find(node => node.type === "button" && text(node) === label);
 const field = (tree, label) => walk(walk(tree).find(node => node.type === "label" && text(node).startsWith(label))).find(node => ["input", "select", "textarea"].includes(node.type));
+
+test("项目测试环境：编辑加载并保存平台和 Shell；旧项目采用当前主机", async t => {
+  const ui = studio();
+  const project = { name: "Alpha", slug: "alpha", repos: [{ uri: "https://example.com/alpha.git" }], triggers: [],
+    testEnvironment: { platform: "linux", shell: "/bin/bash" } };
+  const saved = [];
+  const props = { projects: [project], slug: "alpha", onSaved: value => saved.push(value), onClose() {} };
+  const page = ui.mount(ui.ProjectDialog, props); t.after(() => page.dispose());
+  assert.equal(field(page.tree, "测试平台").props.value, "linux");
+  assert.equal(field(page.tree, "测试 Shell").props.value, "/bin/bash");
+  assert.match(text(page.tree), /不会自动切换操作系统/);
+  assert.match(text(page.tree), /npm 内部脚本/);
+  field(page.tree, "测试平台").props.onChange({ target: { value: "win32" } });
+  field(page.tree, "测试 Shell").props.onChange({ target: { value: " C:\\Program Files\\Git\\bin\\bash.exe " } });
+  page.render();
+  await walk(page.tree).find(node => node.type === "form").props.onSubmit({ preventDefault() {} });
+  const body = JSON.parse(ui.requests.find(request => request.url.endsWith("/projects")).body);
+  assert.deepEqual(body.testEnvironment, { platform: "win32", shell: "C:\\Program Files\\Git\\bin\\bash.exe" });
+  assert.deepEqual(saved, ["alpha"]);
+  const legacy = ui.mount(ui.ProjectDialog, { ...props, projects: [{ ...project, testEnvironment: undefined }] });
+  t.after(() => legacy.dispose());
+  assert.equal(field(legacy.tree, "测试平台").props.value, "host");
+  assert.equal(field(legacy.tree, "测试 Shell").props.value, "");
+});
+
+test("测试活动：展示本轮实际环境及终止证据，不显示旧轮环境", () => {
+  const ui = studio(), startedAt = "2026-09-15T10:00:00Z";
+  const run = { current: "P8", status: "failed", stages: { P8: { status: "failed", startedAt } },
+    testActivity: { status: "available", stageStartedAt: startedAt, executionStatus: "environment_error",
+      environment: { platform: "win32", shell: "C:\\Windows\\System32\\cmd.exe", cwd: "C:\\repo" }, error: "要求 linux，当前 win32" } };
+  let view = ui.testActivityView(run, [], [], Date.parse(startedAt));
+  let panel = ui.TestActivityPanel({ view });
+  assert.match(text(panel), /测试环境检查未通过/);
+  assert.match(text(panel), /执行环境：win32/);
+  assert.match(text(panel), /Shell C:\\Windows\\System32\\cmd.exe/);
+  assert.match(text(panel), /目录 C:\\repo/);
+  assert.match(text(panel), /要求 linux，当前 win32/);
+  for (const [executionStatus, expected] of [["cancelled", "测试已取消"], ["spawn_failed", "测试命令启动失败"]]) {
+    view = ui.testActivityView({ ...run, testActivity: { ...run.testActivity, executionStatus } }, [], [], Date.parse(startedAt));
+    assert.equal(view.title, expected);
+  }
+  view = ui.testActivityView({ ...run, stages: { P8: { status: "pending", startedAt } } }, [], [], Date.parse(startedAt));
+  panel = ui.TestActivityPanel({ view });
+  assert.doesNotMatch(text(panel), /执行环境|要求 linux/);
+});
 
 test("主题：识别 DSH body 深色标记，兼容旧宿主 HEX/RGB 背景及明暗切换", () => {
   const ui = studio();
@@ -1139,6 +1184,134 @@ test("重跑后的旧失败摘要不显示警告，历史入口保留，当前�
   assert.match(text(walk(page.tree).find(n => n.props.className === "studio-section-heading")), /P10 · 失败分析/, "历史入口仍可切换到 P10");
   page.render({ ...page.props, run: { ...run, failureAnalysis: { category: "环境缺失", action: "escalate" } } });
   assert.match(text(lane()), /环境缺失 · escalate/, "本轮再次失败时显示新的分析");
+});
+
+test("P10 旁路：失败任务仍显示分析进度、完成与降级状态，身份不匹配报告不是当前失败", async t => {
+  const startedAt = "2026-09-15T10:00:00Z", analysisStart = "2026-09-15T10:05:00Z";
+  const identity = { analysisId: "analysis-2", sourceStage: "P8", sourceStartedAt: startedAt };
+  const event = { at: analysisStart, stage: "P10", kind: "stage", name: "P10 开始", ...identity };
+  const ui = studio(async url => url.includes("trace%2Fevents") || url.includes("trace/events")
+    ? { ok: true, text: JSON.stringify(event) + "\n" } : { ok: true, text: "{}" });
+  const run = { id: "a", current: "P8", status: "failed", stages: { P8: { status: "failed", startedAt },
+    P10: { status: "running", startedAt: analysisStart, attempts: 2, ...identity } },
+    failureAnalysis: { category: "实现错误", action: "replan", ...identity, analysisId: "analysis-1" },
+    executionConfig: { revision: 2, testEnvironment: { platform: "linux", shell: "/bin/bash" } } };
+  assert.equal(ui.currentFailureOf(run), null);
+  assert.match(ui.stageTimingText(run, "P10", [], Date.parse(analysisStart) + 15000), /已运行 15 秒/);
+  const page = ui.mount(ui.RunsPanel, { slug: "alpha", runId: "a", run, tree: [{ path: "trace/events.jsonl", size: 200, mtimeMs: Date.parse(analysisStart) }], onChanged() {}, toast() {} });
+  t.after(() => page.dispose()); await tick(); page.render();
+  button(page.tree, "展开流程").props.onClick(); page.render();
+  button(page.tree, "P10 失败分析 · 分析中").props.onClick(); page.render(); await tick(); page.render();
+  assert.match(text(walk(page.tree).find(n => n.props.className === "studio-section-heading")), /P10 · 失败分析/);
+  assert.match(text(walk(page.tree).find(n => n.props.className === "studio-section-heading")), /第 2 次分析/);
+  assert.ok(button(page.tree, "阶段事件 1"), "旁路事件可见");
+  assert.ok(!walk(page.tree).some(n => n.props.className?.startsWith("studio-return-lane")));
+  for (const status of ["completed", "degraded"]) {
+    const finished = { ...run, stages: { ...run.stages, P10: { ...run.stages.P10, status, finishedAt: "2026-09-15T10:05:15Z" } },
+      failureAnalysis: { ...identity, category: "原因未确定", action: "escalate" } };
+    assert.ok(ui.currentFailureOf(finished));
+    assert.notEqual(ui.tag(status)[1], "未开始");
+    page.render({ ...page.props, run: finished });
+    assert.match(text(page.tree), /P10 失败分析 · 已生成/);
+    for (const patch of [{ analysisId: "old" }, { sourceStage: "P9" }, { sourceStartedAt: "old" }, { category: "" }]) {
+      assert.equal(ui.currentFailureOf({ ...finished, failureAnalysis: { ...finished.failureAnalysis, ...patch } }), null);
+    }
+  }
+  page.render({ ...page.props, run: { ...run, failureAnalysis: undefined, stages: { ...run.stages, P10: { ...run.stages.P10, status: "failed", error: "报告保存失败" } } } });
+  assert.match(text(page.tree), /P10 失败分析 · 分析失败/);
+  assert.match(text(page.tree), /报告保存失败/);
+  button(page.tree, "任务详情").props.onClick(); page.render();
+  assert.match(text(page.tree), /测试环境配置：linux · Shell \/bin\/bash/);
+});
+
+test("P10 阶段结果：运行和外部等待隔离旧 canonical，完成后只显示匹配本轮身份的报告", async t => {
+  const startedAt = "2026-09-15T10:00:00Z", identity = { analysisId: "new-analysis", sourceStage: "P8", sourceStartedAt: startedAt };
+  const canonical = "09-failure-analysis.json", ownReport = "trace/failures/new-analysis.json", task = "trace/failures/new-analysis.task.md";
+  const oldReport = { category: "实现错误", action: "replan", ...identity, analysisId: "old-analysis" };
+  let report = oldReport;
+  const opened = [], ui = studio(async url => ({ ok: true, text: JSON.stringify(decodeURIComponent(url).includes(ownReport) ? report : oldReport) }));
+  const props = { slug: "alpha", runId: "a", stage: "P10", onFile: path => opened.push(path),
+    tree: [canonical, ownReport, task].map(path => ({ path, size: 100, mtimeMs: Date.parse(startedAt) })),
+    run: { current: "P8", status: "failed", stages: { P8: { status: "failed", startedAt }, P10: { status: "running", ...identity } } } };
+  const page = ui.mount(ui.StageResult, props); t.after(() => page.dispose()); await tick(); page.render();
+  const body = () => walk(page.tree).find(node => node.type === ui.ReadableValue);
+  assert.match(text(page.tree), /正在分析本轮失败/); assert.equal(body(), undefined);
+  assert.equal(ui.requests.length, 0, "运行时不读取旧报告作为当前结果");
+  button(page.tree, "查看历史分析文件").props.onClick(); assert.deepEqual(opened, [canonical]);
+  const state = props.run.stages.P10;
+  const renderState = next => page.render({ ...props, run: { ...props.run, stages: { ...props.run.stages, P10: { ...state, ...next } } } });
+  renderState({ status: "awaiting_review", artifact: task, responseArtifact: ownReport });
+  assert.match(text(page.tree), /提交外部报告后重跑 P10 读取/); assert.equal(body(), undefined);
+  button(page.tree, "查看本轮分析任务包").props.onClick(); assert.equal(opened.at(-1), task);
+  assert.match(text(page.tree), /外部报告位置：trace\/failures\/new-analysis.json/);
+  renderState({ status: "completed", artifact: ownReport }); await tick(); page.render();
+  assert.match(text(page.tree), /分析身份不匹配/); assert.equal(body(), undefined);
+  assert.ok(button(page.tree, "查看历史分析文件"));
+  report = { ...identity, category: "执行超时", action: "escalate" };
+  page.render({ ...page.props, tree: props.tree.map(file => ({ ...file, mtimeMs: file.mtimeMs + 1000 })) }); await tick(); page.render();
+  assert.equal(body()?.props.value.category, "执行超时");
+  button(page.tree, "查看结果文件").props.onClick(); assert.equal(opened.at(-1), ownReport);
+  renderState({ status: "approved", artifact: canonical }); await tick(); page.render();
+  assert.equal(body(), undefined, "即使 st.artifact 指向 canonical，旧身份内容仍不展示");
+  assert.match(text(page.tree), /分析身份不匹配/);
+  page.render({ ...page.props, run: { ...page.props.run, status: "running" } });
+  assert.match(text(page.tree), /历史失败分析，不代表本轮/); assert.equal(body(), undefined);
+});
+
+test("P10 报告读取：异步加载、读取失败、JSON/结构错误及身份错配分别显示，不在读取中误报", async t => {
+  const identity = { analysisId: "analysis-async", sourceStage: "P8", sourceStartedAt: "2026-09-15T10:00:00Z" };
+  const path = "trace/failures/analysis-async.json", report = { ...identity, category: "执行超时", action: "escalate" };
+  const props = { slug: "alpha", runId: "a", stage: "P10", onFile() {}, tree: [{ path, size: 100, mtimeMs: 1 }],
+    run: { current: "P8", status: "failed", stages: { P8: { status: "failed", startedAt: identity.sourceStartedAt },
+      P10: { status: "approved", artifact: path, ...identity } } } };
+  const response = deferred(), ui = studio(() => response.promise), page = ui.mount(ui.StageResult, props);
+  t.after(() => page.dispose());
+  assert.match(text(page.tree), /正在读取本轮失败分析/);
+  assert.doesNotMatch(text(page.tree), /身份不匹配|结构无效|不是有效 JSON/);
+  response.resolve({ ok: true, text: JSON.stringify(report) }); await tick(); page.render();
+  assert.equal(walk(page.tree).find(node => node.type === ui.ReadableValue)?.props.value.category, "执行超时");
+  assert.doesNotMatch(text(page.tree), /正在读取|身份不匹配|结构无效/);
+
+  const failedResponse = deferred(); let recovering = false;
+  const failureUi = studio(() => recovering ? { ok: true, text: JSON.stringify(report) } : failedResponse.promise);
+  const failedPage = failureUi.mount(failureUi.StageResult, props); t.after(() => failedPage.dispose());
+  failedResponse.reject(new Error("网络中断")); await tick(); failedPage.render();
+  assert.match(text(failedPage.tree), /本轮失败分析读取失败：网络中断/);
+  assert.doesNotMatch(text(failedPage.tree), /正在读取|身份不匹配|结构无效|不是有效 JSON/);
+  assert.equal(walk(failedPage.tree).find(node => node.type === failureUi.ReadableValue), undefined);
+  recovering = true; button(failedPage.tree, "重试读取本轮分析").props.onClick(); failedPage.render(); await tick(); failedPage.render();
+  assert.ok(walk(failedPage.tree).some(node => node.type === failureUi.ReadableValue));
+
+  for (const [content, expected, excluded] of [
+    ["{broken", /报告不是有效 JSON/, /报告结构无效|分析身份不匹配/],
+    ["null", /报告结构无效/, /不是有效 JSON|分析身份不匹配/],
+    [JSON.stringify({ ...report, action: 7 }), /报告结构无效/, /不是有效 JSON|分析身份不匹配/],
+    [JSON.stringify({ ...report, analysisId: "old-analysis" }), /报告分析身份不匹配/, /不是有效 JSON|报告结构无效/],
+  ]) {
+    const invalidUi = studio(async () => ({ ok: true, text: content }));
+    const invalidPage = invalidUi.mount(invalidUi.StageResult, props); t.after(() => invalidPage.dispose());
+    await tick(); invalidPage.render();
+    assert.match(text(invalidPage.tree), expected); assert.doesNotMatch(text(invalidPage.tree), excluded);
+    assert.equal(walk(invalidPage.tree).find(node => node.type === invalidUi.ReadableValue), undefined);
+  }
+});
+
+test("P10 approved 徽章显示分析完成，其他阶段 approved 仍显示已通过", async t => {
+  const identity = { analysisId: "badge", sourceStage: "P8", sourceStartedAt: "2026-09-15T10:00:00Z" };
+  const ui = studio(async () => ({ ok: true, text: "{}" }));
+  const run = { id: "a", current: "P8", status: "failed", failureAnalysis: { ...identity, category: "原因未确定", action: "escalate" },
+    stages: { P7: { status: "approved" }, P8: { status: "failed", startedAt: identity.sourceStartedAt }, P10: { status: "approved", ...identity } } };
+  const page = ui.mount(ui.RunsPanel, { slug: "alpha", runId: "a", run, tree: [], onChanged() {}, toast() {} }); t.after(() => page.dispose());
+  button(page.tree, "展开流程").props.onClick(); page.render();
+  button(page.tree, "P10 失败分析 · 已生成").props.onClick(); page.render();
+  const badgeText = () => {
+    const heading = walk(page.tree).find(node => node.props.className === "studio-section-heading");
+    const badge = walk(heading).find(node => node.type?.name === "StatusBadge");
+    return text(badge.type(badge.props));
+  };
+  assert.equal(badgeText(), "分析完成");
+  walk(page.tree).find(node => node.type === "button" && node.props["aria-label"]?.startsWith("P7 ")).props.onClick(); page.render();
+  assert.equal(badgeText(), "已通过");
 });
 
 test("二期M-B：打回次数显式回显生效值，未设置显示默认 3", async t => {

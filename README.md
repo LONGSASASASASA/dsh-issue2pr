@@ -157,9 +157,27 @@ git clone https://github.com/LONGSASASASASA/dsh-issue2pr.git dsh-issue2pr
   "reviewMode": "key-only",              // every | key-only | auto
   "p6Mode": "builtin",                   // builtin | session | claude | dsh
   "testCommand": "npm test",             // 留空则自动探测 package.json 的 test 脚本
+  "testEnvironment": {
+    "platform": "host",                 // host | win32 | linux | darwin
+    "shell": ""                         // 留空使用系统默认，或 Shell 可执行文件的绝对路径
+  },
   "stageConfig": { /* 逐阶段覆盖，见下 */ }
 }
 ```
+
+### 测试执行与失败分析
+
+在项目编辑页设置测试平台和 Shell。新建任务会保存环境快照，后续修改项目配置不会改变已有任务；旧快照没有环境字段时沿用宿主默认环境。`platform` 是运行前的兼容性检查，不会自动启动 WSL、容器或远程 Linux。
+
+Windows 默认使用原生 `cmd.exe`，无需安装 Git Bash。Shell 也支持显式配置 sh 兼容解释器（Bash、sh、dash、zsh）的绝对路径，不带参数；所选 Shell 同时用于外层测试命令及 npm 内部脚本。
+
+Windows CMD 下，P8 将独立、无参数的 `date` 命令适配为 `date /t`，避免等待修改系统日期。适配覆盖外层命令和可确认的根目录 npm 测试调用链（含 `cross-env` 与 pre/post 生命周期），保留全部测试及参数；带参数、引用字符串、复杂 Shell 语法、其他工作目录和 workspace 不猜测改写。npm 脚本只在测试期间临时调整，正常结束、失败、超时及取消后恢复 `package.json` 原始字节，不加入业务补丁。原文备份及前后命令记录在 `trace/test-command-adaptations/`，测试报告通过 `commandAdaptation` 引用；遇到外部修改或回收未确认时保留备份并报错，存在 `trace/cmd-date-pending.json` 时须先核对恢复，不能将残留适配当作源文件继续测试。其他脚本兼容性仍由项目负责。
+
+P8 关闭标准输入，持续保存 stdout/stderr，按 P8 的 `timeoutMs` 限时执行；停止、删除、重跑及正常关闭插件时统一回收测试进程树。环境不匹配或 Shell 不可用时直接报告具体错误。无法确认回收时明确报错并阻止同任务再次启动测试。
+
+`07-test-report.json` 记录实际命令、目录、平台、Shell、执行编号、退出码与超时/取消等事实；`08-test-output.txt` 保存完整输出。P10 仅采用与本轮身份一致的报告和日志，区分执行超时、取消、环境故障与原因未确定，模型失败时仍保存基础证据。单独重跑 P10 只重新分析；委托分析按本轮任务包提交报告后，再重跑 P10 读取结果。历史结果不覆盖新一轮状态。
+
+更新此机制后，需要让 DSH 加载新版插件并重启。若宿主使用安装目录中的副本，须先更新该副本；只刷新页面不会更新后端执行器。
 
 ### 逐阶段配置（stageConfig）
 

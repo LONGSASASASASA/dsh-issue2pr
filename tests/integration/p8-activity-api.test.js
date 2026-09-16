@@ -46,7 +46,7 @@ const timer = setInterval(() => {
         return response.json();
     };
     let finished = false;
-    execution = p8({ runDir, repoDir: root, run, project: { testCommand: "node slow.cjs" } }).finally(() => { finished = true; });
+    execution = p8({ runDir, repoDir: root, run, project: { testCommand: "node slow.cjs" } }).then(() => null, error => error).finally(() => { finished = true; });
     let detail, output;
     const deadline = Date.now() + 7000;
     do {
@@ -66,15 +66,13 @@ const timer = setInterval(() => {
     const tree = await get("/tree"); assert.ok(tree.files.some(file => file.path === "08-test-output.txt" && file.size > 0));
     assert.equal(readFileSync(join(runDir, "run.json"), "utf8"), original, "流式输出不反复写 run.json");
     const stop = await fetch(base + "/stop", { method: "POST" }); assert.equal(stop.status, 200);
-    detail = await get(); assert.equal(detail.status, "stopped"); assert.equal(detail.testActivity.executionStatus, "running");
-    assert.equal(detail.testActivity.process.state, "alive", "沿用停止后当前命令执行完才停的语义");
-    writeFileSync(release, "release"); await execution;
+    assert.match((await execution).message, /测试取消/);
     detail = await get(); assert.equal(detail.status, "stopped");
-    assert.equal(detail.testActivity.executionStatus, "completed"); assert.equal(detail.testActivity.exitCode, 0);
+    assert.equal(detail.testActivity.executionStatus, "cancelled");
     assert.notEqual(detail.testActivity.process.state, "alive");
     output = await get("/artifact?path=08-test-output.txt"); assert.equal(output.text.match(/stdout: 中文开始/g).length, 1);
-    assert.match(output.text, /stdout: 结束/);
-    const report = await get("/artifact?path=07-test-report.json"); assert.equal(JSON.parse(report.text).passed, true);
+    assert.doesNotMatch(output.text, /stdout: 结束/, "停止会终止命令，不继续执行后续步骤");
+    const report = await get("/artifact?path=07-test-report.json"); assert.equal(JSON.parse(report.text).passed, false);
     const next = { ...run, stages: { P8: { status: "running", startedAt: new Date(Date.now() + 1).toISOString() } } };
     saveRun(runDir, next);
     detail = await get(); assert.equal(detail.testActivity.status, "unavailable"); assert.equal(detail.testActivity.reasonCode, "stale");

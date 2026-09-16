@@ -22,6 +22,8 @@ import { stopExternals } from "./lib/delegate/executors/index.js";
 import { resolveClaudeBin, externalProcessState } from "./lib/delegate/executors/claude-code.js";
 import { readAgentActivity } from "./lib/delegate/agentActivity.js";
 import { readTestActivity } from "./lib/stages/testActivity.js";
+import { stopTestProcess } from "./lib/infra/testProcess.js";
+import { analyzeFailure } from "./lib/core/failureAnalysis.js";
 import { testDshGate } from "./lib/delegate/executors/dsh-agent.js";
 import { loadRelayToken, saveRelayToken, relayAuthExists, relayAuthInfo } from "./lib/infra/relayAuth.js";
 import { discoverAgents, testAgentGate, realRunWhich, realRunNpmPrefix, realRunVersion } from "./lib/delegate/agents.js";
@@ -175,28 +177,20 @@ export function failRun(runDir, stageId, message) {
   return run;
 }
 
-// —— 失败分析（P10）结果写回 run.json：此前只落 09-failure-analysis.json 产物，run.json 不记，
-// UI 轮询状态机无从得知"失败已分析/建议动作"。此处读产物合并进 run.failureAnalysis（尽力而为，不阻断主流程）。
-function recordFailureAnalysis(runDir) {
-  try {
-    const run = loadRun(runDir);
-    if (!run || run.status !== "failed") return;
-    const out = JSON.parse(readFileSync(join(runDir, "09-failure-analysis.json"), "utf8"));
-    if (!out || !out.category) return;
-    run.failureAnalysis = { category: out.category, detail: out.detail || "", action: out.action || "", at: new Date().toISOString() };
-    saveRun(runDir, run);
-  } catch { /* 产物缺失/损坏时静默跳过 */ }
-}
-
+// 所有失败路径共用 P10 旁路入口，LLM 路由和事件独立指向 P10。
 async function classifyFailure(ctx, runDir, rcx, run, message) {
   if (!rcx?.executors?.P10) return;
   rcx.run = run;
   try {
-    await rcx.executors.P10({ ...rcx, failure: { stage: run.current, error: message } });
-    recordFailureAnalysis(runDir);
+    await analyzeFailure(rcx, message, scoped => {
+      scoped.stageCfgOf = id => rcx.stageCfgOf(id || "P10");
+      scoped.llm = __testHooks ? rcx.llm : makeLlm(ctx,
+        ev => { if (scoped.failureAnalysisCurrent()) logEvent(scoped, ev); },
+        () => routeOverridesOf(scoped));
+      return scoped;
+    });
   } catch (error) {
-    ctx.logger?.error?.("issue2pr: P10 失败分析也失败: " +
-      String((error && error.message) || error));
+    ctx.logger?.error?.("issue2pr: P10 失败分析也失败: " + String(error?.message || error));
   }
 }
 
@@ -232,14 +226,7 @@ function drive(ctx, root, runDir) {
           if (run) {
             const rcx = s.rcx;
             if (rcx) {
-              rcx.run = run;
-              try {
-                await rcx.executors.P10({ ...rcx, failure: { stage: run.current, error: msg } });
-                recordFailureAnalysis(runDir);
-              } catch (p10Error) {
-                ctx.logger?.error?.("issue2pr: P10 失败分析也失败: " +
-                  String((p10Error && p10Error.message) || p10Error));
-              }
+              await classifyFailure(ctx, runDir, rcx, run, msg);
             }
           }
           ctx.logger?.warn?.("issue2pr: " + msg);
@@ -263,10 +250,7 @@ function drive(ctx, root, runDir) {
       rcx.project = executionProject(loadProject(root, run.project), run) || rcx.project;
       await advance(rcx);
       if (run.status === "failed") {
-        try {
-          await rcx.executors.P10({ ...rcx, failure: { stage: run.current, error: run.stages[run.current]?.error } });
-          recordFailureAnalysis(runDir);
-        } catch { /* P10 自身失败不阻断主流程 */ }
+        await classifyFailure(ctx, runDir, rcx, run, run.stages[run.current]?.error);
         return;
       }
     }
@@ -305,15 +289,7 @@ function drive(ctx, root, runDir) {
         return;
       }
     }
-    if (!rcx.executors?.P10) return;
-    rcx.run = failed;
-    try {
-      await rcx.executors.P10({ ...rcx, failure: { stage: failed.current, error: message } });
-      recordFailureAnalysis(runDir);
-    } catch (p10Error) {
-      ctx.logger?.error?.("issue2pr: P10 失败分析也失败: " +
-        String((p10Error && p10Error.message) || p10Error));
-    }
+    await classifyFailure(ctx, runDir, rcx, failed, message);
   });
   s.lock = guarded.then(() => {}, () => {}); // 失败已记录，锁链保持可继续使用
   return s.lock;
@@ -402,11 +378,7 @@ export async function delegateWatchTick(ctx, root, runDir) {
   st.status = "failed"; st.error = msg;
   run.status = "failed";
   saveRun(runDir, run);
-  rcx.run = run;
-  try {
-    await rcx.executors.P10({ ...rcx, failure: { stage: id, error: msg } });
-    recordFailureAnalysis(runDir);
-  } catch { /* P10 自身失败不阻断主流程 */ }
+  await classifyFailure(ctx, runDir, rcx, run, msg);
   return "failed";
 }
 
@@ -421,6 +393,12 @@ export function recoverInterruptedRuns(root) {
     for (const id of readdirSync(runsDir)) {
       const runDir = join(runsDir, id);
       const run = loadRun(runDir);
+      if (run?.status === "failed" && run.stages?.P10?.status === "running") {
+        run.stages.P10.status = "failed";
+        run.stages.P10.finishedAt = new Date().toISOString();
+        run.stages.P10.error = "P10 分析因宿主退出而中断，请重跑失败分析";
+        saveRun(runDir, run);
+      }
       if (!run || run.status !== "running") continue;
       const st = run.stages[run.current];
       if (st && st.status === "running") st.status = "stopped";
@@ -789,6 +767,7 @@ async function handleApi(ctx, root, req, res) {
             stopExternals(rd);
             stopped += 1;
           }
+          await stopTestProcess(rd, "删除项目");
         }
       }
       try { rmTree(dir); }
@@ -832,7 +811,8 @@ async function handleApi(ctx, root, req, res) {
         catch (e) { return sendJson(res, 409, { ok: false, message: (e && e.message) || String(e) }); }
         const { runId, runDir } = created;
         const run = initRun({ runId, slug, trigger: { ...trigger, text }, reviewMode: settings.reviewMode, p6Mode: settings.p6Mode });
-        run.executionConfig = { ...structuredClone(settings), defaultRoute };
+        run.executionConfig = { ...structuredClone(settings), defaultRoute,
+          testEnvironment: structuredClone(project.testEnvironment || { platform: "host", shell: "" }) };
         run.status = "running"; // 发起即进入运行态（drive 只在 running 时推进）
         saveRun(runDir, run);
         sendJson(res, 200, { ok: true, runId });
@@ -876,9 +856,10 @@ async function handleApi(ctx, root, req, res) {
           run.stages[run.current].stoppedAt = new Date().toISOString();
         }
         saveRun(runDir, run);
+        const testStopped = await stopTestProcess(runDir, "用户停止");
         stopExternals(runDir); // 委外在跑时一并终止（杀 CLI 进程树/取消宿主智能体），避免孤儿继续写仓库
         stopDelegateWatch(runDir); // 委外就绪监听一并停止
-        return sendJson(res, 200, { ok: true, message: "已停止（当前阶段执行完即停）" });
+        return sendJson(res, 200, { ok: true, message: testStopped ? "已停止并回收测试进程" : "已停止（当前阶段执行完即停）" });
       }
 
       // —— 回退重跑：指定阶段及其后全部置为 pending，从该阶段重新推进 ——
@@ -890,6 +871,44 @@ async function handleApi(ctx, root, req, res) {
         const stage = String(body?.stage || "");
         const ids = STAGES.map((s) => s.id);
         if (!ids.includes(stage)) return sendJson(res, 400, { ok: false, message: "非法阶段: " + stage });
+        if (stage === "P10") {
+          const source = run.current === "P10" ? run.stages?.P10?.sourceStage : run.current;
+          if (run.status !== "failed" || source === "P10" || run.stages?.[source]?.status !== "failed") {
+            return sendJson(res, 400, { ok: false, message: "仅有失败阶段时可重跑失败分析" });
+          }
+          run.current = source;
+          run.status = "failed";
+          const sourceStartedAt = run.stages[source]?.startedAt || null;
+          const resumeExternal = run.stages.P10?.status === "awaiting_review" &&
+            run.stages.P10.sourceStage === source && run.stages.P10.sourceStartedAt === sourceStartedAt;
+          if (!resumeExternal) run.stages.P10 = { status: "pending", attempts: run.stages.P10?.attempts || 0 };
+          delete run.failureAnalysis;
+          saveRun(runDir, run);
+          sendJson(res, 200, { ok: true, message: "已重跑 P10 失败分析" });
+          setImmediate(async () => {
+            try {
+              const latest = loadRun(runDir);
+              if (latest?.status !== "failed" || latest.current !== source ||
+                  (latest.stages?.[source]?.startedAt || null) !== sourceStartedAt) return;
+              let rcx;
+              try {
+                rcx = buildRcx(ctx, root, runDir, latest);
+              } catch (error) {
+                // 上下文尚未创建时也走同一旁路状态/事件入口，不能让定时回调异常逃逸。
+                rcx = { runDir, run: latest, resumeFailureAnalysis: resumeExternal,
+                  executors: { P10: async () => { throw new Error("P10 上下文构建失败: " + String(error?.message || error)); } } };
+                await analyzeFailure(rcx, latest.stages[source]?.error);
+                return;
+              }
+              rcx.resumeFailureAnalysis = resumeExternal;
+              await classifyFailure(ctx, runDir, rcx, latest, latest.stages[source]?.error);
+            } catch (error) {
+              ctx.logger?.error?.("issue2pr: P10 重跑失败: " + String(error?.message || error));
+            }
+          });
+          return;
+        }
+        await stopTestProcess(runDir, "重跑前回收旧测试");
         const project0 = executionProject(loadProject(root, slug), run);
         const shimRcx = project0 ? { run, project: project0, stageCfgOf: (id) => stageCfgOf(project0, id) } : null;
         for (const s of STAGES) {
@@ -904,6 +923,7 @@ async function handleApi(ctx, root, req, res) {
         run.status = "running";
         // 上轮 P10 报告保留供历史查阅，当前失败摘要不应带入新一轮。
         delete run.failureAnalysis;
+        run.stages.P10 = { status: "pending", attempts: run.stages.P10?.attempts || 0 };
         saveRun(runDir, run);
         stopDelegateWatch(runDir); // 旧监听作废（阶段已重置、产物已清场，等新产物重新就绪）
         sendJson(res, 200, { ok: true, message: "已从 " + stage + " 重跑" });
@@ -922,6 +942,7 @@ async function handleApi(ctx, root, req, res) {
         stopDelegateWatch(runDir); // 停委外就绪监听，再丢弃会话
         runSessions.delete(runDir); // 丢弃共享 rcx（reviewComment 等），防复活
         stopExternals(runDir);
+        await stopTestProcess(runDir, "删除任务");
         try { rmTree(runDir); }
         catch (e) { return sendJson(res, 500, { ok: false, message: "删除失败: " + String((e && e.message) || e) }); }
         removeWorktree(root, slug, runId).catch(() => {}); // 尽力清理 per-Run worktree（孤儿可由 prune 收敛）
@@ -1060,5 +1081,27 @@ export function apply(ctx, config = {}) {
   ctx.effect(() => ctx.webServer.register({
     kind: "prefix", path: "/issue2pr", handler: (req, res) => handleApi(ctx, root, req, res),
   }), "issue2pr: api routes");
+  ctx.effect(() => async () => {
+    const active = [...runSessions.keys()].filter(dir => projectKeyOf(root, dir).startsWith(join(root, "projects") + sep));
+    await Promise.all(active.map(async runDir => {
+      const run = loadRun(runDir);
+      if (run && ["running", "awaiting_review"].includes(run.status)) {
+        run.status = "stopped";
+        if (run.stages?.[run.current]?.status === "running") run.stages[run.current].status = "stopped";
+        saveRun(runDir, run);
+      }
+      if (run?.stages?.P10?.status === "running") {
+        run.stages.P10.status = "failed";
+        run.stages.P10.error = "宿主正在退出";
+        run.stages.P10.finishedAt = new Date().toISOString();
+        delete run.stages.P10.analysisId;
+        saveRun(runDir, run);
+      }
+      stopDelegateWatch(runDir);
+      stopExternals(runDir);
+      await stopTestProcess(runDir, "宿主正在退出");
+      runSessions.delete(runDir);
+    }));
+  }, "issue2pr: stop active executions");
   ctx.logger?.info?.(`issue2pr: API ready at /issue2pr/api/projects/* (dataRoot=${root})`);
 }

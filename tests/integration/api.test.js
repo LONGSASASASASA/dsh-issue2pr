@@ -858,3 +858,168 @@ test("API：check-local — 本地触发源存在性", async () => {
   r = await call(h, "POST", "/issue2pr/api/check-local", { path: "  " });
   assert.equal(r.status, 400);
 });
+
+test("API：P10 单独重跑仅重新分析，保留 P8 失败阶段及测试产物", async () => {
+  let analyses = 0, tests = 0;
+  __setTestHooks({ dataRoot: root, executors: {
+    P8: async () => { tests += 1; return {}; },
+    P10: async rcx => {
+      analyses += 1;
+      assert.equal(rcx.run.current, "P10");
+      assert.equal(rcx.failure.stage, "P8");
+      writeArtifact(rcx.runDir, rcx.failureAnalysisArtifact, JSON.stringify({ category: "原因未确定", detail: "本轮证据", action: "escalate" }));
+      return { artifact: rcx.failureAnalysisArtifact };
+    },
+  } });
+  const slug = "failure-rerun", runId = "20260915-080000-failure";
+  saveProject(root, { slug, name: slug, repos: ["r"], triggers: [], reviewMode: "auto", p6Mode: "builtin" });
+  const runDir = runDirOf(root, slug, runId);
+  writeArtifact(runDir, "run.json", JSON.stringify({ id: runId, project: slug, current: "P8", status: "failed", stages: {
+    P8: { status: "failed", startedAt: "2026-09-15T08:00:00.000Z", error: "测试失败" },
+    P10: { status: "approved", sourceStage: "P8", attempts: 1 },
+  } }));
+  writeArtifact(runDir, "07-test-report.json", "original evidence");
+  const routes = [], ctx = fakeCtx(); ctx.webServer.register = route => routes.push(route); apply(ctx);
+  const response = await call(routes[0].handler, "POST", `/issue2pr/api/projects/${slug}/runs/${runId}/rerun`, { stage: "P10" });
+  assert.equal(response.status, 200);
+  let run;
+  for (let i = 0; i < 20; i++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    run = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+    if (run.stages.P10.status === "approved") break;
+  }
+  assert.equal(analyses, 1); assert.equal(tests, 0);
+  assert.equal(run.current, "P8"); assert.equal(run.status, "failed");
+  assert.equal(run.stages.P10.status, "approved");
+  assert.equal(readFileSync(join(runDir, "07-test-report.json"), "utf8"), "original evidence");
+});
+
+test("API：测试环境在建任务时快照，修改项目不影响已有任务", async () => {
+  __setTestHooks({ dataRoot: root });
+  const routes = [], ctx = fakeCtx(); ctx.webServer.register = route => routes.push(route); apply(ctx);
+  const handler = routes[0].handler;
+  const slug = "test-environment-snapshot";
+  const first = { platform: "win32", shell: "C:/test/bash.exe" };
+  let result = await call(handler, "POST", "/issue2pr/api/projects", {
+    slug, name: slug, repos: ["r"], triggers: [], testEnvironment: first,
+  });
+  assert.equal(result.status, 200);
+  const issue = join(root, "environment-snapshot.md"); writeFileSync(issue, "test environment snapshot");
+  result = await call(handler, "POST", `/issue2pr/api/projects/${slug}/runs`, { kind: "issue", uri: issue });
+  assert.equal(result.status, 200);
+  const runId = result.body.runId;
+  result = await call(handler, "POST", "/issue2pr/api/projects", { slug, testEnvironment: { platform: "linux", shell: "/bin/bash" } });
+  assert.equal(result.status, 200);
+  result = await call(handler, "GET", `/issue2pr/api/projects/${slug}/runs/${runId}`);
+  assert.deepEqual(result.body.executionConfig.testEnvironment, first);
+});
+
+test("API：P10 委托重跑消费本轮报告，等待期间不更换分析身份", async () => {
+  const p10 = (await import("../../lib/stages/p10-failure.js")).default;
+  __setTestHooks({ dataRoot: root, executors: { P10: p10 } });
+  const slug = "failure-delegate", runId = "20260915-090000-delegate";
+  saveProject(root, { slug, name: slug, repos: ["r"], triggers: [], reviewMode: "auto", p6Mode: "builtin",
+    stageConfig: { P10: { delegate: { mode: "session" } } } });
+  const runDir = runDirOf(root, slug, runId);
+  writeArtifact(runDir, "run.json", JSON.stringify({ id: runId, project: slug, current: "P8", status: "failed", stages: {
+    P8: { status: "failed", startedAt: "2026-09-15T09:00:00.000Z", error: "测试失败" }, P10: { status: "pending" },
+  } }));
+  const routes = [], ctx = fakeCtx(); ctx.webServer.register = route => routes.push(route); apply(ctx);
+  const url = `/issue2pr/api/projects/${slug}/runs/${runId}/rerun`;
+  const read = () => JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+  const waitFor = async status => {
+    for (let i = 0; i < 30; i++) {
+      await new Promise(resolve => setTimeout(resolve, 15));
+      if (read().stages.P10.status === status) return read();
+    }
+    assert.fail(`P10 未达到 ${status}: ${JSON.stringify(read().stages.P10)}`);
+  };
+  assert.equal((await call(routes[0].handler, "POST", url, { stage: "P10" })).status, 200);
+  const first = (await waitFor("awaiting_review")).stages.P10;
+  writeArtifact(runDir, first.responseArtifact, JSON.stringify({ analysisId: first.analysisId,
+    sourceStage: first.sourceStage, sourceStartedAt: first.sourceStartedAt,
+    category: "原因未确定", detail: "未找到本轮测试证据", action: "escalate" }));
+  assert.equal((await call(routes[0].handler, "POST", url, { stage: "P10" })).status, 200);
+  const final = await waitFor("approved");
+  assert.equal(final.stages.P10.analysisId, first.analysisId);
+  assert.equal(final.current, "P8"); assert.equal(final.status, "failed");
+  assert.equal(final.failureAnalysis.category, "原因未确定");
+});
+
+test("API：P10 重跑使用当前失败阶段，旧委托阶段或轮次不得恢复", async () => {
+  let calls = 0;
+  __setTestHooks({ dataRoot: root, executors: { P10: async rcx => {
+    calls += 1;
+    assert.equal(rcx.failure.stage, "P8");
+    assert.equal(rcx.resumeFailureAnalysis, false);
+    assert.notEqual(rcx.failure.analysisId, "old-analysis");
+    writeArtifact(rcx.runDir, rcx.failureAnalysisArtifact, JSON.stringify({ category: "原因未确定", detail: "current", action: "escalate" }));
+    return { artifact: rcx.failureAnalysisArtifact };
+  } } });
+  const slug = "failure-current-source";
+  saveProject(root, { slug, name: slug, repos: ["r"], triggers: [], reviewMode: "auto", p6Mode: "builtin" });
+  const routes = [], ctx = fakeCtx(); ctx.webServer.register = route => routes.push(route); apply(ctx);
+  for (const [index, oldStage] of ["P6", "P8"].entries()) {
+    const runId = `20260915-10000${index}-source`, runDir = runDirOf(root, slug, runId);
+    writeArtifact(runDir, "run.json", JSON.stringify({ id: runId, project: slug, current: "P8", status: "failed", stages: {
+      P6: { status: "failed", startedAt: "old", error: "old error" },
+      P8: { status: "failed", startedAt: "new", error: "current error" },
+      P10: { status: "awaiting_review", sourceStage: oldStage, sourceStartedAt: "old", analysisId: "old-analysis" },
+    } }));
+    const response = await call(routes[0].handler, "POST", `/issue2pr/api/projects/${slug}/runs/${runId}/rerun`, { stage: "P10" });
+    assert.equal(response.status, 200);
+    let run;
+    for (let i = 0; i < 20; i++) {
+      await new Promise(resolve => setTimeout(resolve, 15));
+      run = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+      if (run.stages.P10.status === "approved") break;
+    }
+    assert.equal(run.current, "P8"); assert.equal(run.stages.P10.status, "approved");
+    assert.equal(run.stages.P10.sourceStage, "P8"); assert.equal(run.stages.P10.sourceStartedAt, "new");
+  }
+  assert.equal(calls, 2);
+});
+
+test("API：仅 failed 任务可以重跑 P10，其他终态和复核态不得复活", async () => {
+  let calls = 0;
+  __setTestHooks({ dataRoot: root, executors: { P10: async () => { calls += 1; } } });
+  const slug = "failure-status-boundary", runId = "20260915-101000-status";
+  saveProject(root, { slug, name: slug, repos: ["r"], triggers: [], reviewMode: "auto", p6Mode: "builtin" });
+  const runDir = runDirOf(root, slug, runId);
+  const routes = [], ctx = fakeCtx(); ctx.webServer.register = route => routes.push(route); apply(ctx);
+  for (const status of ["stopped", "completed", "awaiting_review", "pending"]) {
+    const run = { id: runId, project: slug, current: "P8", status, stages: { P8: { status: "failed", startedAt: "old" } } };
+    writeArtifact(runDir, "run.json", JSON.stringify(run));
+    const response = await call(routes[0].handler, "POST", `/issue2pr/api/projects/${slug}/runs/${runId}/rerun`, { stage: "P10" });
+    assert.equal(response.status, 400, status);
+    assert.deepEqual(JSON.parse(readFileSync(join(runDir, "run.json"), "utf8")), run);
+  }
+  assert.equal(calls, 0);
+});
+
+test("API：P10 异步上下文构建异常落 failed 状态及事件，保留主失败", async () => {
+  const badExecutors = new Proxy({}, { get() { throw new Error("injected context construction error"); } });
+  __setTestHooks({ dataRoot: root, executors: badExecutors });
+  const slug = "failure-context-error", runId = "20260915-102000-context";
+  saveProject(root, { slug, name: slug, repos: ["r"], triggers: [], reviewMode: "auto", p6Mode: "builtin" });
+  const runDir = runDirOf(root, slug, runId);
+  writeArtifact(runDir, "run.json", JSON.stringify({ id: runId, project: slug, current: "P8", status: "failed", stages: {
+    P8: { status: "failed", startedAt: "current", error: "original test error" }, P10: { status: "pending" },
+  } }));
+  const routes = [], logs = [], ctx = fakeCtx(); ctx.webServer.register = route => routes.push(route);
+  ctx.logger.error = message => logs.push(message); apply(ctx);
+  const response = await call(routes[0].handler, "POST", `/issue2pr/api/projects/${slug}/runs/${runId}/rerun`, { stage: "P10" });
+  assert.equal(response.status, 200);
+  let run;
+  for (let i = 0; i < 20; i++) {
+    await new Promise(resolve => setTimeout(resolve, 15));
+    run = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+    if (run.stages.P10.status === "failed") break;
+  }
+  assert.equal(run.current, "P8"); assert.equal(run.status, "failed");
+  assert.equal(run.stages.P8.error, "original test error"); assert.equal(run.stages.P10.status, "failed");
+  assert.match(run.stages.P10.error, /P10 上下文构建失败.*injected context/);
+  const events = readFileSync(join(runDir, "trace/events.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+  assert.ok(events.some(event => event.stage === "P10" && event.ok === false && /上下文构建失败/.test(event.detail)));
+  assert.ok(logs.some(message => message.includes("P10 重跑失败")));
+});

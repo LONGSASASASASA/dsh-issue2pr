@@ -66,15 +66,21 @@ setTimeout(() => process.stderr.write('stderr detail\\n'), 100);
   assert.equal(ended.process.state, "unknown"); // 结束后释放内存句柄，终态由已保存的退出码证明。
   assert.ok(ended.finishedAt);
   assert.equal(f.output(), "中文输出\nstderr detail\n");
-  assert.deepEqual(Object.keys(f.report()), ["command", "exitCode", "tail", "passed", "ranAt"]);
+  assert.equal(f.report().version, 2);
+  assert.equal(f.report().captureId, ended.captureId);
+  assert.equal(f.report().stageStartedAt, f.run.stages.P8.startedAt);
+  assert.equal(f.report().platform, process.platform);
+  assert.equal(f.report().cwd, f.root);
+  assert.ok(f.report().shell);
+  assert.equal(f.report().executionStatus, "completed");
   assert.equal(f.report().tail, f.output());
   assert.equal(f.report().passed, true);
 });
 
-test("P8 无输出立即可观测，流程 stopped 不谎报仍存活的测试命令已经终止", async t => {
+test("P8 无输出立即可观测，流程 stopped 后取消真实进程并记录取消", async t => {
   const f = fixture(t, heldOpen + "fs.writeFileSync('ready', '');");
   writeFileSync(join(f.runDir, TEST_OUTPUT_PATH), "上轮输出");
-  const pending = p8(f.rcx);
+  const pending = p8(f.rcx).then(() => null, error => error);
   assert.equal(f.output(), "");
   await until(() => existsSync(join(f.root, "ready")));
   f.run.status = "stopped"; f.run.stages.P8.status = "stopped";
@@ -84,9 +90,10 @@ test("P8 无输出立即可观测，流程 stopped 不谎报仍存活的测试�
   assert.equal(live.process.state, "alive");
   assert.equal(live.lastOutputAt, null);
   assert.equal(live.outputBytes, 0);
-  writeFileSync(join(f.root, "release"), "");
-  await pending;
-  assert.equal(f.report().tail, "");
+  assert.match((await pending).message, /测试取消/);
+  assert.equal(f.report().executionStatus, "cancelled");
+  assert.equal(f.report().passed, false);
+  assert.notEqual((await readTestActivity(f.runDir, f.run)).process.state, "alive");
 });
 
 test("P8 失败保存两路完整输出、末尾报告及真实退出码", async t => {
@@ -114,7 +121,7 @@ test("P8 超时保留终止前输出，状态明确 timeout", async t => {
   await until(() => existsSync(join(f.root, "child-pid")));
   childPid = Number(readFileSync(join(f.root, "child-pid"), "utf8"));
   assert.ok(Number.isSafeInteger(childPid) && childPid > 0 && childPid !== process.pid);
-  assert.match((await pending).message, /测试失败/);
+  assert.match((await pending).message, /测试超时/);
   assert.ok(Date.now() - started < 2500, "长寿命后代持有输出管道也不能拖住 exec 超时回调");
   const ended = await readTestActivity(f.runDir, f.run);
   assert.equal(ended.executionStatus, "timeout");

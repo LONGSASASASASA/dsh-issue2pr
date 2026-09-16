@@ -39,7 +39,7 @@ window.__ModuleLoader__.load({
 			{ id: "P9",  name: "Reviewer",           desc: "三维门控审查 · 复核门",          art: "08-review-report.json",     key: true,
 			  about: "独立 Reviewer 读真实 diff 与测试报告做三维门控：①Diff 范围（过大/越权/遗漏调用方）②API 与安全 ③测试补强与说明忠实。测试通过 ≠ 可合并；verdict=fail 会打回 P6。" },
 			{ id: "P10", name: "FailureClassifier",  desc: "失败旁路 · 仅失败时执行",        art: "09-failure-analysis.json",  key: false, bypass: true,
-			  about: "失败旁路（仅在任一阶段失败时执行）：把失败归入六类——实现错误/根因错误/测试选择/环境缺失/权限被拒/反复失败，并给出处理路径（replan/rollback/escalate）。分类决定重跑策略，避免盲目重试。" },
+			  about: "失败旁路（仅在任一阶段失败时执行）：依据本轮报告和日志分析实现、测试、环境、权限、超时或取消问题，并给出处理路径（replan/rollback/escalate）。证据不足显示原因未确定；反复失败必须有真实历史记录支持。" },
 			{ id: "P11", name: "PRBuilder + Eval",   desc: "PR 说明 + Gate 评测 · 复核门",   art: "10-pr-description.md",      key: true,
 			  about: "双角色收尾：PR 说明忠实反映修改与验证过程（背景/根因/修改点/验证证据/风险，禁止夸大）；Gate 按六项判定——ROOT 根因有证据 / PATCH 干净应用 / TEST 无回归 / DIFF 可审查 / DESC 说明忠实 / ACCEPT 门控通过。全部 pass 才算交付。" },
 		];
@@ -53,6 +53,8 @@ window.__ModuleLoader__.load({
 			stopped:         ["t-off",  "已停止"],
 			pending:         ["t-off",  "未开始"],
 			completed:       ["t-good", "已完成"],
+			degraded:        ["t-warn", "已生成基础分析"],
+			analysis_completed: ["t-good", "分析完成"],
 			flow_ended:      ["t-off", "流程已结束"],
 			acceptance_passed: ["t-good", "验收通过"],
 			acceptance_failed: ["t-err", "验收未通过"],
@@ -1325,10 +1327,44 @@ window.__ModuleLoader__.load({
 				list("测试候选文件", parsed?.test_candidates), list("待探索项", parsed?.uncertain));
 		}
 		function StageResult(p) {
+			const state = p.run?.stages?.[p.stage], modernP10 = p.stage === "P10" && !!(state?.analysisId || state?.sourceStage);
+			const currentAnalysis = modernP10 && !!currentP10(p.run), finishedAnalysis = currentAnalysis && ["approved", "completed", "degraded"].includes(state.status);
 			const candidates = stageFiles(p.stage, p.tree, p.run).filter(file => !/\/task|task\.md$|\.log$|\.jsonl$/.test(file.path));
-			const file = candidates.find(file => file.path === p.run?.stages?.[p.stage]?.artifact) || candidates[0];
+			const file = modernP10 ? finishedAnalysis && p.tree.find(file => file.path === (state.artifact || "trace/failures/" + state.analysisId + ".json"))
+				: candidates.find(file => file.path === state?.artifact) || candidates[0];
 			const resource = useRunArtifact(p.slug, p.runId, file?.path, p.tree);
-			const parsed = parseJson(resource.value);
+			let parsed = null, parseError = false;
+			if (resource.value != null) {
+				try { parsed = JSON.parse(resource.value); } catch { parseError = true; }
+			}
+			if (modernP10) {
+				const loading = !!file && resource.value == null && !resource.error;
+				const schemaValid = parsed && !Array.isArray(parsed) && typeof parsed === "object"
+					&& typeof parsed.category === "string" && !!parsed.category.trim() && ["replan", "rollback", "escalate"].includes(parsed.action)
+					&& typeof parsed.analysisId === "string" && !!parsed.analysisId && typeof parsed.sourceStage === "string" && !!parsed.sourceStage
+					&& (parsed.sourceStartedAt === null || typeof parsed.sourceStartedAt === "string" && !!parsed.sourceStartedAt);
+				const identityValid = schemaValid && parsed.analysisId === state.analysisId && parsed.sourceStage === state.sourceStage
+					&& (parsed.sourceStartedAt || null) === (state.sourceStartedAt || null);
+				const valid = finishedAnalysis && !resource.error && identityValid;
+				const taskFile = currentAnalysis && state.status === "awaiting_review" && p.tree.find(file => file.path === state.artifact);
+				const historicalFile = p.tree.find(file => file.path === "09-failure-analysis.json");
+				const message = !currentAnalysis ? "历史失败分析，不代表本轮执行结果。"
+					: state.status === "running" ? "正在分析本轮失败，结果生成后会显示在这里。"
+						: state.status === "awaiting_review" ? "等待本轮外部失败分析。提交外部报告后重跑 P10 读取。"
+							: state.status === "failed" ? "本轮失败分析未完成，可查看阶段事件和错误详情。"
+								: !file ? "本轮失败分析报告尚未生成。" : resource.error ? "本轮失败分析读取失败：" + resource.error
+									: loading ? "正在读取本轮失败分析…" : parseError ? "报告不是有效 JSON，未作为本轮结果展示。"
+										: !schemaValid ? "报告结构无效，缺少必要字段或字段值不符合约定，未作为本轮结果展示。"
+											: !identityValid ? "报告分析身份不匹配，未作为本轮结果展示。" : "";
+				return h("div", { className: "studio-stack" },
+					message ? h("p", { className: resource.error ? "callout err" : "hint", role: resource.error ? "alert" : "status" }, message) : null,
+					resource.error ? studioButton("重试读取本轮分析", resource.reload, "sm") : null,
+					valid ? h(ReadableValue, { value: parsed }) : null,
+					taskFile ? studioButton("查看本轮分析任务包", () => p.onFile(taskFile.path), "ghost sm") : null,
+					currentAnalysis && state.status === "awaiting_review" && state.responseArtifact ? h("p", { className: "studio-path hint" }, "外部报告位置：", state.responseArtifact) : null,
+					valid ? studioButton("查看结果文件", () => p.onFile(file.path), "ghost sm")
+						: historicalFile ? studioButton("查看历史分析文件", () => p.onFile(historicalFile.path), "ghost sm") : null);
+			}
 			const nodes = Array.isArray(parsed?.nodes) ? parsed.nodes.filter(node => node && typeof node === "object") : null;
 			const text = value => value == null ? "" : Array.isArray(value) ? value.map(text).join("、") : typeof value === "object" ? JSON.stringify(value) : String(value);
 			return h("div", { className: "studio-stack" }, h(ResourceNotice, { resource }),
@@ -1927,7 +1963,7 @@ window.__ModuleLoader__.load({
 			if (!anchor.current || (!error && anchor.current.run !== run)) {
 				anchor.current = { run, clientAt: Date.now(), serverAt: Date.parse(run?.observedAt) || Date.now() };
 			}
-			const live = !!run && ["running", "awaiting_review"].includes(run.status) && !error;
+			const live = !!run && (["running", "awaiting_review"].includes(run.status) || currentP10(run)?.status === "running") && !error;
 			React.useEffect(() => {
 				if (!live) return;
 				const timer = setInterval(() => refresh(value => value + 1), 1000);
@@ -1939,7 +1975,7 @@ window.__ModuleLoader__.load({
 			const state = run.stages?.[id];
 			if (!state || state.status === "pending") return "";
 			const start = Date.parse(state.startedAt), finish = Date.parse(state.finishedAt), stopped = Date.parse(state.stoppedAt);
-			const running = state.status === "running" && run.status === "running" && run.current === id;
+			const running = state.status === "running" && (run.status === "running" && run.current === id || id === "P10" && !!currentP10(run));
 			let elapsed;
 			if (running && Number.isFinite(start)) elapsed = Math.max(0, now - start);
 			else if (Number.isFinite(start) && Number.isFinite(stopped) && stopped >= start) elapsed = stopped - start;
@@ -2030,6 +2066,9 @@ window.__ModuleLoader__.load({
 			else if (activity?.logError) { title = "测试记录保存异常"; tone = "bad"; note = activity.logError; }
 			else if (!available && ["invalid", "read_error"].includes(raw?.reasonCode)) { title = "测试状态读取失败"; tone = "warn"; note = raw.reason || "正在重试读取实时执行状态。"; }
 			else if (activity?.executionStatus === "timeout") { title = "测试已超时"; tone = "bad"; }
+			else if (activity?.executionStatus === "cancelled") title = "测试已取消";
+			else if (["environment_error", "preflight_failed"].includes(activity?.executionStatus)) { title = "测试环境检查未通过"; tone = "bad"; }
+			else if (activity?.executionStatus === "spawn_failed") { title = "测试命令启动失败"; tone = "bad"; }
 			else if (activity?.executionStatus === "failed") { title = "测试未通过"; tone = "bad"; }
 			else if (activity?.executionStatus === "completed" && activity.exitCode === 0) title = "测试命令已通过";
 			else if (executing && process === "alive") {
@@ -2041,6 +2080,7 @@ window.__ModuleLoader__.load({
 			else if (stageRunning) { title = "测试阶段运行中"; note = "本次执行未采集实时状态；已有输出生成后会显示在下方。"; }
 			else if (stage.status === "pending") title = "等待测试开始";
 			else { title = "测试执行记录"; note = "本次执行未采集实时状态，可查看已保存的输出和阶段结果。"; }
+			if (!note && activity?.error) note = typeof activity.error === "string" ? activity.error : activity.error.message || "";
 			const signal = error ? "最近输出时间待同步" : Number.isFinite(lastOutputAt)
 				? "最近输出 · " + (executing ? durationText(Math.max(0, now - lastOutputAt)) + "前" : fmtTime(activity.lastOutputAt))
 				: activity ? "尚未收到测试输出" : outputFile ? "日志更新时间 · " + fmtTime(outputFile.mtimeMs) : "尚无测试输出";
@@ -2054,11 +2094,32 @@ window.__ModuleLoader__.load({
 			return h("section", { className: "studio-activity " + tone, "aria-label": "测试当前活动" },
 				h("div", { className: "studio-row wrap" }, h("strong", { className: "studio-grow" }, h("span", { className: "studio-activity-dot", "aria-hidden": "true" }), title), h("span", { className: "hint" }, signal)),
 				command ? h("div", { className: "studio-path" }, "测试命令：", h("code", null, command)) : h("span", { className: "hint" }, "正在等待实际测试命令"),
+				activity?.environment ? h("div", { className: "hint" }, "执行环境：", [activity.environment.platform,
+					activity.environment.shell ? "Shell " + activity.environment.shell : "",
+					activity.environment.cwd ? "目录 " + activity.environment.cwd : ""].filter(Boolean).join(" · ")) : null,
 				note ? h("p", { className: "hint", role: "status" }, note) : null,
 				activity ? h("div", { className: "hint" }, ["开始：" + fmtTime(activity.startedAt),
 					activity.finishedAt ? "结束：" + fmtTime(activity.finishedAt) : "",
 					activity.exitCode != null ? "退出码 " + activity.exitCode : "",
 					activity.signal ? "退出信号 " + activity.signal : ""].filter(Boolean).join(" · ")) : null);
+		}
+		function currentP10(run) {
+			const state = run?.stages?.P10;
+			return run?.status === "failed" && state?.sourceStage === run.current
+				&& (state.sourceStartedAt || null) === (run.stages?.[run.current]?.startedAt || null) ? state : null;
+		}
+		function currentFailureOf(run) {
+			const failure = run?.failureAnalysis;
+			if (run?.status !== "failed" || !failure || typeof failure.category !== "string" || !failure.category.trim()
+				|| typeof failure.action !== "string" || !failure.action.trim()) return null;
+			const state = run.stages?.P10;
+			// 新报告必须匹配失败阶段和分析身份；无身份的旧报告仅在旧任务失败时兼容显示。
+			if (failure.analysisId || state?.analysisId || failure.sourceStage || state?.sourceStage) {
+				if (!currentP10(run) || !["completed", "degraded", "approved"].includes(state.status) || !["replan", "rollback", "escalate"].includes(failure.action)
+					|| !failure.analysisId || failure.analysisId !== state.analysisId || failure.sourceStage !== run.current
+					|| (failure.sourceStartedAt || null) !== (run.stages?.[run.current]?.startedAt || null)) return null;
+			}
+			return failure;
 		}
 		function RunsPanel(p) {
 			const key = p.slug + "/" + p.runId;
@@ -2165,11 +2226,13 @@ window.__ModuleLoader__.load({
 				return modelText;
 			};
 			const runtimeText = [
-				...(!stageUntouched ? [state?.attempts > 0 ? "已打回 " + state.attempts + " 次" : null, stageDurationText(activeStage)] : []),
+				...(!stageUntouched ? [state?.attempts > 0 ? activeStage === "P10" ? "第 " + state.attempts + " 次分析" : "已打回 " + state.attempts + " 次" : null, stageDurationText(activeStage)] : []),
 				stageRunTextOf(activeStage),
 			].filter(Boolean).join(" · ");
 			const p10File = tree.some(file => file.path === "09-failure-analysis.json");
-			const currentFailure = run.status === "failed" ? run.failureAnalysis : null;
+			const currentFailure = currentFailureOf(run), p10 = currentP10(run);
+			const p10Label = currentFailure ? "已生成" : p10?.status === "running" ? "分析中" : p10?.status === "failed" ? "分析失败"
+				: p10?.status === "awaiting_review" ? "等待外部分析" : p10File || run.failureAnalysis ? "历史记录" : "按需触发";
 			const outputKey = "i2p.output." + key + "." + activeStage + "." + (state?.attempts || 0) + "." + (state?.startedAt || "");
 			const stageDef = STAGES.find(item => item.id === activeStage);
 			// v9 规则：未触及的节点（pending 且没有任何事件与产物）只显示一条等待空态，不渲染零内容区块。
@@ -2213,12 +2276,12 @@ window.__ModuleLoader__.load({
 							return h("button", { key: item.id, className: "studio-stage " + status + (item.id === activeStage ? " on" : "") + (item.id === run.current ? " current" : ""), title: item.id + " " + STUDIO_STAGE_NAMES[item.id] + "，" + tag(status)[1] + (stageDurationText(item.id) ? " · " + stageDurationText(item.id) : "") + " · " + stageRunTextOf(item.id), "aria-label": item.id + " " + STUDIO_STAGE_NAMES[item.id] + "，" + tag(status)[1], "aria-pressed": item.id === activeStage, onClick: () => selectStage(item.id) },
 							h("span", { className: "studio-stage-mark" }, ["approved", "completed", "acceptance_passed"].includes(status) ? Ic("check", 13) : ["failed", "acceptance_failed"].includes(status) ? Ic("x", 13) : status === "awaiting_review" ? "!" : item.id === run.current ? "●" : ""),
 							h("strong", null, STUDIO_STAGE_NAMES[item.id]), h("span", { className: "studio-stage-code" }, item.id + (item.id === run.current ? " · 当前" : stale ? " · 待重验" : item.key ? " · 复核" : "")));
-					})), trackOpen ? h("div", { className: "studio-row studio-track-footer wrap" }, followStage ? h("span", { className: "hint" }, "跟随当前阶段 ✓") : h("button", { onClick: backCurrent, title: "点击返回当前阶段并恢复跟随" }, "正在查看 " + activeStage + " · 返回当前 " + run.current + " →"), h("button", { onClick: () => selectStage("P10") }, "P10 失败分析 · " + (currentFailure ? "已生成" : p10File || run.failureAnalysis ? "历史记录" : "按需触发"))) : null,
+					})), trackOpen ? h("div", { className: "studio-row studio-track-footer wrap" }, followStage ? h("span", { className: "hint" }, "跟随当前阶段 ✓") : h("button", { onClick: backCurrent, title: "点击返回当前阶段并恢复跟随" }, "正在查看 " + activeStage + " · 返回当前 " + run.current + " →"), h("button", { onClick: () => selectStage("P10") }, "P10 失败分析 · " + p10Label)) : null,
 					// 二期 M-A4：页面级失败条只保留结论与动作，详细描述留在阶段级错误条，不再重复
 					currentFailure ? h("div", { className: "studio-return-lane studio-row wrap" }, h("span", { className: "studio-grow" }, [currentFailure.category, currentFailure.action].filter(value => typeof value === "string").join(" · ")), studioButton("查看失败分析", () => selectStage("P10"), "ghost sm")) : null),
 				h("section", { className: "studio-stage-bar" },
 					h("div", { className: "studio-section-heading" }, h("div", { className: "studio-row wrap" },
-						h("h2", null, activeStage + " · " + STUDIO_STAGE_NAMES[activeStage]), h(StatusBadge, { status: activeStage === "P11" ? p11Status : state?.status }),
+						h("h2", null, activeStage + " · " + STUDIO_STAGE_NAMES[activeStage]), h(StatusBadge, { status: activeStage === "P11" ? p11Status : activeStage === "P10" && state?.status === "approved" ? "analysis_completed" : state?.status }),
 						h("span", { className: "studio-runtime-meta hint" }, runtimeText),
 						tree.some(file => file.path === "trace/events.jsonl") ? studioButton("阶段事件" + (events.error ? " · 读取失败" : events.loading ? " · 读取中" : eventsLog.partial ? " · 最近 " + records.length : " " + records.length), () => setEventsOpen(true), "ghost sm") : null,
 						tree.length ? studioButton("全部产物 " + tree.length + " ↗", () => openFile(""), "ghost sm") : null)),
@@ -2269,6 +2332,9 @@ window.__ModuleLoader__.load({
 				contextOpen && !fileDialog ? h(StudioDialog, { title: "任务详情", wide: true, onClose: () => { retainStage(); setContextOpen(false); } }, h("div", { className: "studio-stack" },
 					h("div", { className: "kv" }, kvRow("项目", p.project?.name || p.slug), kvRow("任务编号", run.id, true), kvRow("来源", run.trigger?.uri || "—", true), kvRow("创建时间", fmtTime(run.createdAt)), kvRow("复核方式", reviewModeLabel(run.reviewMode)), kvRow("代码执行器", p6ModeLabel(run.p6Mode))),
 					h("p", { className: "hint" }, run.executionConfig ? "使用启动配置 v" + run.executionConfig.revision + " · 默认模型 " + (run.executionConfig.defaultRoute?.model || "未记录") : "历史任务未记录配置快照，兼容读取旧项目配置。"),
+					h("p", { className: "hint" }, "测试环境配置：", execConfig?.testEnvironment
+						? (execConfig.testEnvironment.platform === "host" ? "当前 DSH 主机" : execConfig.testEnvironment.platform) + " · Shell " + (execConfig.testEnvironment.shell || "系统默认")
+						: "未记录环境快照；实际环境以本轮测试执行记录为准。"),
 					run.executionConfig ? h("details", null, h("summary", null, "查看启动配置"), h("pre", { className: "studio-json" }, JSON.stringify(run.executionConfig, null, 2))) : null,
 					h("details", null, h("summary", null, "阶段职责与契约"), h(StageContractCard, { stageId: activeStage, defaults: p.defaults }), h(StageGuideCard, { stageId: activeStage, defaults: p.defaults })),
 						h("details", null, h("summary", null, "复核历史 · " + reviews.length), reviews.length ? reviews.slice(-20).reverse().map(file => studioButton(file.path.split("/").at(-1), () => openFile(file.path), "ghost sm")) : h("p", { className: "hint" }, "暂无复核记录")),
@@ -2365,7 +2431,8 @@ window.__ModuleLoader__.load({
 				name: existing?.name || "", slug: existing?.slug || "",
 				repo: typeof existing?.repos?.[0] === "string" ? existing.repos[0] : existing?.repos?.[0]?.uri || "",
 				extra: (existing?.repos || []).slice(1).map(repo => typeof repo === "string" ? repo : repo.uri).join("\n"),
-				triggers: existing?.triggers || []
+				triggers: existing?.triggers || [],
+				testPlatform: existing?.testEnvironment?.platform || "host", testShell: existing?.testEnvironment?.shell || ""
 			}));
 			const [busy, setBusy] = React.useState(false), [error, setError] = React.useState("");
 			const lock = React.useRef(false);
@@ -2385,7 +2452,8 @@ window.__ModuleLoader__.load({
 					if (!check?.ok) throw new Error(check?.message || "仓库连接失败");
 					const result = await apiPost("/projects", { name, slug,
 						repos: [form.repo, ...form.extra.split("\n")].map(uri => uri.trim()).filter(Boolean).map(uri => ({ uri })),
-						triggers: form.triggers.filter(item => item.uri.trim()) });
+						triggers: form.triggers.filter(item => item.uri.trim()),
+						testEnvironment: { platform: form.testPlatform, shell: form.testShell.trim() } });
 					if (!result?.ok) throw new Error(result?.message || "保存失败");
 					p.onSaved(slug); p.onClose();
 				} catch (error) { setError(error.message); } finally { setBusy(false); lock.current = false; }
@@ -2398,6 +2466,13 @@ window.__ModuleLoader__.load({
 					settingField("项目目录名", form.slug, value => field("slug", value), { disabled: busy, readOnly: !!existing,
 						placeholder: suggested.toLowerCase(), hint: "小写字母、数字和连字符；用于区分项目，创建后不修改。" }),
 					h("p", { className: "hint" }, "HTTPS 按域名匹配“连接与凭据”；SSH 使用 DSH 所在机器的密钥。公开仓库可匿名访问。"),
+					h("fieldset", { className: "studio-stack" }, h("legend", null, "测试环境"),
+						settingField("测试平台", form.testPlatform, value => field("testPlatform", value), { disabled: busy,
+							choices: [["host", "当前 DSH 主机"], ["win32", "Windows"], ["linux", "Linux"], ["darwin", "macOS"]],
+							hint: "平台不匹配时在测试前报错；不会自动切换操作系统或启动远程环境。" }),
+						settingField("测试 Shell", form.testShell, value => field("testShell", value), { disabled: busy,
+							placeholder: "留空使用系统默认，或填写 Shell 可执行文件的绝对路径",
+							hint: "支持 cmd.exe 或 POSIX 兼容 Shell（如 Bash、sh）；同时用于外层测试命令和 npm 内部脚本，不填写参数。保存后用于新建任务，已有任务保留原环境快照。" })),
 					h("details", null, h("summary", null, "其他仓库与保存的来源"),
 						settingField("其他仓库（每行一个）", form.extra, value => field("extra", value), { multiline: true, disabled: busy }),
 						form.triggers.map((trigger, index) => h("div", { className: "studio-row wrap", key: index },
