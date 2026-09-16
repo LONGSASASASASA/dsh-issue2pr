@@ -1001,6 +1001,33 @@ window.__ModuleLoader__.load({
 			link.download = path.split("/").pop(); link.click();
 			setTimeout(() => URL.revokeObjectURL(url), 1000);
 		}
+		// TASK-10：完整产物下载链接（服务端按字节流发送，无 200KB/5MB 预览上限）。
+		// 预览读取上限只约束查看，不反向变成存储截断——大文件从这里拿完整内容。
+		function artifactDownloadHref(slug, runId, path) {
+			return API + "/projects/" + encodeURIComponent(slug) + "/runs/" + encodeURIComponent(runId)
+				+ "/artifact?path=" + encodeURIComponent(path) + "&download=1";
+		}
+		// TASK-10：结构化错误（run.json 的 st.errorInfo）→ 错误类别徽标。
+		// 区分协议错误 / 调用错误 / 业务验收失败 / 留档不完整，四类互斥可叠加（如协议错误 + 留档写入失败）。
+		// 补全：环境错误（开工前 clone/凭据缺失）与外部执行失败（委外执行器观测事实）单列徽标。
+		const LLM_CAUSE_LABELS = { timeout: "超时", provider: "服务错误", cancelled: "取消", empty: "空响应", unknown: "未知" };
+		const LOG_INTEGRITY_LABELS = { partial: "部分写入", write_failed: "写入失败", corrupt: "校验损坏", open: "未封存" };
+		const DELEGATE_KIND_LABELS = { spawn: "启动失败", timeout: "超时终止", "result-error": "错误结果", exit: "异常退出", empty: "空输出", agent: "异常结束" };
+		function errorKindChips(info) {
+			if (!info || typeof info !== "object") return [];
+			const chips = [];
+			const code = String(info.code || "");
+			if (["json_parse_failed", "schema_validation_failed", "output_truncated"].includes(code))
+				chips.push({ kind: "protocol", label: "协议错误 · " + (code === "output_truncated" ? "输出截断" : "JSON 契约") });
+			if (code === "llm_call_failed")
+				chips.push({ kind: "call", label: "调用错误 · " + (LLM_CAUSE_LABELS[info.llmCause] || "未知原因") });
+			if (code === "business_gate_failed") chips.push({ kind: "gate", label: "业务验收失败" });
+			if (code === "environment_error") chips.push({ kind: "env", label: "环境错误" });
+			if (DELEGATE_KIND_LABELS[info.failureKind]) chips.push({ kind: "exec", label: "外部执行失败 · " + DELEGATE_KIND_LABELS[info.failureKind] });
+			if (LOG_INTEGRITY_LABELS[info.logIntegrity]) chips.push({ kind: "archive", label: "留档不完整 · " + LOG_INTEGRITY_LABELS[info.logIntegrity] });
+			return chips;
+		}
+		const ERROR_CHIP_TAGS = { protocol: "t-warn", call: "t-acc", gate: "t-err", archive: "t-off", env: "t-acc", exec: "t-acc" };
 		function ArtifactContent({ text, path, raw = false, numbered: wantNumbers = false }) {
 			if (text == null) return h("p", { className: "hint" }, "读取中…");
 			if (!text) return h("p", { className: "hint" }, "空文件");
@@ -1133,6 +1160,8 @@ window.__ModuleLoader__.load({
 						h("h3", { className: "studio-grow studio-path" }, path.split("/").at(-1) || "文件预览"),
 						p.onReturn ? studioButton(p.returnLabel || "返回现场", p.onReturn, "ghost sm") : null,
 						studioButton("复制", () => copyStudio(content.value, p.toast), "ghost sm", content.value == null),
+						// TASK-10：超预览上限的文件提供服务端完整下载（字节流无上限）；已读内容仍可另存片段
+						partial && p.slug && p.runId && path ? h("a", { className: "btn ghost sm", href: artifactDownloadHref(p.slug, p.runId, path) }, "下载完整文件") : null,
 						studioButton(partial ? "下载已读内容" : "下载", () => downloadStudio(path, content.value), "ghost sm", content.value == null),
 						studioButton("打开目录", async () => { try {
 							const result = await apiPost("/projects/" + p.slug + "/runs/" + p.runId + "/open", {}); p.toast(result.message || "已打开", result.ok ? "ok" : "bad");
@@ -1419,7 +1448,7 @@ window.__ModuleLoader__.load({
 				searchScope: p.stage ? "本阶段事件" : p.searchScope,
 				artifactProps: p.artifactProps ? { ...p.artifactProps, initialPath: p.path, initialRaw: true } : undefined });
 		}
-		function OutputPanel({ text = "", resource, full, onFull, label, memoryKey, filename, toast, onFile, partial = false, artifactProps, dialog = false, onClose, onInspect, searchScope = "日志全文", emptyText = "尚未记录输出" }) {
+		function OutputPanel({ text = "", resource, full, onFull, label, memoryKey, filename, toast, onFile, partial = false, artifactProps, dialog = false, onClose, onInspect, searchScope = "日志全文", emptyText = "尚未记录输出", slug = "", runId = "", path = "" }) {
 			const [search, setSearch] = React.useState(""), [matchPage, setMatchPage] = React.useState(0);
 			const [follow, setFollow] = usePreference(memoryKey + ".follow", true), [wrap, setWrap] = usePreference(memoryKey + ".wrap", true);
 			const [expanded, setExpanded] = React.useState(false), [history, setHistory] = React.useState(false), [historyPage, setHistoryPage] = React.useState(null);
@@ -1499,6 +1528,9 @@ window.__ModuleLoader__.load({
 					reading ? h("button", { onClick: () => setWrap(!wrap), "aria-pressed": wrap }, "换行") : null,
 					h("button", { onClick: () => follow && !reading ? pause() : resume() }, follow && !reading ? "暂停跟随" : "跟随最新"),
 					h("button", { onClick: () => copyStudio(copyValue, toast), disabled: !copyValue }, readPartial ? "复制已读内容" : "复制日志"),
+					// TASK-10：只读到尾部片段时提供完整文件的服务端下载链接（预览上限 ≠ 存储截断）
+					readPartial && slug && runId && (path || artifactProps?.initialPath)
+						? h("a", { className: "btn", href: artifactDownloadHref(slug, runId, path || artifactProps.initialPath) }, "下载完整文件") : null,
 					h("button", { onClick: () => downloadStudio(filename, copyValue), disabled: !copyValue }, readPartial ? "下载已读内容" : "下载日志"),
 					reading && pages > 1 ? h(React.Fragment, null,
 						h("button", { onClick: () => query ? setMatchPage(page - 1) : setHistoryPage(page - 1), disabled: page === 0 }, query ? "上一页匹配" : "上一页"),
@@ -2200,7 +2232,12 @@ window.__ModuleLoader__.load({
 			const mainFlow = STAGES.filter(item => !item.bypass), done = mainFlow.filter(item => ["approved", "completed", "failed", "stopped"].includes(run.stages?.[item.id]?.status)).length;
 			const records = parseLines(events.value).filter(event => event.stage === activeStage);
 			const testView = testActivityView(run, tree, records, now, p.error);
-			const eventsText = records.map(event => [fmtClock(event.at), event.kind, event.name, event.detail].filter(Boolean).join("  ")).join("\n");
+			// TASK-10：事件行携带留档完整性标记（非 complete 才标），完整日志经 logRef 回溯；
+			// logRef 只显示末两段（callId/attemptId 或 journal 目录名），完整路径在 JSON 原文可查
+			const shortLogRef = ref => String(ref || "").split("/").filter(Boolean).slice(-2).join("/");
+			const eventsText = records.map(event => [fmtClock(event.at), event.kind, event.name,
+				event.logIntegrity && event.logIntegrity !== "complete" ? "［留档" + event.logIntegrity + "］" : "",
+				event.logRef ? "日志 " + shortLogRef(event.logRef) : "", event.detail].filter(Boolean).join("  ")).join("\n");
 			const stageUntouched = (state?.status || "pending") === "pending" && !files.length && !records.length;
 			const timingEvents = eventsLog.partial ? [] : parseLines(events.value);
 			const stageDurationText = id => stageTimingText(run, id, timingEvents, now, !!p.error);
@@ -2292,7 +2329,13 @@ window.__ModuleLoader__.load({
 					h("div", { className: "studio-process" }, h("section", { className: "studio-process-main" },
 						activeStage === "P6" && run.p6Mode === "claude" && !stageUntouched ? h(AgentActivityPanel, { run, now, error: p.error, onFile: openFile }) : null,
 						activeStage === "P8" && !stageUntouched ? h(TestActivityPanel, { view: testView }) : null,
-						state?.error ? h("p", { className: "callout err", style: { marginBottom: 14 } }, state.error) : null,
+						state?.error ? h("div", { style: { marginBottom: 14 } },
+							h("p", { className: "callout err" }, state.error),
+							// TASK-10：错误类别徽标（协议/调用/业务验收/留档）+ 完整留档目录引用。
+							// 徽标来自结构化错误（st.errorInfo），缺省即旧形态不加行，不推测不补造。
+							errorKindChips(state.errorInfo).length || state.errorInfo?.logRefs?.length ? h("div", { className: "studio-row wrap", style: { marginTop: 6 } },
+								errorKindChips(state.errorInfo).map((chip, index) => h("span", { key: "errchip" + index, className: "tg " + ERROR_CHIP_TAGS[chip.kind], title: "结构化错误 code=" + state.errorInfo.code }, chip.label)),
+								state.errorInfo?.logRefs?.length ? h("span", { key: "errlog", className: "mono studio-path hint", title: "本次调用的完整请求/响应留档目录（trace 下按 callId/attemptId 组织）" }, "留档 " + state.errorInfo.logRefs.join("、")) : null) : null) : null,
 												stageUntouched ? h(EmptyState, { title: activeStage === "P10" ? "目前没有需要分析的失败" : activeStage === run.current ? "本阶段尚未开始执行" : "等待上游阶段完成" },
 							h("p", null, activeStage === "P10" ? "P10 在主线阶段失败时触发，帮助定位原因并选择恢复方式。" : (STUDIO_STAGE_NAMES[activeStage] || stageDef?.name || activeStage) + "尚未开始，结果生成后会显示在这里。"),
 							stageDef?.art ? h("p", { className: "hint" }, "预期产物：" + stageDef.art) : null) :

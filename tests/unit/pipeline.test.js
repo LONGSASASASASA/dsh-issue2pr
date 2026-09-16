@@ -4,7 +4,8 @@ import { mkdtempSync, readFileSync, readdirSync, mkdirSync, writeFileSync, exist
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { STAGES, MAIN_FLOW, initRun, saveRun, loadRun, isGate, advance, applyReview } from "../../lib/core/pipeline.js";
+import { STAGES, MAIN_FLOW, initRun, saveRun, loadRun, isGate, advance, applyReview, structuredErrorOf } from "../../lib/core/pipeline.js";
+import { llmError } from "../../lib/infra/llm.js";
 import { delegateReady } from "../../lib/core/stageConfig.js";
 import p7 from "../../lib/stages/p7-patch.js";
 
@@ -41,6 +42,43 @@ test("STAGES 11 项，key 门恰为 P5/P6/P9/P11", () => {
   assert.deepEqual(MAIN_FLOW, ["P1","P2","P3","P4","P5","P6","P7","P8","P9","P11"]);
 });
 
+// —— 补全：structuredErrorOf 异常日志保存（栈轨迹）与委外留档引用（logDirs/failureKind）贯通 ——
+test("structuredErrorOf：异常栈有界保存；logDirs 合并去重；failureKind 透传", () => {
+  // 普通异常：栈轨迹（异常日志）随结构化错误落 run.json，截断到 4000 字
+  const plain = new Error("boom at p7");
+  const info1 = structuredErrorOf(plain, "P7", { stageExecutionId: "P7-20260916-010203-aabbccddeeff" });
+  assert.equal(info1.code, "stage_failed");
+  assert.equal(info1.stage, "P7");
+  assert.equal(info1.stageExecutionId, "P7-20260916-010203-aabbccddeeff");
+  assert.ok(info1.stack.includes("boom at p7"), "Error.stack 首行含消息");
+  assert.ok(info1.stack.length <= 4000);
+  assert.deepEqual(info1.logRefs, []);
+
+  // 委外失败：logDir + logDirs 合并去重（records 排首）、failureKind/logIntegrity 透传
+  const delegate = new Error("P6 Claude Code CLI 执行未完成：超时被终止");
+  delegate.failureKind = "timeout";
+  delegate.logDir = "06-implementation/external-exec.records.journal";
+  delegate.logDirs = [
+    "06-implementation/external-exec.records.journal",
+    "06-implementation/external-exec.stdout.journal",
+    "06-implementation/external-exec.stderr.journal",
+  ];
+  delegate.logIntegrity = "partial";
+  const info2 = structuredErrorOf(delegate, "P6", null);
+  assert.equal(info2.failureKind, "timeout");
+  assert.equal(info2.logIntegrity, "partial");
+  assert.deepEqual(info2.logRefs, [
+    "06-implementation/external-exec.records.journal",
+    "06-implementation/external-exec.stdout.journal",
+    "06-implementation/external-exec.stderr.journal",
+  ], "logDir 与 logDirs 合并且不重复");
+
+  // 无留档附加字段的对象异常：logRefs 空数组、无 stack 字段（字符串/undefined 形态不虚构）
+  const info3 = structuredErrorOf({ message: "plain object" }, "P2", null);
+  assert.deepEqual(info3.logRefs, []);
+  assert.equal("stack" in info3, false);
+});
+
 test("迟到的阶段成功或异常不能覆盖停止和新一轮状态", async () => {
   for (const stopped of [true, false]) for (const fails of [true, false]) {
     const { runDir, run } = freshRun("every");
@@ -62,6 +100,42 @@ test("迟到的阶段成功或异常不能覆盖停止和新一轮状态", async
     assert.deepEqual(loadRun(runDir), expected);
     assert.deepEqual(run, expected);
   }
+});
+
+// —— TASK-01：阶段执行身份（stageExecutionId 生成 / 重跑换新 / 事件关联 / 迟到拦截） ——
+test("TASK-01：阶段执行生成 stageExecutionId，重跑换新，事件按身份可反向关联", async () => {
+  const { runDir, run } = freshRun("every");
+  const rcx = { runDir, run, executors: okExecutors, log() {} };
+  await advance(rcx);
+  const firstId = run.stages.P1.stageExecutionId;
+  assert.match(firstId, /^P1-\d{8}-\d{6}-[0-9a-f]{12}$/);
+  assert.equal(loadRun(runDir).stages.P1.stageExecutionId, firstId, "身份随 run.json 落盘");
+  const evs = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+  assert.ok(evs.filter((e) => e.stage === "P1").every((e) => e.stageExecutionId === firstId),
+    "P1 本轮全部事件携带同一执行身份");
+  // 打回重跑 → 新执行身份，旧身份事件保留（历史不删）
+  await applyReview(rcx, { decision: "reject", comment: "重来" });
+  await advance(rcx);
+  const secondId = run.stages.P1.stageExecutionId;
+  assert.notEqual(secondId, firstId, "重跑必须换新身份");
+  const evs2 = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+  assert.ok(evs2.some((e) => e.stage === "P1" && e.stageExecutionId === secondId), "新身份事件可定位");
+  assert.ok(evs2.some((e) => e.stage === "P1" && e.stageExecutionId === firstId), "旧身份事件保留");
+});
+
+test("TASK-01：迟到的旧执行（stageExecutionId 不同）不得覆盖新一轮状态", async () => {
+  const { runDir, run } = freshRun("every");
+  let expected;
+  const executors = { P1: async () => {
+    expected = loadRun(runDir);
+    expected.status = "running";
+    expected.stages.P1 = { status: "running", startedAt: expected.stages.P1.startedAt,
+      stageExecutionId: "P1-20990101-000000-deadbeefcafe" }; // 执行期间被新一轮执行改写身份
+    saveRun(runDir, expected);
+    return { artifact: "old.json" };
+  } };
+  await advance({ runDir, run, executors });
+  assert.deepEqual(loadRun(runDir), expected, "旧执行的落盘被身份校验拦下");
 });
 
 test("every 模式：逐阶段停 awaiting_review，approve 后才推进", async () => {
@@ -213,6 +287,69 @@ test("阶段失败 → failed + error，trace 有 span", async () => {
   await advance(rcx);
   assert.equal(run.stages.P1.status, "failed");
   assert.match(run.stages.P1.error, /无法解析/);
+});
+
+// —— TASK-07：结构化错误对象落盘与重启读取 ——
+test("TASK-07：阶段失败落盘 errorInfo（code/callId/logRefs），重载 run.json 后仍在", async () => {
+  const { runDir, run } = freshRun("every");
+  const err = llmError("json_parse_failed", "契约解析失败：意外结束",
+    { callId: "call-9", attemptId: "attempt-9", finishReason: "stop", logDir: "trace/llm/call-9/attempt-9" });
+  const bad = { ...okExecutors, P1: async () => { throw err; } };
+  await advance({ runDir, run, executors: bad, log() {} });
+  assert.equal(run.stages.P1.status, "failed");
+  assert.equal(typeof run.stages.P1.error, "string", "st.error 保持字符串形态（旧 UI 兼容）");
+  const info = run.stages.P1.errorInfo;
+  assert.equal(info.code, "json_parse_failed");
+  assert.equal(info.message, "契约解析失败：意外结束");
+  assert.equal(info.stage, "P1");
+  assert.equal(info.stageExecutionId, run.stages.P1.stageExecutionId);
+  assert.equal(info.callId, "call-9");
+  assert.equal(info.attemptId, "attempt-9");
+  assert.equal(info.finishReason, "stop");
+  assert.deepEqual(info.logRefs, ["trace/llm/call-9/attempt-9"]);
+  assert.ok(Array.isArray(info.retryHistory));
+  // 重启模拟：从盘上重新 loadRun，errorInfo 不丢（P10 可确定性读取）
+  const reloaded = loadRun(runDir);
+  assert.equal(reloaded.stages.P1.errorInfo.code, "json_parse_failed");
+  assert.equal(reloaded.stages.P1.errorInfo.callId, "call-9");
+});
+
+test("TASK-07：普通异常（无 code）的 errorInfo 记 stage_failed", async () => {
+  const { runDir, run } = freshRun("every");
+  const bad = { ...okExecutors, P1: async () => { throw new Error("炸了"); } };
+  await advance({ runDir, run, executors: bad, log() {} });
+  assert.equal(run.stages.P1.errorInfo.code, "stage_failed");
+  assert.equal(run.stages.P1.errorInfo.message, "炸了");
+  assert.equal(run.stages.P1.errorInfo.callId, null);
+});
+
+// —— TASK-07：P11 eval 报告执行身份绑定，历史通过结果不可复用 ——
+test("TASK-07：P11 eval 报告 stageExecutionId 不匹配时拒绝复用历史通过状态", async () => {
+  const { runDir, run } = freshRun("auto");
+  for (const id of MAIN_FLOW) run.stages[id].status = "approved";
+  run.current = "P11";
+  run.status = "running";
+  run.stages.P11.stageExecutionId = "P11-20990101-000000-newround99";
+  saveRun(runDir, run);
+  writeDelivery(runDir, { stageExecutionId: "P11-20990101-000000-oldround01" });
+  let executed = false;
+  await advance({ runDir, run, executors: { P11: async () => { executed = true; } }, log() {} });
+
+  assert.equal(executed, false);
+  assert.equal(run.status, "failed");
+  assert.match(run.stages.P11.error, /stageExecutionId 不匹配|上一轮/);
+  assert.equal(loadRun(runDir).stages.P11.status, "failed");
+});
+
+test("TASK-07：无 stageExecutionId 的旧格式 eval 报告保持兼容，不误拒", async () => {
+  const { runDir, run } = freshRun("auto");
+  for (const id of MAIN_FLOW) run.stages[id].status = "approved";
+  run.current = "P11";
+  run.status = "running";
+  saveRun(runDir, run);
+  writeDelivery(runDir); // 旧格式：报告不带 stageExecutionId
+  await advance({ runDir, run, executors: { P11: async () => {} }, log() {} });
+  assert.equal(run.status, "completed");
 });
 test("advance 写过程事件：阶段开始/完成落 trace/events.jsonl", async () => {
   const { runDir, run } = freshRun("every");

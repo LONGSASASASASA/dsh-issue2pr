@@ -123,6 +123,11 @@ test("P10：外部等待、执行器异常分别记录状态，不改变主失�
   const run = loadRun(bad.runDir);
   assert.equal(run.stages.P10.status, "failed"); assert.equal(run.current, "P8");
   assert.equal(run.stages.P8.error, "测试命令失败");
+  // 补全③：P10 自身失败也落结构化错误（UI 徽标与异常栈可见），并标明源阶段
+  assert.equal(run.stages.P10.errorInfo.code, "stage_failed");
+  assert.equal(run.stages.P10.errorInfo.stage, "P10");
+  assert.equal(run.stages.P10.errorInfo.sourceStage, "P8");
+  assert.match(run.stages.P10.errorInfo.stack, /executor failed/, "异常栈（异常日志）随结构化错误保存");
 });
 
 test("P10 委托：唯一输出、等待保留身份，匹配报告消费后发布而不推进 P8", async t => {

@@ -3,13 +3,14 @@
  * 路由与 spec §7 对齐：projects / runs（嵌套）/ review / rollback / tree / artifact。
  * 数据读写一律走 lib/core/store.js 与 lib/core/pipeline.js，不重复造轮子。
  */
-import { join, relative, sep } from "node:path";
-import { existsSync, readdirSync, mkdirSync, readFileSync } from "node:fs";
+import { join, relative, sep, basename } from "node:path";
+import { existsSync, readdirSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { createReadStream } from "node:fs";
 import { execFile } from "node:child_process";
 import {
   defaultDataRoot, saveProject, loadProject, listProjects,
   createRun, runDirOf, readArtifact, listRunTree, rmTree, loadUiState, saveUiState,
-  writeArtifact, recoverCorruptRun, timestamp,
+  writeArtifact, recoverCorruptRun, timestamp, artifactPath,
   loadSettings, saveSettings, executionProject,
 } from "./lib/core/store.js";
 import { initRun, saveRun, loadRun, advance, applyReview, isGate, STAGES, MAIN_FLOW } from "./lib/core/pipeline.js";
@@ -93,7 +94,11 @@ function buildRcx(ctx, root, runDir, run) {
       ? { ...cfg, provider: route.provider, model: route.model, reasoningEffort: cfg.reasoningEffort || route.reasoningEffort || "" }
       : cfg;
   };
-  rcx.llm = makeLlm(ctx, (ev) => logEvent(rcx, ev), () => routeOverridesOf(rcx));
+  rcx.llm = makeLlm(ctx, (ev) => logEvent(rcx, ev), () => routeOverridesOf(rcx), () => ({
+    // TASK-02：每次真实请求建 trace/llm/<callId>/<attemptId>/ 留档（含执行身份）
+    runDir: rcx.runDir, runId: rcx.run?.id || null, stage: rcx.run?.current || null,
+    stageExecutionId: rcx.run?.stages?.[rcx.run?.current]?.stageExecutionId || null,
+  }));
   return rcx;
 }
 
@@ -160,7 +165,9 @@ function ensureRepo(root, project, rcx) {
 }
 
 // —— 快速失败：把运行中的 run 置为 failed（阶段状态同步落盘），供克隆失败等开工前错误使用 ——
-export function failRun(runDir, stageId, message) {
+// errorInfo（可选）：补全②——快速失败同样落结构化错误（如 environment_error），
+// P10 从 run.stages[current].errorInfo 确定性读取，不再落「原因未确定」。
+export function failRun(runDir, stageId, message, errorInfo = null) {
   let run;
   try {
     run = loadRun(runDir);
@@ -173,22 +180,29 @@ export function failRun(runDir, stageId, message) {
   const id = stageId || run.current || "P1";
   const st = run.stages[id] || (run.stages[id] = { status: "pending", attempts: 0 });
   st.status = "failed"; st.error = message;
+  if (errorInfo && typeof errorInfo === "object") st.errorInfo = errorInfo;
   saveRun(runDir, run);
   return run;
 }
 
 // 所有失败路径共用 P10 旁路入口，LLM 路由和事件独立指向 P10。
-async function classifyFailure(ctx, runDir, rcx, run, message) {
+// errorInfo：失败阶段的 st.errorInfo（TASK-07 结构化错误，run.json 落盘后重启仍可读）
+async function classifyFailure(ctx, runDir, rcx, run, message, errorInfo = null) {
   if (!rcx?.executors?.P10) return;
   rcx.run = run;
+  // 结构化错误优先取参数（rerun 等显式传递），否则从失败阶段状态读取（advance 已写入）
+  const info = (errorInfo && typeof errorInfo === "object" ? errorInfo : null)
+    || run?.stages?.[run.current]?.errorInfo || null;
   try {
     await analyzeFailure(rcx, message, scoped => {
       scoped.stageCfgOf = id => rcx.stageCfgOf(id || "P10");
       scoped.llm = __testHooks ? rcx.llm : makeLlm(ctx,
         ev => { if (scoped.failureAnalysisCurrent()) logEvent(scoped, ev); },
-        () => routeOverridesOf(scoped));
+        () => routeOverridesOf(scoped),
+        () => ({ runDir: scoped.runDir, runId: scoped.run?.id || null, stage: scoped.run?.current || null,
+          stageExecutionId: scoped.run?.stages?.[scoped.run?.current]?.stageExecutionId || null }));
       return scoped;
-    });
+    }, info);
   } catch (error) {
     ctx.logger?.error?.("issue2pr: P10 失败分析也失败: " + String(error?.message || error));
   }
@@ -222,7 +236,17 @@ function drive(ctx, root, runDir) {
         }
         catch (e) {
           const msg = "仓库准备失败: " + String((e && e.message) || e);
-          const run = failRun(runDir, initRun.current, msg);
+          // 补全②：clone/worktree/基线重置失败是系统可确定的环境错误（凭据缺失、网络不可达、
+          // 磁盘故障等），结构化落盘供 P10 确定性归类「环境缺失」；异常细节已在 git 失败事件（events.jsonl）留档
+          const failStage = initRun.current || "P1";
+          const run = failRun(runDir, initRun.current, msg, {
+            code: "environment_error",
+            message: msg,
+            stage: failStage,
+            stageExecutionId: initRun.stages?.[failStage]?.stageExecutionId || null,
+            logRefs: [], retryHistory: [],
+            at: new Date().toISOString(),
+          });
           if (run) {
             const rcx = s.rcx;
             if (rcx) {
@@ -879,8 +903,11 @@ async function handleApi(ctx, root, req, res) {
           run.current = source;
           run.status = "failed";
           const sourceStartedAt = run.stages[source]?.startedAt || null;
+          // 源阶段执行身份（TASK-01）：阶段被重跑后 stageExecutionId 变化，旧 P10 记录不再续接
+          const sourceExecId = run.stages[source]?.stageExecutionId || null;
           const resumeExternal = run.stages.P10?.status === "awaiting_review" &&
-            run.stages.P10.sourceStage === source && run.stages.P10.sourceStartedAt === sourceStartedAt;
+            run.stages.P10.sourceStage === source && run.stages.P10.sourceStartedAt === sourceStartedAt &&
+            (run.stages.P10.sourceStageExecutionId || null) === sourceExecId;
           if (!resumeExternal) run.stages.P10 = { status: "pending", attempts: run.stages.P10?.attempts || 0 };
           delete run.failureAnalysis;
           saveRun(runDir, run);
@@ -889,7 +916,8 @@ async function handleApi(ctx, root, req, res) {
             try {
               const latest = loadRun(runDir);
               if (latest?.status !== "failed" || latest.current !== source ||
-                  (latest.stages?.[source]?.startedAt || null) !== sourceStartedAt) return;
+                  (latest.stages?.[source]?.startedAt || null) !== sourceStartedAt ||
+                  (latest.stages?.[source]?.stageExecutionId || null) !== sourceExecId) return;
               let rcx;
               try {
                 rcx = buildRcx(ctx, root, runDir, latest);
@@ -897,7 +925,7 @@ async function handleApi(ctx, root, req, res) {
                 // 上下文尚未创建时也走同一旁路状态/事件入口，不能让定时回调异常逃逸。
                 rcx = { runDir, run: latest, resumeFailureAnalysis: resumeExternal,
                   executors: { P10: async () => { throw new Error("P10 上下文构建失败: " + String(error?.message || error)); } } };
-                await analyzeFailure(rcx, latest.stages[source]?.error);
+                await analyzeFailure(rcx, latest.stages[source]?.error, undefined, latest.stages[source]?.errorInfo || null);
                 return;
               }
               rcx.resumeFailureAnalysis = resumeExternal;
@@ -1034,6 +1062,30 @@ async function handleApi(ctx, root, req, res) {
         const rel = url.searchParams.get("path") || "";
         const tail = url.searchParams.get("tail") === "1";
         const full = url.searchParams.get("full") === "1";
+        // TASK-10 下载通道：按字节流原样传输完整产物，无大小上限（大日志按需下载，
+        // 读取端的 200KB/5MB 上限只约束预览，不得反向变成存储截断）。
+        if (url.searchParams.get("download") === "1") {
+          let absPath;
+          try { absPath = artifactPath(runDir, rel); } // safeJoin 防 .. 逃逸
+          catch (e) { return sendJson(res, 400, { ok: false, message: (e && e.message) || String(e) }); }
+          let st;
+          try {
+            st = statSync(absPath);
+            if (!st.isFile()) throw new Error("不是普通文件");
+          } catch { return sendJson(res, 404, { ok: false, message: "产物不存在: " + rel }); }
+          // 文件名走 RFC 5987（中文/特殊字符安全），兜底 ASCII 占位
+          const name = basename(absPath) || "artifact";
+          res.writeHead(200, {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": st.size,
+            "Content-Disposition": `attachment; filename="artifact"; filename*=UTF-8''${encodeURIComponent(name)}`,
+            "Cache-Control": "no-store",
+          });
+          const stream = createReadStream(absPath);
+          stream.on("error", () => { try { res.destroy(); } catch { /* 连接已断 */ } });
+          stream.pipe(res);
+          return;
+        }
         let text;
         try { text = readArtifact(runDir, rel); } // safeJoin 防 ..
         catch (e) { return sendJson(res, 400, { ok: false, message: (e && e.message) || String(e) }); }

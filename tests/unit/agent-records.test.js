@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { agentRecordPaths, createAgentRecordWriter } from "../../lib/delegate/executors/agent-records.js";
 import { frameToEntries, dshEventToEntries } from "../../lib/delegate/executors/agent-timeline.js";
 
@@ -92,6 +92,59 @@ test("索引中断末行保留证据并隔开，新执行的完整事件仍可�
     const complete = JSON.parse(stored[1]);
     assert.equal(complete.captureId, writer.captureId);
     assert.equal(complete.text, "新的完整结果");
+});
+
+test("TASK-10 分片轮转：超阈值滚动新分片，source.file 指向实际分片，清单登记全部分片", () => {
+    const paths = fixture();
+    const writer = createAgentRecordWriter({ ...paths, executor: "claude-code", rotateBytes: 120 });
+    const frameOf = (n) => ({ type: "result", result: "消息" + n + "-" + "x".repeat(90) });
+    writer.appendFrame(frameOf(1)); // 首片沿用既有文件名
+    writer.appendFrame(frameOf(2)); // 超阈值 → 000002
+    writer.appendFrame(frameOf(3)); // 再超 → 000003
+    const dir = dirname(paths.messagesPath);
+    for (const name of ["external-exec.messages.jsonl", "external-exec.messages.000002.jsonl", "external-exec.messages.000003.jsonl"]) {
+        assert.ok(existsSync(join(dir, name)), "messages 分片存在: " + name);
+    }
+    // events 索引同样轮转；逐分片读回全部事件，核对 source.file/offset/bytes 指向实际分片
+    const evNames = readdirSync(dir).filter((n) => /^external-exec\.events(?:\.\d{6})?\.jsonl$/.test(n))
+        .sort((a, b) => (Number(/\.(\d{6})\.jsonl$/.exec(a)?.[1] || 1) - Number(/\.(\d{6})\.jsonl$/.exec(b)?.[1] || 1)));
+    assert.equal(evNames[0], "external-exec.events.jsonl", "首片沿用既有文件名（旧读取端兼容）");
+    assert.ok(evNames.length >= 2, "索引已轮转出多个分片");
+    const events = evNames.flatMap((name) => readFileSync(join(dir, name), "utf8").trim().split("\n").filter(Boolean).map(JSON.parse));
+    assert.equal(events.length, 3);
+    for (const event of events) {
+        const shard = readFileSync(join(dir, event.source.file));
+        const raw = shard.subarray(event.source.offset, event.source.offset + event.source.bytes);
+        assert.equal(createHash("sha256").update(raw).digest("hex"), event.source.sha256, "字节引用指向实际分片");
+        assert.deepEqual(JSON.parse(raw).result, event.text, "摘要文本与分片原文一致");
+    }
+    // 分片清单：登记全部 messages 分片（含轮转片），原子落盘为 JSON
+    const manifest = JSON.parse(readFileSync(join(dir, "external-exec.messages.manifest.json"), "utf8"));
+    assert.equal(manifest.kind, "agent-record-shards");
+    assert.deepEqual(manifest.files.map((f) => f.file).sort(),
+        ["external-exec.messages.000002.jsonl", "external-exec.messages.000003.jsonl", "external-exec.messages.jsonl"], "清单登记全部分片");
+    assert.equal(manifest.status, "open");
+});
+
+test("TASK-10 分片轮转：跨执行从最后一个分片续写，不清空历史分片", () => {
+    const paths = fixture();
+    const first = createAgentRecordWriter({ ...paths, executor: "claude-code", rotateBytes: 120 });
+    first.appendFrame({ type: "result", result: "第一轮-" + "y".repeat(100) });
+    first.appendFrame({ type: "result", result: "第一轮第二条-" + "y".repeat(100) });
+    const dir = dirname(paths.messagesPath);
+    const before = readdirSync(dir).filter((n) => n.startsWith("external-exec.messages"));
+    const second = createAgentRecordWriter({ ...paths, executor: "claude-code", rotateBytes: 120 });
+    second.appendFrame({ type: "result", result: "第二轮-" + "z".repeat(100) });
+    const after = readdirSync(dir).filter((n) => n.startsWith("external-exec.messages"));
+    assert.ok(after.length >= before.length && after.includes("external-exec.messages.000002.jsonl"), "历史分片保留");
+    // 第二轮的第一条落在最后一个现存分片（续写），不重开首片
+    const events = readdirSync(dir).filter((n) => /^external-exec\.events(?:\.\d{6})?\.jsonl$/.test(n))
+        .flatMap((name) => readFileSync(join(dir, name), "utf8").trim().split("\n").filter(Boolean).map(JSON.parse));
+    const secondEvent = events.find((e) => e.text?.startsWith("第二轮"));
+    assert.ok(secondEvent.source.file.length >= "external-exec.messages.jsonl".length, "source.file 指向续写分片");
+    const shard = readFileSync(join(dir, secondEvent.source.file));
+    assert.deepEqual(JSON.parse(shard.subarray(secondEvent.source.offset, secondEvent.source.offset + secondEvent.source.bytes)),
+        { type: "result", result: "第二轮-" + "z".repeat(100) }, "第二轮消息可按 source 定位");
 });
 
 test("DSH 原生消息与工具事件摘要保留关联字段，未知事件保留可追溯摘要", () => {

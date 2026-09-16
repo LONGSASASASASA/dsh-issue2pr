@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 
 import { apply } from "../../index.js";
 import { __setTestHooks } from "../../index.js";   // 测试注入：dataRoot / executors / llm
@@ -40,6 +41,21 @@ async function call(handler, method, path, body) {
   }
   await handler(req, res);
   return { status: res.status, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) };
+}
+
+// 二进制流式响应（下载端点用）：res 是真 Writable，支持 pipe 与 headers 断言
+async function rawCall(handler, method, path) {
+  const req = { method, url: path,
+    on(ev, fn) { if (ev === "data") {} if (ev === "end") setImmediate(fn); },
+    [Symbol.asyncIterator]: undefined };
+  const res = new PassThrough();
+  res.status = 0; res.headers = null;
+  res.writeHead = (code, headers) => { res.status = code; res.headers = headers || {}; };
+  const chunks = [];
+  res.on("data", (c) => chunks.push(c));
+  await handler(req, res);
+  if (!res.writableEnded) await new Promise((resolve) => res.on("end", resolve));
+  return { status: res.status, headers: res.headers, body: Buffer.concat(chunks) };
 }
 
 test("任务列表摘要：返回已存阶段错误及外部状态，不读取独立产物", async () => {
@@ -169,6 +185,39 @@ test("API：artifact 超限 400；tail=1 返回末尾片段并标记 truncated",
   r = await call(handler2, "GET", `/issue2pr/api/projects/tail-demo/runs/${runId}/artifact?path=${enc}&full=1`);
   assert.equal(r.status, 200);
   assert.equal(r.body.text, big, "full=1 返回完整内容");
+});
+
+test("API：artifact download=1 字节流原样下载，无大小上限；防 .. 与缺失仍受控", async () => {
+  __setTestHooks({ dataRoot: root, executors: {} });
+  const handler2 = (function () { const rs = []; const c2 = fakeCtx(); c2.webServer.register = (s) => rs.push(s); apply(c2); return rs[0].handler; })();
+  const src = join(root, "dl.md");
+  writeFileSync(src, "下载通道测试触发源");
+  let r = await call(handler2, "POST", "/issue2pr/api/projects", {
+    name: "下载", slug: "dl-demo", repos: ["r"], triggers: [{ kind: "issue", uri: "dl.md" }],
+    reviewMode: "every", p6Mode: "builtin",
+  });
+  assert.equal(r.status, 200);
+  r = await call(handler2, "POST", "/issue2pr/api/projects/dl-demo/runs", { kind: "issue", uri: src });
+  assert.equal(r.status, 200);
+  const runId = r.body.runId;
+  const runDir = runDirOf(root, "dl-demo", runId);
+  // 6MB 含非 UTF-8 字节的内容：full=1 预览通道 400，download=1 必须完整字节返回
+  const parts = [Buffer.from("stream-head\n")];
+  for (let i = 0; i < 6; i++) { const b = Buffer.alloc(1024 * 1024); b.fill(0xff - i); parts.push(b); }
+  const big = Buffer.concat(parts);
+  writeArtifact(runDir, "trace/llm/big/stream-000001.log", big);
+  const enc = encodeURIComponent("trace/llm/big/stream-000001.log");
+  r = await call(handler2, "GET", `/issue2pr/api/projects/dl-demo/runs/${runId}/artifact?path=${enc}&full=1`);
+  assert.equal(r.status, 400, "full=1 预览通道受 5MB 上限");
+  const dl = await rawCall(handler2, "GET", `/issue2pr/api/projects/dl-demo/runs/${runId}/artifact?path=${enc}&download=1`);
+  assert.equal(dl.status, 200);
+  assert.equal(String(dl.headers["Content-Length"]), String(big.length), "Content-Length 与实际字节一致");
+  assert.match(dl.headers["Content-Disposition"], /^attachment/, "附件Disposition");
+  assert.ok(Buffer.compare(dl.body, big) === 0, "下载内容与盘上文件字节级一致（非 UTF-8 字节不破坏）");
+  r = await call(handler2, "GET", `/issue2pr/api/projects/dl-demo/runs/${runId}/artifact?path=${encodeURIComponent("../../secret")}&download=1`);
+  assert.equal(r.status, 400, "download 同样防 .. 逃逸");
+  r = await call(handler2, "GET", `/issue2pr/api/projects/dl-demo/runs/${runId}/artifact?path=no-such.json&download=1`);
+  assert.equal(r.status, 404, "缺失产物 404");
 });
 
 test("API：同秒同触发源重复 POST /runs → 第二次 409（Run 已存在）", async () => {
@@ -366,12 +415,20 @@ test("failRun：running 的 run 落盘 failed + 阶段 error；非 running 不�
     id: "20260829-130000-y", project: "px", status: "running", current: "P1",
     stages: { P1: { status: "running", attempts: 0 } },
   }));
-  const run = failRun(runDir, "P1", "仓库克隆失败: git clone 失败");
+  const run = failRun(runDir, "P1", "仓库克隆失败: git clone 失败", {
+    code: "environment_error", message: "仓库克隆失败: git clone 失败", stage: "P1",
+    stageExecutionId: "P1-20260916-020304-feedfacefeed", logRefs: [], retryHistory: [],
+    at: new Date().toISOString(),
+  });
   assert.equal(run.status, "failed");
   const onDisk = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
   assert.equal(onDisk.status, "failed");
   assert.equal(onDisk.stages.P1.status, "failed");
   assert.match(onDisk.stages.P1.error, /仓库克隆失败/);
+  // 补全②：快速失败同样落结构化错误（P10 据此确定性归类「环境缺失」，不落「原因未确定」）
+  assert.equal(onDisk.stages.P1.errorInfo.code, "environment_error");
+  assert.equal(onDisk.stages.P1.errorInfo.stage, "P1");
+  assert.equal(onDisk.stages.P1.errorInfo.stageExecutionId, "P1-20260916-020304-feedfacefeed");
   // 已 stopped 的 run 再调 failRun 不改状态
   const again = failRun(runDir, "P1", "再失败");
   assert.equal(again.status, "failed");

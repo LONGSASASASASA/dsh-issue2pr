@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, statSync, appendFileSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, statSync, appendFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -56,6 +56,63 @@ test("原始消息：真实采集器跨 chunk 留档后可直接读取，平台�
     assert.equal((await readAgentEvent(f.runDir, { id: events[0].id })).status, "unavailable");
     const actual = await readAgentEvent(f.runDir, { id: events[1].id });
     assert.equal(actual.status, "available"); assert.deepEqual(actual.message, message);
+});
+
+test("TASK-10 分片读取：轮转后的索引/消息分片跨片定位与关联，sourcePath 指向实际分片", async t => {
+    const f = fixture(t), writer = createAgentRecordWriter({
+        messagesPath: join(f.dir, MESSAGE_FILE), eventsPath: join(f.dir, INDEX_FILE), executor: "claude-code", captureId: CAPTURE, rotateBytes: 200,
+    });
+    const call = assistant("调用工具"); call.message.content = [{ type: "tool_use", id: "tool-x", name: "Read", input: { file_path: "a.js" } }];
+    const resultFrame = { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tool-x", content: "跨分片结果" }] } };
+    const tail = assistant("第三条普通消息");
+    writer.appendFrame(call); writer.appendFrame(resultFrame); writer.appendFrame(tail);
+    const msgShards = readdirSync(f.dir).filter(n => /^external-exec\.messages(?:\.\d{6})?\.jsonl$/.test(n));
+    const evShards = readdirSync(f.dir).filter(n => /^external-exec\.events(?:\.\d{6})?\.jsonl$/.test(n));
+    assert.ok(msgShards.length >= 2, "messages 已轮转"); assert.ok(evShards.length >= 2, "events 已轮转");
+    assert.equal(evShards.includes("external-exec.events.jsonl"), true, "首片沿用既有文件名");
+    const all = evShards.flatMap(name => readFileSync(join(f.dir, name), "utf8").trim().split("\n").filter(Boolean).map(JSON.parse));
+    const callEvent = all.find(e => e.toolUseId === "tool-x" && e.relation === "call");
+    const resultEvent = all.find(e => e.toolUseId === "tool-x" && e.relation === "result");
+    assert.notEqual(callEvent.source.file, resultEvent.source.file, "调用与结果落在不同分片（跨片场景）");
+    const actual = await readAgentEvent(f.runDir, { id: callEvent.id });
+    assert.equal(actual.status, "available"); assert.deepEqual(actual.message, call);
+    assert.equal(actual.sourcePath, "06-implementation/" + callEvent.source.file, "sourcePath 指向实际分片");
+    assert.deepEqual(actual.related.map(r => r.message), [resultFrame], "跨分片关联工具结果");
+    const reverse = await readAgentEvent(f.runDir, { id: resultEvent.id });
+    assert.equal(reverse.status, "available");
+    assert.equal(reverse.sourcePath, "06-implementation/" + resultEvent.source.file);
+    assert.deepEqual(reverse.related.map(r => r.message), [call], "反向跨片关联也成立");
+    const plain = all.find(e => e.text === "第三条普通消息");
+    const third = await readAgentEvent(f.runDir, { id: plain.id });
+    assert.equal(third.status, "available"); assert.deepEqual(third.message, tail);
+});
+
+test("TASK-10 分片清单：损坏或登记分片缺失时明确不可用，清单缺失按文件名枚举兜底", async t => {
+    const f = fixture(t), writer = createAgentRecordWriter({
+        messagesPath: join(f.dir, MESSAGE_FILE), eventsPath: join(f.dir, INDEX_FILE), executor: "claude-code", captureId: CAPTURE, rotateBytes: 200,
+    });
+    writer.appendFrame(assistant("第一条消息"));
+    writer.appendFrame(assistant("第二条消息"));
+    const evShards = readdirSync(f.dir).filter(n => /^external-exec\.events(?:\.\d{6})?\.jsonl$/.test(n));
+    assert.ok(evShards.length >= 2, "已轮转出多个分片");
+    const firstEvent = readFileSync(join(f.dir, "external-exec.events.jsonl"), "utf8").trim().split("\n").map(JSON.parse)[0];
+    const manifestPath = join(f.dir, "external-exec.events.manifest.json");
+    const validManifest = readFileSync(manifestPath, "utf8");
+    // 1) 清单损坏 → 明确报错，不静默降级
+    writeFileSync(manifestPath, "{broken json");
+    const broken = await readAgentEvent(f.runDir, { id: firstEvent.id });
+    assert.equal(broken.status, "unavailable"); assert.match(broken.reason, /分片清单.*JSON/);
+    // 2) 清单登记的分片在盘上缺失 → 留档不完整，明确报错
+    writeFileSync(manifestPath, validManifest);
+    const listed = JSON.parse(validManifest).files.map(x => x.file);
+    const later = listed.find(n => n !== "external-exec.events.jsonl");
+    rmSync(join(f.dir, later));
+    const missing = await readAgentEvent(f.runDir, { id: firstEvent.id });
+    assert.equal(missing.status, "unavailable"); assert.match(missing.reason, /分片缺失/);
+    // 3) 清单缺失（写失败/被清理）→ 按文件名顺序枚举兜底，读取仍可用
+    rmSync(manifestPath);
+    const fallback = await readAgentEvent(f.runDir, { id: firstEvent.id });
+    assert.equal(fallback.status, "available"); assert.deepEqual(fallback.message.message.content[0].text, "第一条消息");
 });
 
 test("原始消息：多 block 事件定位同一个完整 JSON，所有字段与 Unicode 内容保真", async t => {

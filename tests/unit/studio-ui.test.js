@@ -47,7 +47,7 @@ function studio(fetcher = async () => ({ ok: true }), clock = {}) {
     window: { confirm: () => true, addEventListener() {}, removeEventListener() {},
       __ModuleLoader__: { load(def) { exports = def.factory(name => name === "react" ? React : { MarkdownText: () => null }); } } },
   };
-  const source = readFileSync(new URL("../../client.js", import.meta.url), "utf8").replace("exports.apply = apply;", "exports.apply = apply; exports.test = { tag, currentFailureOf, ProjectDialog, testActivityView, TestActivityPanel, useRunClock, stageTimingText, agentActivityView, AgentActivityPanel, useResource, StudioSettings, StudioDialog, NewTaskDialog, RunsPanel, PatchPreview, ArtifactsPanel, TaskList, ProjectsPanel, OutputPanel, useLogArtifact, RunLogPanel, stageLogText, ArtifactsDialog, RunReportCard, DeliveryPanel, WorkbenchPage, AssistantDock, panelStore, aiStore, ReadableValue, DiffContent, diffLineNumbers, formatAgentLog, timelineStripDate, timelineKeep, parseTimelineEvent, previewClamp, taskInputSummary, TimelineTable, EventDetailDialog, ExecutionsPanel, executionItems, artifactOwner, taskTitle, taskReason, evidenceState, parseLines, renderView, detectHostDark, reportSummary, gateLabel, gateStats, StageResult, SearchCandidatesCard, ArtifactContent };");
+  const source = readFileSync(new URL("../../client.js", import.meta.url), "utf8").replace("exports.apply = apply;", "exports.apply = apply; exports.test = { tag, currentFailureOf, ProjectDialog, testActivityView, TestActivityPanel, useRunClock, stageTimingText, agentActivityView, AgentActivityPanel, useResource, StudioSettings, StudioDialog, NewTaskDialog, RunsPanel, PatchPreview, ArtifactsPanel, TaskList, ProjectsPanel, OutputPanel, useLogArtifact, RunLogPanel, stageLogText, ArtifactsDialog, RunReportCard, DeliveryPanel, WorkbenchPage, AssistantDock, panelStore, aiStore, ReadableValue, DiffContent, diffLineNumbers, formatAgentLog, timelineStripDate, timelineKeep, parseTimelineEvent, previewClamp, taskInputSummary, TimelineTable, EventDetailDialog, ExecutionsPanel, executionItems, artifactOwner, taskTitle, taskReason, evidenceState, parseLines, renderView, detectHostDark, reportSummary, gateLabel, gateStats, StageResult, SearchCandidatesCard, ArtifactContent, errorKindChips, artifactDownloadHref };");
   vm.runInNewContext(source, sandbox, { filename: "client.js" });
   function mount(fn, props) {
     const instance = { index: 0, cells: [], effects: [], props, tree: null,
@@ -2228,4 +2228,41 @@ test("P8 重跑与历史：拒绝上轮输出和报告，旧任务仅显示日�
   t.after(() => reader.dispose()); await tick(); reader.render();
   const output = ui.mount(ui.OutputPanel, { ...reader.tree.props, memoryKey: "p8-empty" }); t.after(() => output.dispose());
   assert.match(text(output.tree), /测试命令已启动，等待首条输出/); assert.doesNotMatch(text(output.tree), /开始执行后这里/);
+});
+
+test("TASK-10 错误类别徽标：协议/调用/业务验收/留档四类映射，旧形态缺省不加行", () => {
+  const ui = studio();
+  // 沙箱数组原型在另一 realm，统一以 join 字符串比对（与既有 UI 测试同法）
+  const kinds = info => ui.errorKindChips(info).map(c => c.kind).join(",");
+  assert.equal(kinds(null), "", "无结构化错误 = 旧形态");
+  assert.equal(kinds({}), "");
+  assert.equal(kinds({ code: "stage_failed", message: "x" }), "", "未分类阶段失败不虚构类别");
+  assert.equal(kinds({ code: "json_parse_failed" }), "protocol");
+  assert.equal(kinds({ code: "schema_validation_failed" }), "protocol");
+  assert.match(ui.errorKindChips({ code: "output_truncated" })[0].label, /输出截断/);
+  assert.equal(ui.errorKindChips({ code: "llm_call_failed", llmCause: "timeout" })[0].label, "调用错误 · 超时");
+  assert.equal(ui.errorKindChips({ code: "llm_call_failed", llmCause: "empty" })[0].label, "调用错误 · 空响应");
+  assert.equal(ui.errorKindChips({ code: "llm_call_failed" })[0].label, "调用错误 · 未知原因");
+  assert.equal(kinds({ code: "business_gate_failed" }), "gate");
+  assert.equal(kinds({ code: "llm_call_failed", llmCause: "provider", logIntegrity: "write_failed" }), "call,archive",
+    "调用错误可叠加留档不完整");
+  assert.match(ui.errorKindChips({ logIntegrity: "corrupt" })[0].label, /校验损坏/);
+  assert.match(ui.errorKindChips({ logIntegrity: "open" })[0].label, /未封存/);
+  assert.equal(kinds({ logIntegrity: "complete" }), "", "完整留档不标异常");
+  // 补全：环境错误（开工前 clone/凭据缺失）与外部执行失败（委外执行器观测事实）单列徽标
+  assert.equal(kinds({ code: "environment_error" }), "env");
+  assert.equal(ui.errorKindChips({ code: "environment_error" })[0].label, "环境错误");
+  assert.equal(kinds({ failureKind: "spawn" }), "exec");
+  assert.equal(ui.errorKindChips({ failureKind: "timeout" })[0].label, "外部执行失败 · 超时终止");
+  assert.equal(kinds({ code: "stage_failed", failureKind: "exit", logIntegrity: "partial" }), "exec,archive",
+    "外部执行失败可叠加留档不完整");
+  assert.equal(kinds({ failureKind: "unknown-kind" }), "", "未知委外失败形态不虚构徽标");
+});
+
+test("TASK-10 完整下载链接：指向 download=1 字节流端点，路径与参数正确转义", () => {
+  const ui = studio();
+  assert.equal(ui.artifactDownloadHref("demo", "20260916-000001-issue", "trace/events.jsonl"),
+    "/issue2pr/api/projects/demo/runs/20260916-000001-issue/artifact?path=trace%2Fevents.jsonl&download=1");
+  assert.equal(ui.artifactDownloadHref("a b", "r1", "06-implementation/外部 执行.jsonl"),
+    "/issue2pr/api/projects/a%20b/runs/r1/artifact?path=06-implementation%2F%E5%A4%96%E9%83%A8%20%E6%89%A7%E8%A1%8C.jsonl&download=1");
 });

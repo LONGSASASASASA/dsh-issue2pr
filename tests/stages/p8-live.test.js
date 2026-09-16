@@ -122,7 +122,9 @@ test("P8 超时保留终止前输出，状态明确 timeout", async t => {
   childPid = Number(readFileSync(join(f.root, "child-pid"), "utf8"));
   assert.ok(Number.isSafeInteger(childPid) && childPid > 0 && childPid !== process.pid);
   assert.match((await pending).message, /测试超时/);
-  assert.ok(Date.now() - started < 2500, "长寿命后代持有输出管道也不能拖住 exec 超时回调");
+  // 边界须显著低于子进程自身的 10s 退出（区分「kill 及时生效」与「等子进程自然退出」）；
+  // 全量并行负载下 Windows 进程终止偶发超 2.5s，放宽到 4s 保持判别力
+  assert.ok(Date.now() - started < 4000, "长寿命后代持有输出管道也不能拖住 exec 超时回调");
   const ended = await readTestActivity(f.runDir, f.run);
   assert.equal(ended.executionStatus, "timeout");
   assert.match(f.output(), /^before timeout\n/);

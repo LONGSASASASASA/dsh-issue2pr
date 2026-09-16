@@ -1,14 +1,28 @@
 // tests/unit/executors-dsh-agent.test.js — DSH 原生智能体执行器：驱动/归一/失败分类/超时/服务缺失
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import executor from "../../lib/delegate/executors/dsh-agent.js";
+import { readJournal } from "../../lib/infra/journal.js";
+
+// 定位本次执行留下的 journal 目录（dsh-journal-<captureId>），不存在返回 null
+function findJournalDir(root) {
+    const name = readdirSync(root).find((n) => n.startsWith("dsh-journal-"));
+    return name ? join(root, name) : null;
+}
+// 直接读 journal 分片内的记录（单测侧便利读取；端到端读取走 readJournalRef）
+function journalRecords(jdir) {
+    const files = readdirSync(jdir).filter((n) => /^shard-\d{6}\.jsonl$/.test(n)).sort();
+    return files.flatMap((f) => readFileSync(join(jdir, f), "utf8").split("\n").filter(Boolean).map(JSON.parse));
+}
 
 // 构造 fake 宿主：agents.create 返回可控 fake agent（事件由用例注入，whenIdle 即时静默；
-// hangAfterFollowup=true 时 followup 之后的 whenIdle 悬挂，直到 cancel 放行闸门——模拟超时取消）
-function fakeHost({ events = [], createError = null, hangAfterFollowup = false, cancelReleases = true, driveError = null, onDispose = () => {} } = {}) {
+// hangAfterFollowup=true 时 followup 之后的 whenIdle 悬挂，直到 cancel 放行闸门——模拟超时取消；
+// hangBeforeFollowup=true 时初始 whenIdle 永悬挂并在悬挂前写入事件——模拟初始静默期宿主
+// 已产生事件但 setup 永不完成；onCancel 在超时取消时刻回调，用于窥探执行中留档状态）
+function fakeHost({ events = [], createError = null, hangAfterFollowup = false, hangBeforeFollowup = false, cancelReleases = true, driveError = null, onDispose = () => {}, onCancel = () => {} } = {}) {
     const disposals = [], creations = [];
     let followed = false;
     let releaseGate = () => {};
@@ -23,10 +37,18 @@ function fakeHost({ events = [], createError = null, hangAfterFollowup = false, 
             for (const ev of scripted) events.push(ev);
         },
         cancel: () => {
+            onCancel();
             if (cancelReleases) releaseGate();
             if (!events.some((e) => e.type === "turn/end")) events.push({ seq: 99, type: "turn/end", data: { reason: { kind: "aborted" } } });
         },
-        whenIdle: async () => { if (followed && driveError) throw driveError; if (hangAfterFollowup && followed) await gate; },
+        whenIdle: async () => {
+            if (!followed && hangBeforeFollowup) {
+                events.push({ seq: 4, time: 1700000000004, type: "assistant/message", data: { message: { content: [{ type: "text", text: "初始静默期已观察到的输出" }] } } });
+                await new Promise(() => {}); // setup 永不完成，只能等超时取消
+            }
+            if (followed && driveError) throw driveError;
+            if (hangAfterFollowup && followed) await gate;
+        },
     };
     const scripted = [];
     const hostCtx = {
@@ -66,6 +88,17 @@ test("run：正常驱动 → code 0/stats/sessionId/工具摘要，failure=null�
     assert.deepEqual(out.toolCalls, ["write", "bash"]);
     assert.equal(out.model, "zai-coding-cn/glm-5.2");
     assert.ok(disposals.includes("dispose"), "消费者必须 dispose（官方所有权契约）");
+});
+
+test("run：onCapture 在执行前回写 captureId（TASK-01 身份关联，与 claude-code 同约定）", async () => {
+    const { hostCtx, scripted } = fakeHost();
+    scripted.push(...completedEvents("完成"));
+    const seen = [];
+    const out = await executor.run({ rcx: { hostCtx }, repoDir: "C:/repo", runDir: "C:/run", prompt: "p", timeoutMs: 30000,
+        onCapture: (id) => seen.push(id) });
+    assert.equal(seen.length, 1, "captureId 恰好回写一次");
+    assert.match(seen[0], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, "UUID 形态");
+    assert.equal(out.code, 0);
 });
 
 test("run：宿主无 agents 服务 / hostCtx 缺失 → 可操作失败（kind=spawn）", async () => {
@@ -177,8 +210,133 @@ test("DSH 注入结果没有原生 events 时明确未采集，不把归一 Outc
     });
     assert.equal(out.failure, null);
     assert.equal(existsSync(join(root, "external-exec.messages.jsonl")), false);
+    // 补全①：outcome 暴露 journal 目录（runDir 相对、/ 分隔）与封存完整性——失败时贯通 st.errorInfo.logRefs
+    assert.match(out.journal.dir, /^dsh-journal-[0-9a-f-]+$/, "journal 目录为 runDir 相对路径");
+    assert.equal(out.journal.integrity, "complete");
+    assert.ok(existsSync(join(root, out.journal.dir)), "引用的 journal 目录实际存在，不虚构");
     const events = readFileSync(join(root, "external-exec.events.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
     assert.ok(events.every((e) => e.source === null && e.origin === "platform"));
     assert.match(events.find((e) => e.kind === "notice").text, /未采集/);
     assert.ok(!events.some((e) => e.kind === "result"), "归一结果只可留在旧摘要，不代表实际原生消息");
+});
+
+// —— 实时采集（修复清单 20260916-001 TASK-09）——
+
+test("实时落盘：执行尚未结束时事件已在 journal 与原始消息文件中，收尾不重复", async () => {
+    const root = mkdtempSync(join(tmpdir(), "i2p-dsh-live-"));
+    const timelinePath = join(root, "external-exec.timeline.log");
+    // 超时时刻（cancel 触发、执行尚未返回）窥探留档：此刻事件必须已经落盘
+    let midRunJournal = null, midRunMessages = null;
+    const host = fakeHost({ hangAfterFollowup: true, cancelReleases: true, onCancel: () => {
+        const jdir = findJournalDir(root);
+        midRunJournal = jdir ? { state: readJournal(jdir), records: journalRecords(jdir) } : null;
+        const messagesPath = join(root, "external-exec.messages.jsonl");
+        midRunMessages = existsSync(messagesPath) ? readFileSync(messagesPath, "utf8").trim().split("\n").map(JSON.parse) : [];
+    } });
+    host.scripted.push({ seq: 11, time: 1700000000011, type: "assistant/message", data: { message: { content: [{ type: "text", text: "执行中的输出" }] } } });
+    const out = await executor.run({ rcx: { hostCtx: host.hostCtx }, repoDir: root, runDir: root, prompt: "任务包正文", timeoutMs: 600, timelinePath });
+    assert.equal(out.failure.kind, "timeout");
+    // 执行尚未结束（run 未返回时）的留档状态：journal 运行中（open），事件已持续落盘
+    assert.ok(midRunJournal, "cancel 时刻 journal 已存在");
+    assert.equal(midRunJournal.state.status, "open", "执行中 journal 应为运行态");
+    const midEvents = midRunJournal.records.filter((r) => r.kind === "native-event");
+    assert.ok(midEvents.some((r) => r.seq === 11), "执行未结束事件已实时进 journal（轮询间隔内落盘）");
+    assert.ok(midRunMessages.some((e) => e.seq === 11), "执行未结束事件已实时进原始消息文件");
+    // 收尾：封存完整、无重复事件（seq 各一次）
+    const jdir = findJournalDir(root);
+    const finalState = readJournal(jdir);
+    assert.equal(finalState.status, "sealed");
+    assert.equal(finalState.integrity, "complete");
+    const seqs = journalRecords(jdir).filter((r) => r.kind === "native-event").map((r) => r.seq).sort((a, b) => a - b);
+    assert.deepEqual(seqs, [...new Set(seqs)], "journal 事件 seq 不得重复");
+    const messageSeqs = readFileSync(join(root, "external-exec.messages.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).seq);
+    assert.deepEqual(messageSeqs, [...new Set(messageSeqs)], "原始消息文件不得重复（finally 不重写已保存事件）");
+    // 结束状态记录存在且如实反映超时
+    const outcome = journalRecords(jdir).find((r) => r.kind === "outcome");
+    assert.equal(outcome.timeout, true);
+    assert.equal(outcome.code, 1);
+});
+
+test("正常结束：journal 事件与 session 一一对应，请求快照/模型配置/不可观测标记齐全", async () => {
+    const root = mkdtempSync(join(tmpdir(), "i2p-dsh-normal-"));
+    const timelinePath = join(root, "external-exec.timeline.log");
+    const host = fakeHost();
+    host.scripted.push(...completedEvents("正常完成", ["write"]));
+    const rcx = { hostCtx: host.hostCtx, run: { id: "run-20260916-x", stages: { P6: { stageExecutionId: "P6-20260916-120000-abcdef012345" } } } };
+    const out = await executor.run({ rcx, repoDir: root, runDir: root, prompt: "完整任务包正文", timeoutMs: 1000, timelinePath });
+    assert.equal(out.failure, null);
+    const jdir = findJournalDir(root);
+    const state = readJournal(jdir);
+    assert.equal(state.integrity, "complete");
+    // 身份：manifest.meta 关联 captureId 与本轮阶段执行（runId/stage/stageExecutionId）
+    assert.equal(state.manifest.meta.executor, "dsh-agent");
+    assert.equal(state.manifest.meta.runId, "run-20260916-x");
+    assert.equal(state.manifest.meta.stage, "P6");
+    assert.equal(state.manifest.meta.stageExecutionId, "P6-20260916-120000-abcdef012345");
+    assert.match(state.manifest.meta.captureId, /^[0-9a-f-]{36}$/);
+    const records = journalRecords(jdir);
+    // 请求快照：任务包全文 + 工作目录 + 超时
+    const request = records.find((r) => r.kind === "request");
+    assert.equal(request.prompt, "完整任务包正文");
+    assert.equal(request.repoDir, root);
+    assert.equal(request.timeoutMs, 1000);
+    // 模型配置：实际生效路由与会话身份
+    const config = records.find((r) => r.kind === "agent-config");
+    assert.equal(config.sessionId, "session-fake-1");
+    assert.deepEqual(config.route, { provider: "zai-coding-cn", model: "glm-5.2" });
+    // 不可观测内容明确标记，不补造
+    const observability = records.find((r) => r.kind === "observability");
+    for (const key of ["internal-system-prompt", "context-compaction", "platform-internal-model-retries", "streaming-deltas"])
+        assert.ok(observability.unavailable.includes(key), "缺少不可观测标记: " + key);
+    // 事件一一对应：本轮 seq（>3）全部保存（fake 的 scripted seq 与 turn/start 撞号时按宿主
+    // 唯一 seq 语义断言集合一致，每个 seq 恰好一次）
+    const native = records.filter((r) => r.kind === "native-event");
+    const expectedSeqs = [...new Set(host.agent.session.events.filter((e) => e.seq > 3).map((e) => e.seq))].sort((a, b) => a - b);
+    assert.deepEqual(native.map((r) => r.seq).sort((a, b) => a - b), expectedSeqs);
+    const outcome = records.find((r) => r.kind === "outcome");
+    assert.equal(outcome.code, 0);
+    assert.equal(outcome.timeout, false);
+    assert.match(outcome.resultPreview, /正常完成/);
+});
+
+test("初始静默等待超时：已观察到的事件不再整段丢弃（firstSeq 边界修复）", async () => {
+    const root = mkdtempSync(join(tmpdir(), "i2p-dsh-initial-"));
+    const timelinePath = join(root, "external-exec.timeline.log");
+    // 初始 whenIdle 永悬挂：旧实现 firstSeq 未赋值 → finally 整段采集被跳过；实时采集后边界取
+    // create 时刻 seq，初始静默期宿主已暴露的事件（seq=4）照常留档
+    const host = fakeHost({ hangBeforeFollowup: true });
+    const out = await executor.run({ rcx: { hostCtx: host.hostCtx }, repoDir: root, runDir: root, prompt: "p", timeoutMs: 80, timelinePath });
+    assert.equal(out.failure.kind, "timeout");
+    const jdir = findJournalDir(root);
+    assert.ok(jdir, "超时也留下 journal");
+    const records = journalRecords(jdir);
+    const native = records.filter((r) => r.kind === "native-event");
+    // seq=4 是初始静默期已观察到的事件（旧实现整段丢弃）；seq=99 是超时取消后宿主写入的
+    // aborted turn/end——实时采集同样保留。两者都必须留档且无重复。
+    const seqs = native.map((r) => r.seq).sort((a, b) => a - b);
+    assert.deepEqual(seqs, [...new Set(seqs)], "事件 seq 不得重复");
+    assert.ok(seqs.includes(4), "初始静默期已观察到的事件必须保留，不得整段丢弃");
+    const observed = native.find((r) => r.seq === 4);
+    assert.equal(observed.event.data.message.content[0].text, "初始静默期已观察到的输出");
+    assert.equal(readJournal(jdir).integrity, "complete");
+    const messages = readFileSync(join(root, "external-exec.messages.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    assert.ok(messages.some((e) => e.seq === 4), "原始消息文件同样保留该事件");
+    // 旧执行边界仍有效：seq=1 的历史事件不混入
+    assert.ok(!messages.some((e) => e.seq === 1));
+});
+
+test("journal 建立失败不阻断执行：智能体照常运行，原始消息留档通道不受影响", async () => {
+    const root = mkdtempSync(join(tmpdir(), "i2p-dsh-nojournal-"));
+    const timelinePath = join(root, "external-exec.timeline.log");
+    // 预占 journal 目录（manifest 损坏）→ createJournal 抛错 → run() 放弃 journal 通道
+    const jdir = join(root, "dsh-journal-blocked");
+    mkdirSync(jdir, { recursive: true });
+    writeFileSync(join(jdir, "manifest.json"), "{ 损坏");
+    const host = fakeHost();
+    host.scripted.push(...completedEvents("照常完成"));
+    const out = await executor.run({ rcx: { hostCtx: host.hostCtx }, repoDir: root, runDir: root, prompt: "p", timeoutMs: 1000, timelinePath });
+    assert.equal(out.failure, null);
+    assert.equal(out.resultText, "照常完成");
+    const messages = readFileSync(join(root, "external-exec.messages.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    assert.ok(messages.length >= 2, "原始消息留档不受 journal 失败影响");
 });

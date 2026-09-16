@@ -10,6 +10,7 @@ import { verifyDelegateResult } from "../../lib/delegate/delegateVerify.js";
 import { verifyPatchEvidence } from "../../lib/infra/patchEvidence.js";
 import p8 from "../../lib/stages/p8-test-runner.js";
 import p10 from "../../lib/stages/p10-failure.js";
+import { logEvent } from "../../lib/stages/helpers.js";
 
 const root = mkdtempSync(join(tmpdir(), "i2p-p78-"));
 function gitRepo() {
@@ -103,12 +104,164 @@ test("P8：真实执行命令，exitCode 落报告；失败抛错；完整输出
   assert.ok(failOut.includes("B".repeat(200)), "失败路径完整输出同样落盘");
 });
 
-test("P10：失败六分类契约", async () => {
+test("P10：失败六分类契约（无冲突的 LLM 分类原样保留）", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  const llm = { completeJson: async () => ({ category: "根因错误", detail: "定位偏差", action: "replan" }) };
+  const r = await p10({ runDir, repoDir: root, llm, failure: { stage: "P6", error: "定位失败" }, run: { status: "failed" } });
+  const saved = JSON.parse(readFileSync(join(runDir, r.artifact), "utf8"));
+  assert.equal(saved.category, "根因错误");
+  assert.equal(saved.action, "replan");
+  assert.equal(saved.degraded, false);
+});
+
+// —— TASK-07：结构化错误贯通 P10 确定性分类 ——
+test("TASK-07：断言证据约束扩展到全部阶段——无证据的「实现错误」不采信", async () => {
   const runDir = mkdtempSync(join(root, "run-"));
   const llm = { completeJson: async () => ({ category: "实现错误", detail: "diff 与意图不符", action: "rollback" }) };
   const r = await p10({ runDir, repoDir: root, llm, failure: { stage: "P6", error: "Reviewer 拒绝" }, run: { status: "failed" } });
   const saved = JSON.parse(readFileSync(join(runDir, r.artifact), "utf8"));
-  assert.equal(saved.action, "rollback");
+  assert.equal(saved.category, "原因未确定", "无断言证据/门禁结论时不得判实现错误");
+  assert.equal(saved.action, "escalate");
+  assert.equal(saved.degraded, false);
+  assert.match(saved.analysis, /diff 与意图不符/, "LLM 解释降为补充 analysis");
+});
+
+test("TASK-07：有效业务门禁结论（Reviewer fail）→ 确定性「实现错误」，LLM 只可补充", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  const llm = { completeJson: async () => ({ category: "根因错误", detail: "补充解释", action: "replan" }) };
+  const r = await p10({
+    runDir, repoDir: root, llm,
+    failure: {
+      stage: "P9", error: "Reviewer 门控未过: diff 范围不完整",
+      structuredError: { code: "business_gate_failed", message: "Reviewer 门控未过: diff 范围不完整",
+        stage: "P9", gate: "P9-reviewer", verdict: "fail" },
+    },
+    run: { status: "failed" },
+  });
+  const saved = JSON.parse(readFileSync(join(runDir, r.artifact), "utf8"));
+  assert.equal(saved.category, "实现错误", "门禁 fail 是有效业务结论，走业务验收失败路径");
+  assert.equal(saved.action, "escalate");
+  assert.match(saved.detail, /P9-reviewer/);
+  assert.equal(saved.degraded, false);
+  assert.match(saved.analysis, /补充解释/, "LLM 输出仅作为补充解释保留");
+});
+
+test("TASK-07：模型协议错误 → 系统确定性「模型协议错误」，不得伪装成业务验收失败", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  const llm = { completeJson: async () => ({ category: "实现错误", detail: "补丁质量差", action: "rollback" }) };
+  for (const [code, message, finishReason] of [
+    ["json_parse_failed", "契约解析失败：第 3 字符处意外结束", null],
+    ["schema_validation_failed", "$.candidates[0].confidence 不在枚举内", null],
+    ["output_truncated", "输出因 length 截断", "length"],
+  ]) {
+    const r = await p10({
+      runDir, repoDir: root, llm,
+      failure: {
+        stage: "P2", error: message,
+        structuredError: { code, message, stage: "P2", finishReason, callId: "call-1",
+          logRefs: ["trace/llm/call-1/attempt-1"] },
+      },
+      run: { status: "failed" },
+    });
+    const saved = JSON.parse(readFileSync(join(runDir, r.artifact), "utf8"));
+    assert.equal(saved.category, "模型协议错误", code);
+    assert.equal(saved.action, "escalate", code);
+    assert.match(saved.detail, /不是业务验收结论/, code);
+    assert.equal(saved.degraded, false);
+    assert.ok(saved.evidence.structuredError.code === code, "原始结构化错误随报告保留");
+  }
+});
+
+test("TASK-07：模型调用失败按 llmCause 确定性分类，不进入业务验收失败路径", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  const llm = { completeJson: async () => ({ category: "实现错误", detail: "改判", action: "rollback" }) };
+  for (const [llmCause, expectCategory] of [
+    ["timeout", "模型调用超时"], ["provider", "模型服务错误"],
+    ["cancelled", "模型调用取消"], ["empty", "模型返回为空"], ["unknown", "模型调用失败"],
+  ]) {
+    const r = await p10({
+      runDir, repoDir: root, llm,
+      failure: {
+        stage: "P4", error: "调用失败",
+        structuredError: { code: "llm_call_failed", llmCause, message: "调用失败", stage: "P4" },
+      },
+      run: { status: "failed" },
+    });
+    const saved = JSON.parse(readFileSync(join(runDir, r.artifact), "utf8"));
+    assert.equal(saved.category, expectCategory, llmCause);
+    assert.equal(saved.action, "escalate", llmCause);
+    assert.equal(saved.degraded, false);
+  }
+});
+
+// —— 补全②：开工前环境失败（failRun 结构化 environment_error）确定性归类「环境缺失」 ——
+test("补全：clone 等开工前失败（environment_error）→ 确定性「环境缺失」，LLM 改判不采信", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  const llm = { completeJson: async () => ({ category: "实现错误", detail: "补丁写坏了仓库", action: "rollback" }) };
+  const r = await p10({
+    runDir, repoDir: root, llm,
+    failure: {
+      stage: "P1", error: "仓库准备失败: git clone 失败: remote: Authentication failed",
+      structuredError: { code: "environment_error", message: "仓库准备失败: git clone 失败: remote: Authentication failed", stage: "P1", logRefs: [], retryHistory: [] },
+    },
+    run: { status: "failed" },
+  });
+  const saved = JSON.parse(readFileSync(join(runDir, r.artifact), "utf8"));
+  assert.equal(saved.category, "环境缺失", "开工前环境失败不再落「原因未确定」");
+  assert.equal(saved.action, "escalate");
+  assert.equal(saved.degraded, false);
+  assert.match(saved.detail, /不是业务验收失败/);
+  assert.match(saved.analysis, /补丁写坏了仓库/, "LLM 解释降为补充 analysis");
+});
+
+// —— 补全①：委外执行器观测事实（spawn/timeout）是系统确定性结论，LLM 不得覆盖 ——
+test("补全：委外 failureKind spawn/timeout → 确定性「环境缺失/执行超时」，留档引用随证据保留", async () => {
+  for (const [failureKind, expectCategory] of [
+    ["spawn", "环境缺失"],
+    ["timeout", "执行超时"],
+  ]) {
+    const runDir = mkdtempSync(join(root, "run-"));
+    const llm = { completeJson: async () => ({ category: "实现错误", detail: "模型改判", action: "rollback" }) };
+    const r = await p10({
+      runDir, repoDir: root, llm,
+      failure: {
+        stage: "P6", error: "P6 执行未完成",
+        structuredError: { code: "stage_failed", message: "P6 执行未完成", stage: "P6", failureKind,
+          logIntegrity: "complete",
+          logRefs: ["06-implementation/external-exec.records.journal", "06-implementation/external-exec.stdout.journal"] },
+      },
+      run: { status: "failed" },
+    });
+    const saved = JSON.parse(readFileSync(join(runDir, r.artifact), "utf8"));
+    assert.equal(saved.category, expectCategory, failureKind);
+    assert.equal(saved.action, "escalate", failureKind);
+    assert.equal(saved.degraded, false, failureKind);
+    assert.match(saved.analysis, /模型改判/, failureKind + "：LLM 输出仅作补充");
+    assert.deepEqual(saved.evidence.structuredError.logRefs,
+      ["06-implementation/external-exec.records.journal", "06-implementation/external-exec.stdout.journal"],
+      failureKind + "：journal 引用随证据保留");
+  }
+});
+
+test("TASK-07：P10 自身 LLM 再失败时保留原始诊断与留档引用（降级不丢证据）", async () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  const llm = { completeJson: async () => { throw new Error("LLM 调用失败: Authentication Fails"); } };
+  const r = await p10({
+    runDir, repoDir: root, llm,
+    failure: {
+      stage: "P2", error: "输出截断",
+      structuredError: { code: "output_truncated", message: "输出截断", stage: "P2",
+        finishReason: "length", callId: "call-7", logRefs: ["trace/llm/call-7/attempt-1"] },
+    },
+    run: { status: "failed" },
+  });
+  const saved = JSON.parse(readFileSync(join(runDir, r.artifact), "utf8"));
+  assert.equal(saved.degraded, true, "P10 自身失败 → 降级");
+  assert.equal(saved.category, "模型协议错误", "系统确定性分类不受 P10 自身失败影响");
+  assert.match(saved.detail, /输出截断/, "原始诊断保留");
+  assert.deepEqual(saved.evidence.structuredError.logRefs, ["trace/llm/call-7/attempt-1"], "原始日志引用保留");
+  assert.match(saved.analysisError, /Authentication Fails/);
+  assert.match(r.summary, /降级/);
 });
 
 test("P10：LLM 认证失败时保留基础失败报告并降级返回", async () => {
@@ -205,6 +358,25 @@ test("P8：过程事件落 trace/events.jsonl（开始 + 结束，含耗时与 o
   assert.match(lines[0].name, /node -e/);
   assert.equal(lines.at(-1).ok, true);
   assert.ok(typeof lines.at(-1).ms === "number");
+});
+
+test("TASK-10：logEvent 摘要事件携带完整日志引用与留档完整性，正文不进摘要", () => {
+  const runDir = mkdtempSync(join(root, "run-"));
+  const rcx = { runDir, run: { current: "P3", stages: { P3: { stageExecutionId: "P3-20260916-010203-abcdabcdabcd" } } } };
+  logEvent(rcx, { kind: "llm", name: "模型 · 失败", ok: false, callId: "call-x", attemptId: "att-y", attempt: 2,
+    retryOf: "att-z", retryReason: "输出截断", logDir: "trace/llm/call-x/att-y", logIntegrity: "partial" });
+  logEvent(rcx, { kind: "llm", name: "模型 · 完成", logDir: "trace/llm/call-x/att-w", logIntegrity: "complete" });
+  logEvent(rcx, { kind: "llm", name: "旧形态", logIntegrity: "bogus-value", logDir: "" });
+  const rows = readFileSync(join(runDir, "trace", "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].stageExecutionId, "P3-20260916-010203-abcdabcdabcd");
+  assert.equal(rows[0].logRef, "trace/llm/call-x/att-y", "完整日志目录引用进摘要");
+  assert.equal(rows[0].logIntegrity, "partial");
+  assert.equal(rows[1].logRef, "trace/llm/call-x/att-w");
+  assert.equal(rows[1].logIntegrity, "complete");
+  assert.equal("logRef" in rows[2], false, "空 logDir 不写字段（旧形态兼容）");
+  assert.equal("logIntegrity" in rows[2], false, "未知完整性值不落字段，不虚构");
+  for (const key of ["text", "response", "system", "user"]) assert.ok(!(key in rows[0]), "摘要不携带正文全文");
 });
 
 test("P7：git apply 成功/失败都记过程事件", async () => {
