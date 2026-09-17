@@ -8,3 +8,5 @@ dbg*.mjs
 /.playwright-mcp/
 /AGENTS-1.md
 /docs/ui-prototype/
+/output/
+docs/development/tmp/

@@ -5,12 +5,12 @@
 
 ## 1. 改造基准与范围
 
-- 界面基准：[issue2pr-ui-prototype.html](../design/一期原型/issue2pr-ui-prototype.html)，即正式归档的 v9 原型。
-- 设计背景：[issue2pr-studio.html](../design/issue2pr-studio.html)。阅读或修改设计目录内容时遵守该目录的 [AGENTS.md](../design/AGENTS.md)。长期设计不等于本轮实施范围。
-- 正式前端：[client.js](../../client.js)，沿用 DSH 模块加载、宿主 React 和现有插件入口。
-- 后端接口：[index.js](../../index.js) 中的 `/issue2pr/api`；状态和产物以现有流水线、存储及执行器的真实结果为准。
-- 本地联调：[DSH 插件本地开发](./dsh-plugin-local-development.md)。实施时先检查实际链接和宿主环境，再决定是否需要调整。
-- 变更记录：[change-log.md](../change-log.md)，遵守其记录协议。
+- 界面基准：[issue2pr-ui-prototype.html](../../design/一期原型/issue2pr-ui-prototype.html)，即正式归档的 v9 原型。
+- 设计背景：[issue2pr-studio.html](../../design/issue2pr-studio.html)。阅读或修改设计目录内容时遵守该目录的 [AGENTS.md](../../design/AGENTS.md)。长期设计不等于本轮实施范围。
+- 正式前端：[client.js](../../../client.js)，沿用 DSH 模块加载、宿主 React 和现有插件入口。
+- 后端接口：[index.js](../../../index.js) 中的 `/issue2pr/api`；状态和产物以现有流水线、存储及执行器的真实结果为准。
+- 本地联调：[DSH 插件本地开发](../guides/dsh-plugin-local-development.md)。实施时先检查实际链接和宿主环境，再决定是否需要调整。
+- 变更记录：[change-log.md](../../change-log.md)，遵守其记录协议。
 
 ### 硬性约束
 
@@ -89,7 +89,7 @@
 - 明暗切换不出现文字不可读、样式泄漏或重复宿主导航；常用桌面及窄窗口下无主要内容遮挡。
 - 形成可审阅的功能映射和缺口表；尚未支持的能力不能被标记为可用。
 
-**完成记录：** 修改文件：`client.js`；统一 v9 样式与组件尺寸，清理旧布局和无引用状态。按用户最新要求，仅验收电脑端：1024、1280、1440、1920px 的代表性页面无工作台横向溢出；明暗变量与原型一致。详见 [验收记录](UI-v9验收记录.md)。提交号：未提交。
+**完成记录：** 修改文件：`client.js`；统一 v9 样式与组件尺寸，清理旧布局和无引用状态。按用户最新要求，仅验收电脑端：1024、1280、1440、1920px 的代表性页面无工作台横向溢出；明暗变量与原型一致。提交号：未提交。
 
 ### UI-02 项目与任务管理
 
@@ -230,7 +230,7 @@
 - v9 配色保持一致，页面结构和主要交互对齐，真实数据与样例隔离，未支持能力准确说明。
 - 交付说明包含改动、验证、已知限制和提交号（如有）；本地 `main` 提交位置不变，不向远程 `main` 推送。
 
-**完成记录：** 新增 `tests/integration/settings.test.js`、`tests/unit/studio-ui.test.js` 和 `tests/manual/studio-host.mjs`，调整相关现有测试。最终 `npm test`：241 项通过、0 失败，包含 18 项前端测试。原宿主新设置 API 已生效；受控联调、电脑端代表性尺寸、明暗主题、报告结论、帮助及助手检查已记录。下载按钮由用户确认正常。完整证据、验证方式和能力限制见 [UI-v9验收记录](UI-v9验收记录.md)。提交号：未提交。
+**完成记录：** 新增 `tests/integration/settings.test.js`、`tests/unit/studio-ui.test.js` 和 `tests/manual/studio-host.mjs`，调整相关现有测试。最终 `npm test`：241 项通过、0 失败，包含 18 项前端测试。原宿主新设置 API 已生效；受控联调、电脑端代表性尺寸、明暗主题、报告结论、帮助及助手检查已记录。下载按钮由用户确认正常。提交号：未提交。
 
 ### UI-07 节点视图留空与任务级页签门禁
 
