@@ -47,12 +47,14 @@ test("helpers：readRepoFile 拒绝 .. 逃逸与绝对路径，正常相对路�
 
 test("P1：产出 01-issue-analysis.json 且契约键齐全", async () => {
   const runDir = mkdtempSync(join(root, "run-"));
-  const llm = fakeLlm(['{"phenomenon":"刷新后偶发退出","trigger":"登录后刷新","scope":["Auth","Session"],"success_criteria":["刷新后不再退出"],"constraints":["不破坏登录主流程"],"risk_level":"medium"}']);
+  const llm = fakeLlm(['{"goal":"修复登录后刷新偶发退出的问题，使会话恢复测试通过","phenomenon":"刷新后偶发退出","trigger":"登录后刷新","scope":["Auth","Session"],"success_criteria":["刷新后不再退出"],"constraints":["不破坏登录主流程"],"non_goals":["不重构认证模块"],"risk_level":"medium"}']);
   const rcx = { runDir, repoDir, trigger: { kind: "issue", uri: issueFile }, llm, reviewComment: "" };
   const r = await p1(rcx);
   assert.equal(r.artifact, "01-issue-analysis.json");
   const saved = JSON.parse(readFileSync(join(runDir, "01-issue-analysis.json"), "utf8"));
   assert.equal(saved.risk_level, "medium");
+  assert.equal(saved.goal, "修复登录后刷新偶发退出的问题，使会话恢复测试通过"); // goal 必填（goalBriefOf 的权威来源）
+  assert.deepEqual(saved.non_goals, ["不重构认证模块"]);
 });
 
 test("P2：基于 P1 契约产出候选文件清单", async () => {

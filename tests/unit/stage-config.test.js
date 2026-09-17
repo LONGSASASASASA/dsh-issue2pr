@@ -202,3 +202,25 @@ test("buildDelegateTask：打回意见注入任务包（重跑带意见场景）
   const text = await buildDelegateTask(rcx, "P1");
   assert.match(text, /上次范围太大/);
 });
+
+// 20260917-001：P3/P4/P5/P9 委托任务包经 goal 令牌注入目标投影（与本机执行同口径）
+test("buildDelegateTask：goal 令牌渲染目标投影+边界（P4 委外）", async () => {
+  const runDir = mkdtempSync(join(root, "dlg-goal-"));
+  writeFileSync(join(runDir, "01-issue-analysis.json"), JSON.stringify({
+    goal: "修复登录后刷新偶发退出的问题，使会话恢复测试通过",
+    phenomenon: "刷新后偶发退出", scope: ["Auth"],
+    success_criteria: ["刷新后不再退出"], constraints: ["不破坏登录主流程"],
+    non_goals: ["不重构认证模块"], risk_level: "medium",
+  }));
+  writeFileSync(join(runDir, "03-code-understanding.md"), "# 报告");
+  const rcx = {
+    runDir, repoDir: "/tmp/y", reviewComment: "",
+    stageCfgOf: () => ({ prompts: {}, delegate: { mode: "session", agent: "", brief: "" } }),
+  };
+  const text = await buildDelegateTask(rcx, "P4");
+  assert.match(text, /## 输入 · 全局目标（背景，仅供理解与验收对照）/);
+  assert.match(text, /目标：修复登录后刷新偶发退出的问题/);
+  assert.match(text, /非目标：\n1\. 不重构认证模块/);
+  assert.match(text, /边界：.*不得自行修改/);
+  assert.doesNotMatch(text, /## 输入 · 01-issue-analysis\.json/, "goal 走投影，不渲染 01 全文");
+});
